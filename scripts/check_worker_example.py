@@ -13,7 +13,8 @@ def evaluate(prior, snapshot):
                   markDelivered=[], releaseLock=True, archive=False, reconcile=False)
     if snapshot['read'] != 'ok':
         result['outcome'] = 'failed-read' if snapshot['read'] == 'error' else 'unknown-read'
-        result['notify'] = not any(e['kind'] == 'read-failure' and e['notified'] for e in prior['openEpisodes'])
+        episode_kind = 'read-failure' if snapshot['read'] == 'error' else 'unknown-read'
+        result['notify'] = not any(e['kind'] == episode_kind and e['notified'] for e in prior['openEpisodes'])
         return result
     delivered = {event_key(e) for e in prior['delivered']}
     pending = {event_key(e): e for e in prior['pending'] if event_key(e) not in delivered}

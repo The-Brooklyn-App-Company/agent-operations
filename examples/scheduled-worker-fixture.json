@@ -251,6 +251,58 @@
         "archive": true,
         "reconcile": false
       }
+    },
+    {
+      "id": "unknown-after-notified-failure",
+      "prior": {
+        "delivered": [],
+        "pending": [],
+        "openEpisodes": [
+          {
+            "kind": "read-failure",
+            "notified": true
+          }
+        ]
+      },
+      "snapshot": {
+        "read": "unknown",
+        "events": null
+      },
+      "expected": {
+        "outcome": "unknown-read",
+        "notify": true,
+        "deliveries": [],
+        "markDelivered": [],
+        "releaseLock": true,
+        "archive": false,
+        "reconcile": false
+      }
+    },
+    {
+      "id": "repeated-unknown-read",
+      "prior": {
+        "delivered": [],
+        "pending": [],
+        "openEpisodes": [
+          {
+            "kind": "unknown-read",
+            "notified": true
+          }
+        ]
+      },
+      "snapshot": {
+        "read": "unknown",
+        "events": null
+      },
+      "expected": {
+        "outcome": "unknown-read",
+        "notify": false,
+        "deliveries": [],
+        "markDelivered": [],
+        "releaseLock": true,
+        "archive": false,
+        "reconcile": false
+      }
     }
   ]
 }
