@@ -1,0 +1,33 @@
+{
+  "profileVersion": 1,
+  "kit": {
+    "version": "0.1.0",
+    "tag": "v0.1.0",
+    "kitRoot": "<path to local kit checkout>",
+    "previousTag": null
+  },
+  "host": {
+    "label": "laptop",
+    "role": "primary",
+    "timezone": "<IANA time zone>",
+    "locale": "<locale>"
+  },
+  "accounts": [
+    {"principal": "author", "credentialRef": "<keychain or credential-store item name>", "verifiedReadOnlyOn": null},
+    {"principal": "reviewer", "credentialRef": "<keychain or credential-store item name>", "verifiedReadOnlyOn": null}
+  ],
+  "roles": {
+    "oracle": {"conversation": "<existing pinned conversation title>", "status": "existing"},
+    "operators": [
+      {"repo": "<owner>/<example-app>", "principal": "author", "conversation": "<existing pinned conversation title>", "status": "existing"}
+    ]
+  },
+  "models": {
+    "operator": {"model": "<model>", "effort": "medium"},
+    "watcher": {"model": "<model>", "effort": "medium"},
+    "delegate": {"model": "<model>", "effort": "medium", "billingFallback": false}
+  },
+  "workers": [],
+  "remoteConnections": [],
+  "notes": "Contains no secrets. Credential refs name store entries only. Workers and remote connections stay empty until approved."
+}

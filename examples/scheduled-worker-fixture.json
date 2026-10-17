@@ -1,0 +1,169 @@
+{
+  "kitVersion": "0.1.0",
+  "description": "Synthetic fixture for a reviewer-side pull request metadata watcher on Example App. Each case gives the prior state, the current snapshot and the expected outcome.",
+  "worker": {
+    "name": "example-app-reviewer-pr-watcher",
+    "repo": "example/example-app",
+    "principal": "reviewer",
+    "role": "metadata-watcher",
+    "allowedEffects": [
+      "deliver-summary-to-operator"
+    ],
+    "forbiddenEffects": [
+      "review-diff",
+      "push",
+      "comment",
+      "merge"
+    ]
+  },
+  "cases": [
+    {
+      "id": "unchanged",
+      "prior": {
+        "delivered": [
+          {
+            "eventId": "pr-12:review-requested:reviewer",
+            "fingerprint": "fp-a1"
+          }
+        ],
+        "openEpisodes": []
+      },
+      "snapshot": {
+        "read": "ok",
+        "fetchedAt": "2026-01-05T09:00:00Z",
+        "events": [
+          {
+            "eventId": "pr-12:review-requested:reviewer",
+            "fingerprint": "fp-a1",
+            "headSha": "1111111"
+          }
+        ]
+      },
+      "expected": {
+        "outcome": "healthy-unchanged",
+        "deliveries": [],
+        "markDelivered": [],
+        "releaseLock": true,
+        "archive": true,
+        "notify": false,
+        "markDeliveredWhen": "none",
+        "archiveWhen": "after-lock-release"
+      }
+    },
+    {
+      "id": "changed",
+      "prior": {
+        "delivered": [
+          {
+            "eventId": "pr-12:review-requested:reviewer",
+            "fingerprint": "fp-a1"
+          }
+        ],
+        "openEpisodes": []
+      },
+      "snapshot": {
+        "read": "ok",
+        "fetchedAt": "2026-01-05T10:00:00Z",
+        "events": [
+          {
+            "eventId": "pr-12:review-requested:reviewer",
+            "fingerprint": "fp-b2",
+            "headSha": "2222222"
+          }
+        ]
+      },
+      "expected": {
+        "outcome": "changed",
+        "reason": "The event ID is the same but the content fingerprint differs: there is a new head SHA, so earlier reviews are stale.",
+        "deliveries": [
+          {
+            "eventId": "pr-12:review-requested:reviewer",
+            "fingerprint": "fp-b2",
+            "idempotencyKey": "pr-12:review-requested:reviewer:fp-b2"
+          }
+        ],
+        "markDelivered": [],
+        "releaseLock": true,
+        "archive": false,
+        "notify": true,
+        "markDeliveredWhen": "after-ack",
+        "archiveWhen": "after-ack-and-lock-release"
+      }
+    },
+    {
+      "id": "read-failure",
+      "prior": {
+        "delivered": [
+          {
+            "eventId": "pr-12:review-requested:reviewer",
+            "fingerprint": "fp-b2"
+          }
+        ],
+        "openEpisodes": [
+          {
+            "kind": "read-failure",
+            "startedAt": "2026-01-05T11:00:00Z",
+            "notified": true
+          }
+        ]
+      },
+      "snapshot": {
+        "read": "error",
+        "error": "source unavailable",
+        "events": null
+      },
+      "expected": {
+        "outcome": "failed-read",
+        "treatAsUnchanged": false,
+        "stateChanges": "none except the episode's lastSeenAt",
+        "notify": false,
+        "notifyReason": "An episode for this failure is already open and notified, so this run is deduplicated into it.",
+        "releaseLock": true,
+        "archive": false,
+        "stayVisible": true,
+        "markDeliveredWhen": "none",
+        "archiveWhen": "after-current-run-resolution"
+      }
+    },
+    {
+      "id": "failed-delivery",
+      "prior": {
+        "delivered": [],
+        "pending": [
+          {
+            "eventId": "pr-15:review-requested:reviewer",
+            "fingerprint": "fp-c3",
+            "idempotencyKey": "pr-15:review-requested:reviewer:fp-c3",
+            "attempts": 1,
+            "ack": "unknown"
+          }
+        ],
+        "openEpisodes": []
+      },
+      "snapshot": {
+        "read": "ok",
+        "fetchedAt": "2026-01-05T12:00:00Z",
+        "events": [
+          {
+            "eventId": "pr-15:review-requested:reviewer",
+            "fingerprint": "fp-c3",
+            "headSha": "3333333"
+          }
+        ],
+        "deliveryResult": "timeout"
+      },
+      "expected": {
+        "outcome": "delivery-uncertain",
+        "retryWithSameIdempotencyKey": "only-if-transport-supports-idempotency-otherwise-reconcile-first",
+        "markDelivered": [],
+        "claimExactlyOnce": false,
+        "releaseLock": true,
+        "archive": false,
+        "stayVisible": true,
+        "notify": false,
+        "markDeliveredWhen": "none",
+        "archiveWhen": "after-current-run-resolution"
+      }
+    }
+  ]
+}
