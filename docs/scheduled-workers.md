@@ -33,6 +33,14 @@ A metadata watcher only reports. It never reviews diffs, fixes code, posts comme
 - Group repeated identical failures into one episode, so that a stale problem does not produce repeated alerts.
 - Mark an event delivered only after the transport acknowledges it. If delivery is uncertain after a crash or timeout, retain the pending event and stable delivery key. Reconcile the destination/history first. Retry with the same idempotency key only when the transport actually supports it; otherwise recover under the profile’s bounded duplicate-aware procedure. Never claim exactly-once delivery across crashes.
 
+## Escalation belongs to the recipient
+
+A new event is a candidate observation, not an automatic message. Before interrupting an operator, compare current owner evidence and the owning queue. Identify what this recipient needs to do or know, why it matters now, and why the owning lane has not already handled or reported it. An ordinary failed experiment with a safe owner response, routine progress, an existing question and a repair already reported to the human stay in local state for the next requested digest. Do not invent an action to justify forwarding an event.
+
+For bounded model-assisted classification, save the source identity/fingerprint, disposition and short reason in the existing local state. A deterministic gate should require a complete current assessment; legacy references, stale assessments and unclassified events remain local rather than generating triage-only messages. Uncertainty is retained for bounded follow-up or the requested digest, never silently marked healthy. A new unresolved monitoring failure may still need one useful escalation under its episode policy.
+
+Send a brief readable handoff: what changed, the actual recipient action or attention needed, and source evidence. Keep cursor maps, acknowledgement IDs, JSON envelopes and delivery bookkeeping in local state. Reconcile superseded events before sending. If the receiving operator discovers no follow-through is needed, record that disposition silently; do not add a “checked, nothing needed” commentary or final reply. Explicitly requested digests remain due even on quiet days.
+
 ## Ending a run
 
 1. Persist the actual result and any delivery acknowledgement; advance only acknowledged delivery state. A tool accepting a handoff is not proof that a requested user-facing brief was published.
@@ -55,7 +63,7 @@ Any deviation from this guidance records a reason, an owner and an expiry date.
 
 ## Example
 
-[../examples/scheduled-worker-fixture.json](../examples/scheduled-worker-fixture.json) can be exercised offline with `python3 scripts/check_worker_example.py`. It shows eight single-event transitions: unchanged, acknowledged change/repeat, new/repeated read failure, unknown read, uncertain delivery and reconciled acknowledgement without resend. These check captured decisions, not real scheduling or transport.
+[../examples/scheduled-worker-fixture.json](../examples/scheduled-worker-fixture.json) can be exercised offline with `python3 scripts/check_worker_example.py`. It shows ten single-event transitions: unchanged, acknowledged change/repeat, new/repeated read failure, new/repeated unknown read and failure-to-unknown transition, uncertain delivery and reconciled acknowledgement without resend. These check captured decisions, not real scheduling or transport.
 
 ## Native setup recipe
 
