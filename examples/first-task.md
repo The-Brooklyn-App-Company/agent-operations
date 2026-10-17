@@ -1,6 +1,6 @@
 # First low-risk task: Example App
 
-This walkthrough exercises the full loop without paid provider calls, deployments or runtime effects. Two synthetic accounts take part: `author` and `reviewer`.
+This walkthrough exercises the full loop without paid provider calls, deployments or runtime effects. The team example uses two synthetic accounts, `author` and `reviewer`; the solo path below uses one real owner account with independent agent review.
 
 ## 1. Observe
 

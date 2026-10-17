@@ -50,7 +50,7 @@
   },
   "workers": [],
   "remoteConnections": [],
-  "notes": "Only the local owner\u2019s accounts/bindings belong in accounts. Collaborators are metadata only; never install the other person\u2019s credentials. No secrets. Workers/remote connections stay empty until actually approved.",
+  "notes": "Only the local owner\u2019s accounts/bindings belong in accounts. Collaborators are metadata only; never install the other person\u2019s credentials. For a solo single-repo start, oracle may be null and collaborators may be empty. No secrets. Workers/remote connections stay empty until actually approved.",
   "collaborators": [
     {
       "principal": "reviewer",
