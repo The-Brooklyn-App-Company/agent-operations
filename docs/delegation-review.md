@@ -14,7 +14,7 @@ Delegation uses a written packet built from [../templates/delegation-packet.md](
 
 Include only the context that the task needs.
 
-The delegated model runs under its own subscription or plan. There is **no billing fallback**. If quota or access runs out, the delegate stops and reports. It does not switch to API keys, a different paid plan or another provider. Changing spend is a separate decision for the human.
+The delegated model uses the owning human’s existing approved subscription or provider route; workers do not need separate subscriptions. There is **no billing fallback**. If quota or access runs out, the delegate stops and reports. It does not switch to API keys, a different paid plan or another provider. Changing spend is a separate decision for the human.
 
 ## Implementation
 

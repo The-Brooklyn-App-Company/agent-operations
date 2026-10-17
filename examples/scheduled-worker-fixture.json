@@ -1,5 +1,5 @@
 {
-  "kitVersion": "0.1.0",
+  "kitVersion": "0.1.1",
   "description": "Synthetic fixture for a reviewer-side pull request metadata watcher on Example App. Each case gives the prior state, the current snapshot and the expected outcome.",
   "worker": {
     "name": "example-app-reviewer-pr-watcher",

@@ -19,7 +19,7 @@ This is one configuration that has worked in practice. It is not a requirement.
 | Delegated implementer or reviewer | Opus 5.5 | medium |
 | Escalation | stronger available model | only by demonstrated need |
 
-Each delegate runs on its own subscription. There is no billing fallback; see [delegation-review.md](delegation-review.md).
+Each delegate uses the owning human’s existing approved subscription/provider route; no separate worker subscription is required. There is no billing fallback; see [delegation-review.md](delegation-review.md).
 
 ## Recording choices
 

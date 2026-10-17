@@ -1,12 +1,9 @@
 # Changelog
 
-## 0.1.0
+## 0.1.1 — 2026-10-17
 
-This is the initial public release.
+Clarify that delegated workers use the owning human’s approved existing provider route, not a subscription per worker. No runtime or permission changes.
 
-- Role, delegation, scheduled-worker, release, host, team and model guidance.
-- Four thin skills: `operator-setup`, `scheduled-worker`, `review-handoff` and `release-closeout`.
-- Templates for instruction files, handoffs, worker profiles, delegation packets, release records and the machine-local profile.
-- A synthetic first-task walkthrough and a scheduled-worker fixture.
+## 0.1.0 — 2026-10-17
 
-When you upgrade, read this file and the full diff between your pinned tag and the new one. See [docs/maintenance.md](docs/maintenance.md).
+Initial public operating kit: laptop-first operators/oracle, bounded delegation/review, disposable scheduled workers, release settlement, host transition, four routing skills, templates and offline examples/helpers.

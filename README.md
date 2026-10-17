@@ -1,6 +1,6 @@
 # Agent Operations
 
-Version 0.1.0
+Version 0.1.1
 
 Agent Operations is a reusable operating kit for running coding agents across real repositories. It is a set of documents, thin skills and templates, not a framework, service or website. It covers role boundaries, delegation and review, scheduled workers, releases and moving work between machines. It is written to work with the native tools you already have, not with an imagined universal API.
 

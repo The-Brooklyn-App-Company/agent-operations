@@ -13,7 +13,7 @@ You can start on your laptop today. Remote hosts, scheduled workers and delegati
 Paste this into an existing Codex conversation. Replace the placeholder first.
 
 ```text
-Adopt Agent Operations v0.1.0 from <local kit checkout, or github.com/The-Brooklyn-App-Company/agent-operations at tag v0.1.0>.
+Adopt Agent Operations v0.1.1 from <local kit checkout, or github.com/The-Brooklyn-App-Company/agent-operations at tag v0.1.1>.
 Read README.md, START-HERE.md and docs/roles-and-context.md. If reading remotely, include cloning a local checkout at the pinned tag in the proposed setup and record it as kit.kitRoot before linking skills. Read the other docs only when a step needs them.
 
 Rules for this setup:
