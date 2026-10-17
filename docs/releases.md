@@ -57,6 +57,6 @@ The release-closeout skill routes to this document. It never grants itself these
 
 ## Team defaults
 
-See [team-collaboration.md](team-collaboration.md). In short, review comes from the opposite account, and a scoped solo exception keeps the checks and the release authority.
+Use [team collaboration](team-collaboration.md) for a two-person account policy. Solo adopters use independent agent review and the repository’s authorized integration route; no second human account is required. Neither path grants additional release authority.
 
 Use one record per production promotion, including failed/partial attempts, times/evidence, recovery baseline, outcomes and remaining owner/action. A docs-only source change with no production promotion does not create a fake production release record. Closeout uses the normal docs path without redeploying the product just to publish a receipt.

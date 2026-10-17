@@ -10,10 +10,10 @@ You can start on your laptop today. Remote hosts, scheduled workers and delegati
 
 ## Bootstrap prompt
 
-Paste this into an existing Codex conversation. Replace the placeholder first.
+Paste this into the existing Codex conversation you want to coordinate setup. For several repositories it can become the Oracle; reuse/create repo operators within the approved mapping. A solo, single-repo adopter can start with that conversation as the operator and add an Oracle when useful. Replace the placeholder first.
 
 ```text
-Adopt Agent Operations v0.1.1 from <local kit checkout, or github.com/The-Brooklyn-App-Company/agent-operations at tag v0.1.1>.
+Adopt Agent Operations v0.1.2 from <local kit checkout, or github.com/The-Brooklyn-App-Company/agent-operations at tag v0.1.2>.
 Read README.md, START-HERE.md and docs/roles-and-context.md. If reading remotely, include cloning a local checkout at the pinned tag in the proposed setup and record it as kit.kitRoot before linking skills. Read the other docs only when a step needs them.
 
 Rules for this setup:
@@ -31,11 +31,11 @@ Rules for this setup:
 **Stage 1: Inventory (read-only).** The agent reports existing tasks, conversations, schedules, client version, available native tools, signed-in accounts and the state of the repository.
 *Checkpoint:* Record observed capabilities and gaps; ask only about information that changes setup.
 
-**Stage 2: Roles.** Choose an existing conversation as the Oracle and an existing conversation as the operator for this repository, then pin both. The agent proposes creating a new conversation only if none fits. See [docs/roles-and-context.md](docs/roles-and-context.md).
+**Stage 2: Roles.** For a multi-repo setup, choose an existing Oracle and an operator per repository, then pin them. For one repository, begin with one operator if an Oracle adds no useful coordination yet. The agent proposes creating a new conversation only if none fits. See [docs/roles-and-context.md](docs/roles-and-context.md).
 *Checkpoint:* Verify the approved role mapping and supported creation/pinning; do not create duplicates. If pinning is UI-only, ask the owner to pin it or obtain specific UI consent.
 
 **Stage 3: Machine-local profile.** The agent drafts a profile from [templates/machine-local-profile.example.json](templates/machine-local-profile.example.json). The profile lives outside every repository. It holds credential references, never secrets.
-*Checkpoint:* Use an appropriate local untracked location within approved setup and record it. Keep secrets out of the profile.
+*Checkpoint:* Default to `~/.config/agent-operations/profile.local.json`. Record any alternate path explicitly in local global guidance at Stage 4 so skills can discover it. Keep secrets and other people’s credential bindings out of the profile.
 
 **Stage 4: Instructions.** The agent merges [templates/global-AGENTS.md](templates/global-AGENTS.md) into your existing global instructions without overwriting local rules. It then proposes a short repository `AGENTS.md` based on [templates/repo-AGENTS.md](templates/repo-AGENTS.md).
 *Checkpoint:* Inspect both diffs, preserve local rules and apply within the approved setup; surface real conflicts.

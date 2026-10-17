@@ -1,8 +1,8 @@
 {
   "profileVersion": 1,
   "kit": {
-    "version": "0.1.1",
-    "tag": "v0.1.1",
+    "version": "0.1.2",
+    "tag": "v0.1.2",
     "kitRoot": "<path to local kit checkout>",
     "previousTag": null
   },
@@ -13,21 +13,49 @@
     "locale": "<locale>"
   },
   "accounts": [
-    {"principal": "author", "credentialRef": "<keychain or credential-store item name>", "verifiedReadOnlyOn": null},
-    {"principal": "reviewer", "credentialRef": "<keychain or credential-store item name>", "verifiedReadOnlyOn": null}
+    {
+      "principal": "author",
+      "credentialRef": "<keychain or credential-store item name>",
+      "verifiedReadOnlyOn": null
+    }
   ],
   "roles": {
-    "oracle": {"conversation": "<existing pinned conversation title>", "status": "existing"},
+    "oracle": {
+      "conversation": "<existing pinned conversation title>",
+      "status": "existing"
+    },
     "operators": [
-      {"repo": "<owner>/<example-app>", "principal": "author", "conversation": "<existing pinned conversation title>", "status": "existing"}
+      {
+        "repo": "<owner>/<example-app>",
+        "principal": "author",
+        "conversation": "<existing pinned conversation title>",
+        "status": "existing"
+      }
     ]
   },
   "models": {
-    "operator": {"model": "<model>", "effort": "medium"},
-    "watcher": {"model": "<model>", "effort": "medium"},
-    "delegate": {"model": "<model>", "effort": "medium", "billingFallback": false}
+    "operator": {
+      "model": "<model>",
+      "effort": "medium"
+    },
+    "watcher": {
+      "model": "<model>",
+      "effort": "medium"
+    },
+    "delegate": {
+      "model": "<model>",
+      "effort": "medium",
+      "billingFallback": false
+    }
   },
   "workers": [],
   "remoteConnections": [],
-  "notes": "Contains no secrets. Credential refs name store entries only. Workers and remote connections stay empty until approved."
+  "notes": "Only the local owner\u2019s accounts/bindings belong in accounts. Collaborators are metadata only; never install the other person\u2019s credentials. For a solo single-repo start, oracle may be null and collaborators may be empty. No secrets. Workers/remote connections stay empty until actually approved.",
+  "collaborators": [
+    {
+      "principal": "reviewer",
+      "role": "independent-team-review",
+      "localCredentials": false
+    }
+  ]
 }
