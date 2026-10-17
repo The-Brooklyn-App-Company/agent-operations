@@ -37,6 +37,25 @@ for p in files:
             json.loads(text)
         except ValueError:
             errors.append(f'{p.relative_to(ROOT)}: invalid JSON')
+# Only explicit kit-version fields are checked; historical changelog/vendor versions are not rewritten.
+version_path = ROOT / 'VERSION'
+if version_path.exists():
+    import json
+    version = version_path.read_text().strip()
+    profile = json.loads((ROOT / 'templates/machine-local-profile.example.json').read_text())
+    fixture = json.loads((ROOT / 'examples/scheduled-worker-fixture.json').read_text())
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        errors.append('VERSION: expected semantic version')
+    if profile['kit']['version'] != version or profile['kit']['tag'] != 'v' + version or fixture['kitVersion'] != version:
+        errors.append('Kit version fields disagree with VERSION')
+    for filename, pattern in [('README.md', r'^Version (\S+)$'), ('START-HERE.md', r'Adopt Agent Operations v(\d+\.\d+\.\d+)')]:
+        match = re.search(pattern, (ROOT / filename).read_text(), re.M)
+        if not match or match.group(1) != version:
+            errors.append(filename + ': declared kit version disagrees with VERSION')
+    heading = re.search(r'^## (\d+\.\d+\.\d+)', (ROOT / 'CHANGELOG.md').read_text(), re.M)
+    if not heading or heading.group(1) != version:
+        errors.append('CHANGELOG.md: latest release disagrees with VERSION')
+
 if errors:
     print('\n'.join(errors))
     sys.exit(1)

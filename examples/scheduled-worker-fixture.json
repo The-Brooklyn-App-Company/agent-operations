@@ -1,21 +1,6 @@
 {
-  "kitVersion": "0.1.1",
-  "description": "Synthetic fixture for a reviewer-side pull request metadata watcher on Example App. Each case gives the prior state, the current snapshot and the expected outcome.",
-  "worker": {
-    "name": "example-app-reviewer-pr-watcher",
-    "repo": "example/example-app",
-    "principal": "reviewer",
-    "role": "metadata-watcher",
-    "allowedEffects": [
-      "deliver-summary-to-operator"
-    ],
-    "forbiddenEffects": [
-      "review-diff",
-      "push",
-      "comment",
-      "merge"
-    ]
-  },
+  "kitVersion": "0.1.2",
+  "description": "Synthetic single-event captured transitions. An ack is supplied evidence, not a real transport call. notify means a new eligible handoff; deliveries are prepared only for new events. Pending uncertainty requires reconciliation, never blind resend. No scheduler, lock, network, state store or model is exercised.",
   "cases": [
     {
       "id": "unchanged",
@@ -23,14 +8,15 @@
         "delivered": [
           {
             "eventId": "pr-12:review-requested:reviewer",
-            "fingerprint": "fp-a1"
+            "fingerprint": "fp-a1",
+            "headSha": "1111111"
           }
         ],
+        "pending": [],
         "openEpisodes": []
       },
       "snapshot": {
         "read": "ok",
-        "fetchedAt": "2026-01-05T09:00:00Z",
         "events": [
           {
             "eventId": "pr-12:review-requested:reviewer",
@@ -41,29 +27,71 @@
       },
       "expected": {
         "outcome": "healthy-unchanged",
+        "notify": false,
         "deliveries": [],
         "markDelivered": [],
         "releaseLock": true,
         "archive": true,
-        "notify": false,
-        "markDeliveredWhen": "none",
-        "archiveWhen": "after-lock-release"
+        "reconcile": false
       }
     },
     {
-      "id": "changed",
+      "id": "changed-acknowledged",
       "prior": {
         "delivered": [
           {
             "eventId": "pr-12:review-requested:reviewer",
-            "fingerprint": "fp-a1"
+            "fingerprint": "fp-a1",
+            "headSha": "1111111"
           }
         ],
+        "pending": [],
         "openEpisodes": []
       },
       "snapshot": {
         "read": "ok",
-        "fetchedAt": "2026-01-05T10:00:00Z",
+        "events": [
+          {
+            "eventId": "pr-12:review-requested:reviewer",
+            "fingerprint": "fp-b2",
+            "headSha": "2222222"
+          }
+        ],
+        "deliveryResult": "ack"
+      },
+      "expected": {
+        "outcome": "changed",
+        "notify": true,
+        "deliveries": [
+          {
+            "eventId": "pr-12:review-requested:reviewer",
+            "fingerprint": "fp-b2",
+            "idempotencyKey": "pr-12:review-requested:reviewer:fp-b2"
+          }
+        ],
+        "markDelivered": [
+          "pr-12:review-requested:reviewer:fp-b2"
+        ],
+        "releaseLock": true,
+        "archive": true,
+        "reconcile": false
+      }
+    },
+    {
+      "id": "acknowledged-repeat",
+      "prior": {
+        "delivered": [
+          {
+            "eventId": "pr-12:review-requested:reviewer",
+            "fingerprint": "fp-b2",
+            "headSha": "2222222"
+          }
+        ],
+        "pending": [],
+        "openEpisodes": []
+      },
+      "snapshot": {
+        "read": "ok",
         "events": [
           {
             "eventId": "pr-12:review-requested:reviewer",
@@ -73,60 +101,85 @@
         ]
       },
       "expected": {
-        "outcome": "changed",
-        "reason": "The event ID is the same but the content fingerprint differs: there is a new head SHA, so earlier reviews are stale.",
-        "deliveries": [
-          {
-            "eventId": "pr-12:review-requested:reviewer",
-            "fingerprint": "fp-b2",
-            "idempotencyKey": "pr-12:review-requested:reviewer:fp-b2"
-          }
-        ],
+        "outcome": "healthy-unchanged",
+        "notify": false,
+        "deliveries": [],
         "markDelivered": [],
         "releaseLock": true,
-        "archive": false,
-        "notify": true,
-        "markDeliveredWhen": "after-ack",
-        "archiveWhen": "after-ack-and-lock-release"
+        "archive": true,
+        "reconcile": false
       }
     },
     {
-      "id": "read-failure",
+      "id": "new-read-failure",
       "prior": {
-        "delivered": [
-          {
-            "eventId": "pr-12:review-requested:reviewer",
-            "fingerprint": "fp-b2"
-          }
-        ],
+        "delivered": [],
+        "pending": [],
+        "openEpisodes": []
+      },
+      "snapshot": {
+        "read": "error",
+        "events": null
+      },
+      "expected": {
+        "outcome": "failed-read",
+        "notify": true,
+        "deliveries": [],
+        "markDelivered": [],
+        "releaseLock": true,
+        "archive": false,
+        "reconcile": false
+      }
+    },
+    {
+      "id": "repeated-read-failure",
+      "prior": {
+        "delivered": [],
+        "pending": [],
         "openEpisodes": [
           {
             "kind": "read-failure",
-            "startedAt": "2026-01-05T11:00:00Z",
             "notified": true
           }
         ]
       },
       "snapshot": {
         "read": "error",
-        "error": "source unavailable",
         "events": null
       },
       "expected": {
         "outcome": "failed-read",
-        "treatAsUnchanged": false,
-        "stateChanges": "none except the episode's lastSeenAt",
         "notify": false,
-        "notifyReason": "An episode for this failure is already open and notified, so this run is deduplicated into it.",
+        "deliveries": [],
+        "markDelivered": [],
         "releaseLock": true,
         "archive": false,
-        "stayVisible": true,
-        "markDeliveredWhen": "none",
-        "archiveWhen": "after-current-run-resolution"
+        "reconcile": false
       }
     },
     {
-      "id": "failed-delivery",
+      "id": "unknown-read",
+      "prior": {
+        "delivered": [],
+        "pending": [],
+        "openEpisodes": []
+      },
+      "snapshot": {
+        "read": "unknown",
+        "events": null
+      },
+      "expected": {
+        "outcome": "unknown-read",
+        "notify": true,
+        "deliveries": [],
+        "markDelivered": [],
+        "releaseLock": true,
+        "archive": false,
+        "reconcile": false
+      }
+    },
+    {
+      "id": "uncertain-delivery",
       "prior": {
         "delivered": [],
         "pending": [
@@ -142,7 +195,6 @@
       },
       "snapshot": {
         "read": "ok",
-        "fetchedAt": "2026-01-05T12:00:00Z",
         "events": [
           {
             "eventId": "pr-15:review-requested:reviewer",
@@ -154,15 +206,50 @@
       },
       "expected": {
         "outcome": "delivery-uncertain",
-        "retryWithSameIdempotencyKey": "only-if-transport-supports-idempotency-otherwise-reconcile-first",
+        "notify": false,
+        "deliveries": [],
         "markDelivered": [],
-        "claimExactlyOnce": false,
         "releaseLock": true,
         "archive": false,
-        "stayVisible": true,
+        "reconcile": true
+      }
+    },
+    {
+      "id": "reconciled-ack-no-resend",
+      "prior": {
+        "delivered": [],
+        "pending": [
+          {
+            "eventId": "pr-15:review-requested:reviewer",
+            "fingerprint": "fp-c3",
+            "idempotencyKey": "pr-15:review-requested:reviewer:fp-c3",
+            "attempts": 1,
+            "ack": "unknown"
+          }
+        ],
+        "openEpisodes": []
+      },
+      "snapshot": {
+        "read": "ok",
+        "events": [
+          {
+            "eventId": "pr-15:review-requested:reviewer",
+            "fingerprint": "fp-c3",
+            "headSha": "3333333"
+          }
+        ],
+        "deliveryResult": "ack"
+      },
+      "expected": {
+        "outcome": "changed",
         "notify": false,
-        "markDeliveredWhen": "none",
-        "archiveWhen": "after-current-run-resolution"
+        "deliveries": [],
+        "markDelivered": [
+          "pr-15:review-requested:reviewer:fp-c3"
+        ],
+        "releaseLock": true,
+        "archive": true,
+        "reconcile": false
       }
     }
   ]

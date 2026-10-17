@@ -1,7 +1,7 @@
 # Delegation packet
 
 - **Task:** `<existing task link>`
-- **Delegate:** `<model / effort>`, running on its own subscription. There is no billing fallback.
+- **Delegate:** `<model / effort>` via the owning human's existing approved provider route. No separate worker subscription or billing fallback; stop and report on quota/access loss.
 - **Repository and base SHA:** `<repo>` @ `<sha>`
 - **Branch:** `<scoped branch>`
 
@@ -18,7 +18,7 @@
 
 ## Constraints
 
-No merge, no deploy, no credentials, no paid calls and no UI control.
+Declare the actual task boundary here. Example implementation scope: return a tested commit; no merge/deploy, credentials, task-triggered paid API calls or UI control. The approved provider route for this delegation is recorded above, not a grant for additional product/provider calls.
 
 ## Stop criteria
 

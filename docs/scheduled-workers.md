@@ -37,7 +37,7 @@ A metadata watcher only reports. It never reviews diffs, fixes code, posts comme
 
 1. Persist the actual result and any delivery acknowledgement; advance only acknowledged delivery state. A tool accepting a handoff is not proof that a requested user-facing brief was published.
 2. Release your own lock/lease.
-3. Archive only this successful worker chat last, using its supported native archive route. Archiving may immediately end the turn; do not rely on a later finalizer. A finite timer also needs its own stop/expiry disposition.
+3. Archive only this successful worker chat last, using its supported native archive route. Archiving may immediately end the turn; do not rely on a later finalizer. A finite follow-up also pauses or retires its recurring schedule at settlement/expiry; archiving individual worker chats alone does not stop future runs.
 
 Runs that end failed, unknown or with uncertain delivery stay visible until they are resolved. A project's pending issue should keep only its affected workers visible, not every healthy worker.
 
@@ -55,7 +55,7 @@ Any deviation from this guidance records a reason, an owner and an expiry date.
 
 ## Example
 
-[../examples/scheduled-worker-fixture.json](../examples/scheduled-worker-fixture.json) can be exercised offline with `python3 scripts/check_worker_example.py`. It shows four cases: unchanged, changed, read failure and failed delivery. Each case gives the prior state, the current snapshot and the expected outcome. Cadences and task IDs are deliberately not prescribed.
+[../examples/scheduled-worker-fixture.json](../examples/scheduled-worker-fixture.json) can be exercised offline with `python3 scripts/check_worker_example.py`. It shows eight single-event transitions: unchanged, acknowledged change/repeat, new/repeated read failure, unknown read, uncertain delivery and reconciled acknowledgement without resend. These check captured decisions, not real scheduling or transport.
 
 ## Native setup recipe
 

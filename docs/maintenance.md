@@ -10,14 +10,16 @@ Do not paste kit documents into repository instructions. Link to the pinned kit,
 
 ## Pinned versions
 
-Adopt a tagged release, such as `v0.1.1`, through a local checkout. Record the tag in your machine-local profile.
+Adopt a tagged release, such as `v0.1.2`, through a local checkout. Record the tag in your machine-local profile.
 
 To upgrade:
 
 1. Read [../CHANGELOG.md](../CHANGELOG.md) and the full diff between your current tag and the target tag.
 2. Note any drift: local rules that the new version changes or contradicts.
-3. Check out the new tag, then confirm that the skills still resolve the kit root.
-4. Keep the previous tag available until the new one has been used successfully. To roll back, check out the previous tag again.
+3. Record the current tag in `kit.previousTag`, then check out the reviewed target tag in the kit checkout. Coordinate only affected readers/workers during the change; a Git checkout is not an atomic switch for active readers. Do not interrupt unrelated work.
+4. Set `kit.version` and `kit.tag` to the target and reconcile explicit kit pins in local global/repo guidance and affected worker profiles. A project may deliberately retain an older pin; record that exception instead of silently changing it.
+5. Inspect selected skills added/removed/renamed by the release. Preview the link helper for additions; it refuses existing conflicting entries. Remove/retarget an obsolete link only after verifying it is this installation’s exact owned symlink and accounting for consumers. Never bulk-delete a skills root.
+6. Confirm skill resolution/discovery and the changed behavior. Keep the previous source and binding record until acceptance. To roll back, check out the recorded `kit.previousTag`, restore its version pins/owned links, and record the failed upgrade’s disposition. Do not advance adoption just because files changed.
 
 Do not point skills at a moving `main` branch or at whatever the latest version happens to be.
 

@@ -31,7 +31,7 @@ Do not plan for unconditional 24/7 availability. A sleeping or offline host is a
    - Pending deliveries
 2. **Set up credentials separately.** The owner signs in on the new host directly. Credentials are never copied.
 3. **Hand off durably.** If the client cannot transfer tasks, write a handoff in the owning repository or issue using [../templates/operator-handoff.md](../templates/operator-handoff.md).
-4. **Stop the old host, verify, then start the new one.** Stop the schedules on the old host and confirm that they stopped before you enable them on the new host. See [scheduled-workers.md](scheduled-workers.md).
+4. **Transfer the overlapping schedules, not the whole machine.** Stop the schedules on the old host and confirm that they stopped before you enable them on the new host. See [scheduled-workers.md](scheduled-workers.md).
 5. **Run acceptance.** Verify basic operation on the new host. Treat remote wake and restart behavior as separate acceptance items, and test them only if you rely on them.
 
 Record the result in the machine-local profile and in the owning queue.

@@ -4,7 +4,7 @@ This walkthrough exercises the full loop without paid provider calls, deployment
 
 ## 1. Observe
 
-The operator for Example App reads the queue and finds an existing task: "README setup section is out of date." It reuses that task and does not create a new one.
+The operator for Example App reads the queue and finds an existing task: "README setup section is out of date." It reuses that task and does not create a new one. If no queue exists, use the repository’s issue tracker or current local handoff; propose one concrete first task within the approved setup rather than invent a permanent new tracker.
 
 ## 2. Propose
 
@@ -38,7 +38,7 @@ Confirm all of the following:
 
 - The existing task was reused.
 - Actual task authority was identified; no consent was fabricated.
-- The opposite account performed the review.
+- Team: the opposite actual account performed the review. Solo: an independent bounded agent review preserved actual authorship and the repo’s authorized integration boundary.
 - No credentials, paid calls or UI control were involved.
 
 ## If you work alone
