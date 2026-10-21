@@ -12,7 +12,7 @@ Delegation uses a written packet built from [../templates/delegation-packet.md](
 - The stop criteria
 - The expected return format
 
-Include only the context that the task needs.
+Include only the context that the task needs. Carry the human’s outcome and this task’s contribution to it, following [outcome alignment](roles-and-context.md#keep-the-humans-outcome-fixed). Do not turn an engineering subtask into the project’s success criterion.
 
 The delegated model uses the owning human’s existing approved subscription or provider route; workers do not need separate subscriptions. There is **no billing fallback**. If quota or access runs out, the delegate stops and reports. It does not switch to API keys, a different paid plan or another provider. Changing spend is a separate decision for the human.
 
@@ -51,7 +51,7 @@ Report findings with these fields:
 - Evidence
 - The failed acceptance item
 
-Review is about the useful delta. Style preferences that the repository does not enforce are not findings.
+Review is about the useful delta and its contribution to the human’s outcome. Challenge unnecessary machinery or a substituted milestone with concrete evidence and a simpler safe alternative; do not invent a mandatory pilot or framework. Style preferences that the repository does not enforce are not findings.
 
 Every existing finding needs a substantiated disposition:
 

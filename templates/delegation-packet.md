@@ -7,6 +7,8 @@
 
 ## Goal
 
+State the human’s intended outcome and how this task contributes. Apply [outcome alignment](../docs/roles-and-context.md#keep-the-humans-outcome-fixed); a subtask milestone does not redefine project success.
+
 ## Scope
 
 - **In:**
