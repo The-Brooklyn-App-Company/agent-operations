@@ -21,7 +21,8 @@
           {
             "eventId": "pr-12:review-requested:reviewer",
             "fingerprint": "fp-a1",
-            "headSha": "1111111"
+            "headSha": "1111111",
+            "recipientActionable": true
           }
         ]
       },
@@ -54,7 +55,8 @@
           {
             "eventId": "pr-12:review-requested:reviewer",
             "fingerprint": "fp-b2",
-            "headSha": "2222222"
+            "headSha": "2222222",
+            "recipientActionable": true
           }
         ],
         "deliveryResult": "ack"
@@ -96,7 +98,8 @@
           {
             "eventId": "pr-12:review-requested:reviewer",
             "fingerprint": "fp-b2",
-            "headSha": "2222222"
+            "headSha": "2222222",
+            "recipientActionable": true
           }
         ]
       },
@@ -119,7 +122,8 @@
       },
       "snapshot": {
         "read": "error",
-        "events": null
+        "events": null,
+        "failureFingerprint": "source-a:timeout"
       },
       "expected": {
         "outcome": "failed-read",
@@ -139,13 +143,15 @@
         "openEpisodes": [
           {
             "kind": "read-failure",
-            "notified": true
+            "notified": true,
+            "fingerprint": "source-a:timeout"
           }
         ]
       },
       "snapshot": {
         "read": "error",
-        "events": null
+        "events": null,
+        "failureFingerprint": "source-a:timeout"
       },
       "expected": {
         "outcome": "failed-read",
@@ -166,7 +172,8 @@
       },
       "snapshot": {
         "read": "unknown",
-        "events": null
+        "events": null,
+        "failureFingerprint": "source-a:unknown"
       },
       "expected": {
         "outcome": "unknown-read",
@@ -199,7 +206,8 @@
           {
             "eventId": "pr-15:review-requested:reviewer",
             "fingerprint": "fp-c3",
-            "headSha": "3333333"
+            "headSha": "3333333",
+            "recipientActionable": true
           }
         ],
         "deliveryResult": "timeout"
@@ -235,7 +243,8 @@
           {
             "eventId": "pr-15:review-requested:reviewer",
             "fingerprint": "fp-c3",
-            "headSha": "3333333"
+            "headSha": "3333333",
+            "recipientActionable": true
           }
         ],
         "deliveryResult": "ack"
@@ -260,13 +269,15 @@
         "openEpisodes": [
           {
             "kind": "read-failure",
-            "notified": true
+            "notified": true,
+            "fingerprint": "source-a:timeout"
           }
         ]
       },
       "snapshot": {
         "read": "unknown",
-        "events": null
+        "events": null,
+        "failureFingerprint": "source-a:unknown"
       },
       "expected": {
         "outcome": "unknown-read",
@@ -286,13 +297,15 @@
         "openEpisodes": [
           {
             "kind": "unknown-read",
-            "notified": true
+            "notified": true,
+            "fingerprint": "source-a:unknown"
           }
         ]
       },
       "snapshot": {
         "read": "unknown",
-        "events": null
+        "events": null,
+        "failureFingerprint": "source-a:unknown"
       },
       "expected": {
         "outcome": "unknown-read",
@@ -301,6 +314,97 @@
         "markDelivered": [],
         "releaseLock": true,
         "archive": false,
+        "reconcile": false
+      }
+    },
+    {
+      "id": "distinct-source-read-failure",
+      "prior": {
+        "delivered": [],
+        "pending": [],
+        "openEpisodes": [
+          {
+            "kind": "read-failure",
+            "notified": true,
+            "fingerprint": "source-a:timeout"
+          }
+        ]
+      },
+      "snapshot": {
+        "read": "error",
+        "events": null,
+        "failureFingerprint": "source-b:timeout"
+      },
+      "expected": {
+        "outcome": "failed-read",
+        "notify": true,
+        "deliveries": [],
+        "markDelivered": [],
+        "releaseLock": true,
+        "archive": false,
+        "reconcile": false
+      }
+    },
+    {
+      "id": "changed-source-failure",
+      "prior": {
+        "delivered": [],
+        "pending": [],
+        "openEpisodes": [
+          {
+            "kind": "read-failure",
+            "notified": true,
+            "fingerprint": "source-a:timeout"
+          }
+        ]
+      },
+      "snapshot": {
+        "read": "error",
+        "events": null,
+        "failureFingerprint": "source-a:permission-denied"
+      },
+      "expected": {
+        "outcome": "failed-read",
+        "notify": true,
+        "deliveries": [],
+        "markDelivered": [],
+        "releaseLock": true,
+        "archive": false,
+        "reconcile": false
+      }
+    },
+    {
+      "id": "changed-owner-handled",
+      "prior": {
+        "delivered": [
+          {
+            "eventId": "pr-12:review-requested:reviewer",
+            "fingerprint": "fp-a1",
+            "headSha": "1111111"
+          }
+        ],
+        "pending": [],
+        "openEpisodes": []
+      },
+      "snapshot": {
+        "read": "ok",
+        "events": [
+          {
+            "eventId": "pr-12:review-requested:reviewer",
+            "fingerprint": "fp-b2",
+            "headSha": "2222222",
+            "recipientActionable": false
+          }
+        ],
+        "deliveryResult": "ack"
+      },
+      "expected": {
+        "outcome": "observed-no-action",
+        "notify": false,
+        "deliveries": [],
+        "markDelivered": [],
+        "releaseLock": true,
+        "archive": true,
         "reconcile": false
       }
     }

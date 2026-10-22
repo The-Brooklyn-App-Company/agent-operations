@@ -13,6 +13,8 @@ Run cheap, deterministic checks before any model reasoning:
 
 If nothing is eligible and all required reads are fresh and healthy, the run ends quietly. Failed or stale reads take the explicit unknown/failure route, not the empty-events route.
 
+An early invocation does not complete a later requested occurrence. Use bounded waiting within the supported run or a verified retry path; do not assume the scheduler will invoke it again that day. Keep the intended occurrence and acknowledged delivery separate from invocation time.
+
 ## Profile bounds
 
 Each worker declares:
@@ -30,7 +32,7 @@ A metadata watcher only reports. It never reviews diffs, fixes code, posts comme
 - **Healthy and unchanged** stays quiet.
 - **Failed** and **unknown** are distinct outcomes. Neither one may look like "unchanged".
 - Store each event's durable ID **and** a fingerprint of its content. A cursor alone cannot tell you whether a known event's content changed.
-- Group repeated identical failures into one episode, so that a stale problem does not produce repeated alerts.
+- Group repeated identical failures into one episode using source identity and a failure fingerprint, not just a broad error category. Distinct sources or materially changed failures must remain detectable. Define recovery for the monitored purpose; a single transient successful read need not close an intermittent failure episode.
 - Mark an event delivered only after the transport acknowledges it. If delivery is uncertain after a crash or timeout, retain the pending event and stable delivery key. Reconcile the destination/history first. Retry with the same idempotency key only when the transport actually supports it; otherwise recover under the profile’s bounded duplicate-aware procedure. Never claim exactly-once delivery across crashes.
 
 ## Escalation belongs to the recipient
@@ -63,7 +65,7 @@ Any deviation from this guidance records a reason, an owner and an expiry date.
 
 ## Example
 
-[../examples/scheduled-worker-fixture.json](../examples/scheduled-worker-fixture.json) can be exercised offline with `python3 scripts/check_worker_example.py`. It shows ten single-event transitions: unchanged, acknowledged change/repeat, new/repeated read failure, new/repeated unknown read and failure-to-unknown transition, uncertain delivery and reconciled acknowledgement without resend. These check captured decisions, not real scheduling or transport.
+[../examples/scheduled-worker-fixture.json](../examples/scheduled-worker-fixture.json) can be exercised offline with `python3 scripts/check_worker_example.py`. It shows captured single-event transitions for unchanged and non-actionable observations, acknowledged change/repeat, identical versus distinct failure episodes, unknown reads, uncertain delivery and reconciled acknowledgement without resend. The fixture supplies the recipient assessment; it does not implement model-assisted classification. These check captured decisions, not real scheduling or transport.
 
 ## Native setup recipe
 

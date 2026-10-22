@@ -14,18 +14,29 @@ def evaluate(prior, snapshot):
     if snapshot['read'] != 'ok':
         result['outcome'] = 'failed-read' if snapshot['read'] == 'error' else 'unknown-read'
         episode_kind = 'read-failure' if snapshot['read'] == 'error' else 'unknown-read'
-        result['notify'] = not any(e['kind'] == episode_kind and e['notified'] for e in prior['openEpisodes'])
+        fingerprint = snapshot.get('failureFingerprint')
+        if not isinstance(fingerprint, str) or not fingerprint:
+            raise ValueError('Failure requires a source-bound fingerprint')
+        result['notify'] = not any(e['kind'] == episode_kind
+                                   and e.get('fingerprint') == fingerprint
+                                   and e['notified'] for e in prior['openEpisodes'])
         return result
     delivered = {event_key(e) for e in prior['delivered']}
     pending = {event_key(e): e for e in prior['pending'] if event_key(e) not in delivered}
     for key, event in pending.items():
         if event['idempotencyKey'] != key:
             raise ValueError('Pending delivery identity mismatch')
-    eligible = {event_key(e): e for e in snapshot['events'] if event_key(e) not in delivered}
+    if any(type(e.get('recipientActionable')) is not bool for e in snapshot['events']):
+        raise ValueError('Events require an explicit current recipient assessment')
+    eligible = {event_key(e): e for e in snapshot['events']
+                if e['recipientActionable'] and event_key(e) not in delivered}
     active = {**pending, **eligible}
     if len(active) > 1:
         raise ValueError('This fixture demonstration accepts one event per transition')
     if not active:
+        if any(not e['recipientActionable'] and event_key(e) not in delivered
+               for e in snapshot['events']):
+            result['outcome'] = 'observed-no-action'
         result['archive'] = True
         return result
     key, event = next(iter(active.items()))
