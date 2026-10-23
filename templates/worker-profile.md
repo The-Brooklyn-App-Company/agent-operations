@@ -30,7 +30,8 @@
 ## Outcomes
 
 - **Healthy-unchanged:** quiet; release the lock and archive.
-- **Changed:** deliver; persist acknowledgement/results, release the lock and archive this successful chat last.
+- **Meaningful change for this recipient:** deliver the readable handoff; persist acknowledgement/results, release the lock and archive this successful chat last.
+- **Handled or non-actionable observation:** persist the disposition and reason locally; stay quiet. Release the lock and archive if this run has no unresolved failure. Use the [recipient-aware escalation rule](../docs/scheduled-workers.md#escalation-belongs-to-the-recipient).
 - **Failed, unknown or delivery-uncertain:** release the lock and stay visible.
 - **Requested digest:** `<due even on quiet days, or not applicable>`
 

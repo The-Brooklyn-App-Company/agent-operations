@@ -18,7 +18,7 @@ description: Use when preparing a delegation packet, implementing from one, or r
 2. Build or read the packet from `<kit-root>/templates/delegation-packet.md`.
 3. If you are the implementer: work from the base SHA, stay in scope and return implementer notes.
 4. If you are the reviewer: record independent findings against the exact head SHA and the acceptance criteria.
-5. Give every existing finding a disposition: fixed with a SHA, rejected with a reason, or deferred with an owner.
+5. Give every existing finding a disposition: fixed with a SHA, rejected with a reason, or deferred with an owner and tracking link.
 6. Stop when the stop criteria are met or the round limit is reached, then escalate open items.
 
 ## Never
