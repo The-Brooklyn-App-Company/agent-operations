@@ -3,7 +3,8 @@
 - **Kit version:** `<version>`
 - **Repository / principal / role / effect scope:** `<repo>` / `<account>` / `<role>` / `<scope>`
 - **Host:** `<host label>`. Exactly one active host.
-- **Scheduler:** `<native scheduler>`. Use its native pause, edit and archive controls.
+- **Scheduler / native ID / status:** `<native scheduler>` / `<id>` / `<enabled or paused>`. Use its native controls.
+- **Execution kind / destination / model and effort / cadence:** `<standalone or attached context>` / `<run location, separate from handoff target>` / `<selection>` / `<schedule and timezone>`. Compare actual native readback with this profile at each schedule audit or cutover.
 - **Approved by and on:** `<who, date>`
 
 ## Deterministic gate
@@ -37,9 +38,9 @@
 
 ## Exceptions
 
-| Exception | Reason | Owner | Expiry |
-| --- | --- | --- | --- |
+| Exception | Reason | Owner | Stop condition / review deadline | Next natural-run acceptance |
+| --- | --- | --- | --- | --- |
 
 ## Replacement or retirement
 
-Stop the old worker and verify it has stopped. Only then enable the replacement. Record the result.
+Stop the old worker and verify it has stopped. Only then enable the replacement. Record native configuration separately from natural-run acceptance. A failed replacement does not silently authorize an indefinite operator-context rollback; follow [routing and exceptions](../docs/scheduled-workers.md#verify-installed-routing).

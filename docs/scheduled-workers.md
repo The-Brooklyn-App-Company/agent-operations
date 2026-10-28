@@ -59,9 +59,37 @@ Run one watcher per repository, principal, role and effect scope. Two accounts w
 
 When you replace a worker or move it to another host, stop the old one and verify that it has stopped before you enable the new one. Never run the same watcher on two hosts at once.
 
-## Exceptions
+## Verify installed routing
 
-Any deviation from this guidance records a reason, an owner and an expiry date.
+At each schedule audit or cutover, read the supported native inventory for the
+scope being audited or changed. Compare each definition with its owning local
+profile: native ID, enabled/paused status, execution kind, execution destination,
+model/effort and cadence. Distinguish where the run executes from where it sends
+a useful handoff. A quiet prompt or a job's legitimate purpose does not prove it
+runs outside the operator chat. Retain the small readback in the existing profile
+or handoff; do not create another inventory service.
+
+Check for duplicate active routes and expired exceptions before calling the
+setup compliant. Inspect paused replacements without resuming them. Verify the
+post-change native definition, then use the next natural run to establish actual
+execution, durable settlement, required delivery or unchanged-result silence,
+and disposal. Configuration alone does not establish those outcomes.
+
+## Exceptions and temporary rollback
+
+A deviation, including rollback to an operator-context schedule, records a
+reason, responsible owner, stop condition and review deadline in the existing
+local profile, plus the next natural-run acceptance needed to return to the
+intended route. Expiry is a review/stop boundary, not automatic renewal. A later
+audit must reconcile it with the installed configuration; historical use does
+not make the exception permanent.
+
+If a replacement fails, preserve the failure and pending events and make the
+coverage gap explicit. Repair it within the approved scope. Do not silently
+reactivate an operator-context schedule: use an already authorized finite
+exception or obtain the actual changed-scope decision. Keep one active route,
+requested briefs and domain limits. Use existing run history and owner follow-up;
+no new timer or approval for each ordinary in-scope repair is required.
 
 ## Example
 
@@ -69,7 +97,7 @@ Any deviation from this guidance records a reason, an owner and an expiry date.
 
 ## Native setup recipe
 
-Ask the existing operator to inspect native schedules, then prepare one standalone scheduled task using the approved repo/profile, model, effort, cadence/timezone and verified operator destination. The client may expose a native scheduling tool or its Scheduled controls; use the actual supported schema, not hand-edited app databases, automation files or OS cron wrappers. If the only path is UI, obtain app/task consent or guide the owner. Do not enable until the profile and old-to-new ownership are concrete.
+Apply [installed routing verification](#verify-installed-routing), then ask the existing operator to prepare one standalone scheduled task using the approved repo/profile, model, effort, cadence/timezone and verified operator destination. The client may expose a native scheduling tool or its Scheduled controls; use the actual supported schema, not hand-edited app databases, automation files or OS cron wrappers. If the only path is UI, obtain app/task consent or guide the owner. Do not enable until the profile and old-to-new ownership are concrete.
 
 A starter prompt is: “Run the bounded metadata check in the owning local worker profile. Use its deterministic eligibility/result packet and exact destination. Keep unchanged healthy runs quiet, send only eligible meaningful events or requested due briefs, persist results and acknowledged delivery, release the lease, then archive this successful worker chat last. Retain unresolved current-run failures. Do not review diffs, post, push, merge or deploy.”
 
