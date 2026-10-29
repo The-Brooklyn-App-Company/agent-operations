@@ -42,7 +42,7 @@ Keep these states distinct and record each one separately:
 - The runtime is verified.
 - The customer has accepted.
 
-The kit sets no universal soak period, no mandatory manual cloud console login and no paid test run. Each repository decides what evidence settles a release.
+An accepted fix does not wait on an unrelated held experiment or trial; integrate them separately unless a real dependency is shown. The kit sets no universal soak period, no mandatory manual cloud console login and no paid test run. Each repository decides what evidence settles a release.
 
 ## Authority
 

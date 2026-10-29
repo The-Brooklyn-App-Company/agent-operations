@@ -23,7 +23,9 @@ Each worker declares:
 - The tools it may use
 - The effects it may have
 - The exact events it watches
-- Freshness requirements: the head SHA, links and the source timestamps it must confirm
+- Freshness requirements: the head SHA, links and the source timestamps it must confirm, per field or source when the output combines several. A fresh read of one source, such as an unchanged list of tracked items, does not certify other fields or the latest owner instructions. Keep stale evidence dated and identify which current fields remain unknown; do not silently present it as current.
+
+A worker's result checks protect actual boundaries: account identity, tool permissions, call/page caps, complete observations and no-action authority. Do not reject an allowed tool path merely because it differs from a preferred orchestration.
 
 A metadata watcher only reports. It never reviews diffs, fixes code, posts comments or merges.
 
@@ -83,6 +85,10 @@ local profile, plus the next natural-run acceptance needed to return to the
 intended route. Expiry is a review/stop boundary, not automatic renewal. A later
 audit must reconcile it with the installed configuration; historical use does
 not make the exception permanent.
+
+Carry observation and delivery state across a replacement or rollback in both
+directions, so events already delivered on one route are not re-sent as new
+alerts on the other.
 
 If a replacement fails, preserve the failure and pending events and make the
 coverage gap explicit. Repair it within the approved scope. Do not silently
