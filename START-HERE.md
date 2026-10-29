@@ -13,7 +13,7 @@ You can start on your laptop today. Remote hosts, scheduled workers and delegati
 Paste this into the existing Codex conversation you want to coordinate setup. For several repositories it can become the Oracle; reuse/create repo operators within the approved mapping. A solo, single-repo adopter can start with that conversation as the operator and add an Oracle when useful. Replace the placeholder first.
 
 ```text
-Adopt Agent Operations v0.1.2 from <local kit checkout, or github.com/The-Brooklyn-App-Company/agent-operations at tag v0.1.2>.
+Adopt Agent Operations v0.1.3 from <local kit checkout, or github.com/The-Brooklyn-App-Company/agent-operations at tag v0.1.3>.
 Read README.md, START-HERE.md and docs/roles-and-context.md. If reading remotely, include cloning a local checkout at the pinned tag in the proposed setup and record it as kit.kitRoot before linking skills. Read the other docs only when a step needs them.
 
 Rules for this setup:

@@ -51,7 +51,7 @@ Report findings with these fields:
 - Evidence
 - The failed acceptance item
 
-Review is about the useful delta and its contribution to the human’s outcome. Challenge unnecessary machinery or a substituted milestone with concrete evidence and a simpler safe alternative; do not invent a mandatory pilot or framework. Style preferences that the repository does not enforce are not findings.
+Review is about the useful delta and its contribution to the human’s outcome. Challenge unnecessary machinery or a substituted milestone with concrete evidence and a simpler safe alternative; do not invent a mandatory pilot or framework. For a consequential launch or repair proposal, also ask whether the actual capability and path will produce the requested result, including any needed repair, result retrieval and cleanup, or only another intermediate proof. Style preferences that the repository does not enforce are not findings.
 
 Every existing finding needs a substantiated disposition:
 
