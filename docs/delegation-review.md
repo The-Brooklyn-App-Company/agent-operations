@@ -34,6 +34,12 @@ The implementer works on a scoped branch from the base SHA and returns implement
 
 The implementer respects its packet’s merge/deploy boundary and does not broaden scope. Usually it returns a reviewed artifact for the operator to integrate.
 
+## Behavioral checks and reusable evidence
+
+Choose checks that exercise the changed behavior and its failure boundaries. Prefer existing CI and representative fixtures over tests that merely repeat the implementation. A failing guard or test is evidence to investigate: repair an incorrect expectation with a documented reason, or repair the behavior; do not delete a protection just to obtain green checks.
+
+Reuse accepted evidence when its artifact identity, relevant inputs, environment and test coverage remain compatible. Record which exact commit/artifact the checks exercised and why they apply to the candidate. Re-run affected checks when those conditions change; an unrelated green run or an old approval is insufficient. Source equivalence may justify reuse under the repository's policy, but it must be demonstrated rather than assumed.
+
 ## Evidence behind a proposal
 
 Before concluding a useful signal is absent from a public API or entity, inspect the actual adapter/version: normalization or deduplication may have collapsed distinct upstream states. A narrow source/offline proof can establish that mapping; it does not prove real-device intent, API stability or permission for private hooks, capture or new hardware/services.
@@ -71,6 +77,14 @@ Review stops when either of these is true:
 A new head requires current evidence; use the repository’s stale-approval/content-identity rules. Re-review the affected delta rather than rerunning an unchanged full audit.
 
 One reviewer is enough by default. Escalate to a stronger model or to a human only when there is demonstrated need, such as repeated disagreement or high-risk changes. A multi-model panel is not required.
+
+## Maintainer integration
+
+The operator shepherds approved work to the repository's accepted integration branch within its actual authority. Inventory open and stacked PRs, their bases, dependencies, current approvals and checks before declaring the work complete. A stale base or unavailable reviewer is a condition to resolve, not a reason to abandon accepted work silently. Rebase or update only within the authorized route, preserve unique changes, and verify the resulting delta and required checks.
+
+Give each superseded PR an honest disposition: link the accepted replacement and account for its unique work, including any deferred portion and owner. Do not close or merge pending work merely to make the branch list tidy. If integration is outside scope, leave the exact next action and owner in the existing handoff.
+
+An explicit, scoped independent-review or solo exception is an available authorized route. Consume it when its conditions are met instead of waiting indefinitely for an unavailable peer or inventing another approval gate. Record its scope and evidence; retain required checks and release limits. Without such authority, report the actual missing decision.
 
 ## Claude CLI example
 

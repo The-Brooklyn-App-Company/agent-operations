@@ -10,7 +10,7 @@ Do not paste kit documents into repository instructions. Link to the pinned kit,
 
 ## Pinned versions
 
-Adopt a tagged release, such as `v0.1.3`, through a local checkout. Record the tag in your machine-local profile.
+Adopt a tagged release, such as `v0.1.4`, through a local checkout. Record the tag in your machine-local profile.
 
 To upgrade:
 
@@ -33,6 +33,12 @@ Create the optional profile at `~/.config/agent-operations/profile.local.json` (
 
 - **macOS and Linux:** Symlink each skill directory into your client's skills location. The skill resolves its own real path and takes the directory two levels up as the kit root.
 - **Windows:** Set `kit.kitRoot` in the machine-local profile, or use a local link that the client follows. A copied skill directory is not self-contained. It needs a configured route back to the kit checkout.
+
+## Local adoption evidence
+
+Keep the machine-local inventory separate from this public source: actual checkout/profile/skill paths, client discovery, repository role mapping, account references and native worker definitions belong in the local profile or existing handoff. Inspect actual installed paths and definitions instead of assuming that the example layout was adopted. Never publish these local bindings with the kit.
+
+A published tag or passing source check proves source availability, not adoption. Record the locally selected version, resolved skill bindings and discovery separately, then verify the next relevant task or natural worker run. Report prepared, installed and behaviorally accepted as distinct states; updating this repository does not update another machine or operator automatically.
 
 ## Contributing
 
