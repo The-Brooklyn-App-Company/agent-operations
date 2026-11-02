@@ -16,8 +16,9 @@ description: Use when declaring activation needs in a pull request, promoting a 
 
 1. Follow `<kit-root>/docs/releases.md`.
 2. Use `<kit-root>/templates/release-record.md` in the repository's existing release record or index. Do not create a parallel one.
-3. Record each state separately: CI green, source merged, staging verified, runtime verified and customer accepted.
-4. Follow the activations and any recovery until the release settles.
+3. Match the intended target and acting principal through the actual execution route before effects.
+4. Record source, artifact, deployment and intended-persona acceptance separately, following the guide.
+5. Follow the activations and any recovery until the release settles.
 
 ## Never
 

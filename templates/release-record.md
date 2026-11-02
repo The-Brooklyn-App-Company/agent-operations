@@ -5,7 +5,8 @@ Add this to the repository's existing release record or index. Do not create a p
 - **Owner:**
 - **Source SHA:**
 - **Artifact:**
-- **Target:**
+- **Intended service / account or tenant / project / environment / resource:**
+- **Read-only target and acting-principal match evidence (no secrets):**
 - **Approved scope:** This approval does not cover UI control, authentication, email, purchases or expanded spend.
 
 ## Activations (in order)
@@ -17,9 +18,11 @@ Add this to the repository's existing release record or index. Do not create a p
 
 - [ ] CI green
 - [ ] Source merged
+- [ ] Identified artifact built or published
 - [ ] Staging verified
 - [ ] Runtime verified
-- [ ] Customer accepted, if applicable
+- [ ] Intended persona and consumer route accepted, if applicable
+- **Acceptance evidence and remaining gaps:**
 
 ## Execution health and recovery
 

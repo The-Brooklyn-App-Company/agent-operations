@@ -9,11 +9,23 @@ Agents never fabricate consent. When people disagree about direction, the agent 
 ## Review defaults
 
 - Review comes from the actual opposite account. Code written as `author` is reviewed as `reviewer`.
-- Approval applies to the last push. A new push dismisses stale approvals.
+- Verify the repository's current-head approval policy; changing it requires the repository owner's authority. Check whether a new push actually dismisses stale approvals; do not assume hosting defaults enforce it. Review accepted under that policy must cover the candidate delta.
 - Required checks must pass before merge.
 - A **solo exception** must be explicit, scoped and recorded. It still keeps the required checks and the release authority.
 
 The review loop should produce useful findings, not bot theater. Every existing finding needs a substantiated disposition. See [delegation-review.md](delegation-review.md).
+
+## Account identity and routing
+
+An account label is not proof of identity. Verify the actual principal and repository access through the supported route before account-scoped actions. Each collaborator keeps their credentials on their own machine; never borrow another person's token to manufacture opposite-account review.
+
+Record the existing operator destination and the supported handoff route for each shared role. Native chat tools may be limited to one signed-in account and may not address another person's conversations. Confirm that a route can reach its intended recipient before relying on it. Use an authorized shared issue, PR or other supported channel when direct delivery is unavailable, or report the concrete routing gap. A local tool accepting a message is not proof that the other account received it. Outbound communication still needs its actual human authorization.
+
+## Meeting cycle
+
+For recurring team meetings, reuse the shared queue and current project records. Before the meeting, prepare a short agenda with decisions needed, relevant changes, unresolved risks and evidence links. Distinguish confirmed facts from proposals and identify which decisions need a human.
+
+After the meeting, reconcile the human's decisions into their owning records, assign concrete next actions to existing operators and preserve unresolved questions with owners. Carry the result into the next meeting's preparation without creating a parallel tracker. Meeting notes or recordings are evidence, not automatic authority for effects. Capture, recording, participant access and publication each retain their actual consent and privacy boundaries; use only capabilities verified for the installed tools.
 
 ## Privacy
 

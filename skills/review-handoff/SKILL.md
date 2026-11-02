@@ -20,6 +20,7 @@ description: Use when preparing a delegation packet, implementing from one, or r
 4. If you are the reviewer: record independent findings against the exact head SHA and the acceptance criteria.
 5. Give every existing finding a disposition: fixed with a SHA, rejected with a reason, or deferred with an owner and tracking link.
 6. Stop when the stop criteria are met or the round limit is reached, then escalate open items.
+7. As the operator, follow the guide's maintainer integration route, including any explicit scoped review exception; preserve unique work when resolving stale or stacked PRs.
 
 ## Never
 

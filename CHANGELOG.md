@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 — 2026-11-02
+
+Clarify intended integration identity and user-persona acceptance, maintainer closure of stale/stacked PRs, meaningful validation and compatible proof reuse, actual cross-account review availability, lightweight meeting-to-work reconciliation, and local adoption evidence. Keep repository-specific choices, machine bindings and private source material outside this kit. No new runtime service, mandatory timer or expanded authority.
+
 ## 0.1.3 — 2026-10-28
 
 Publish the reviewed outcome-alignment, request-privacy and scheduled-routing amendments accumulated since 0.1.2. Clarify scoped readiness, iterative repair capability, existing result ownership, independent release flow, per-source freshness and rollback delivery continuity. Existing review/permissions remain; no new service, timer, status form or runtime activation. Adopt the reviewed full release delta deliberately and verify the next relevant behavior; source publication is not installation or operational acceptance.
