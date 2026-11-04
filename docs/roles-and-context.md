@@ -3,13 +3,15 @@
 ## Roles
 
 - **Human.** The human is the only source of authority. They make product and direction decisions. They also grant consent for sign-in, UI control, spending, outbound messages and customer-facing releases.
-- **Oracle.** The Oracle is one pinned, long-lived conversation for cross-project context, priorities and judgment. It routes project work to its operators and owns cross-project guidance/coordination. It challenges drift from the human’s outcome, not just collects status; it does not duplicate implementation lanes.
-- **Operator.** An operator is one pinned conversation per repository and principal. It owns the repository's queue, branches, delegation, review handling and release closeout. Projects can exist inside it as sections or issues.
+- **Oracle.** The Oracle is the human's main, long-lived coordination conversation for cross-project context, priorities and judgment; pin it where the client supports that. It routes project work to its operators and owns cross-project guidance/coordination. It challenges drift from the human’s outcome, not just collects status; it does not duplicate implementation lanes.
+- **Operator.** An operator is a long-lived specialist conversation with a coherent execution scope and principal, commonly one repository. It owns that scope's queue, branches, delegation, review handling and release closeout. Keep distinct permissions and consumers separate; neither a repository count nor a desire for fewer pins justifies combining grants. Projects can exist inside it as sections or issues.
 - **Maintainer.** The existing operator assigned responsibility for an integration or release under actual human authority. This is an accountability role, not another required conversation. It owns execution, verification, activations, authorized recovery and settlement.
 - **Delegated implementer or reviewer.** This is a bounded worker that receives a packet and returns results. It has no standing authority. See [delegation-review.md](delegation-review.md).
 - **Scheduled worker.** This is a disposable run with a narrow profile. See [scheduled-workers.md](scheduled-workers.md).
 
-The human mostly talks to the Oracle and to the operator in front of them. Other conversations are implementation details.
+The human can use the Oracle as one front door for work and personal planning while talking directly to a specialist when useful. General coordination does not inherit the specialist's effect permissions. Narrow an old coordinator's mandate before repurposing it as a specialist; preserve its identity, consumers and useful history rather than creating a competing coordinator or queue.
+
+A relay is transport, not another Oracle. It returns only useful owner outcomes, decisions or failures and their source evidence; it does not dispatch competing work, maintain another backlog or turn every callback into a human notification. The Oracle decides what belongs in a requested brief or needs immediate attention.
 
 ## Keep the human’s outcome fixed
 

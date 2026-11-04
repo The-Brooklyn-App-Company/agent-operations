@@ -29,6 +29,10 @@ A worker's result checks protect actual boundaries: account identity, tool permi
 
 A metadata watcher only reports. It never reviews diffs, fixes code, posts comments or merges.
 
+Verify capabilities in the actual receiving run. Use its exposed inventory and any supported deferred-tool discovery before declaring a tool unavailable; another conversation's catalog does not establish this run's access. A tool name mentioned in an instruction is not inventory evidence. Preserve the real result and never make an effectful provider call merely to test discovery. An unavailable external tool does not establish that an existing local receipt CLI is unavailable: attempt the permitted bounded local continuation and retain its exit code.
+
+Carry applicable human communication authorization and its trusted source into the local worker profile. An agent handoff alone grants nothing, while an actual standing human grant must not be discarded merely because the run is disposable. Preserve destination and payload scope, and keep private provenance out of this public kit.
+
 ## State and outcomes
 
 - **Healthy and unchanged** stays quiet.
@@ -51,9 +55,36 @@ Send a brief readable handoff: what changed, the actual recipient action or atte
 2. Release your own lock/lease.
 3. Archive only this successful worker chat last, using its supported native archive route. Archiving may immediately end the turn; do not rely on a later finalizer. A finite follow-up also pauses or retires its recurring schedule at settlement/expiry; archiving individual worker chats alone does not stop future runs.
 
+A completion summary, an inbox label or the words “eligible for archive” are not an archive operation. Verify the actual native operation or archive membership separately from result settlement; absence of a transcript item may limit the evidence, not justify inventing a receipt.
+
 Runs that end failed, unknown or with uncertain delivery stay visible until they are resolved. A project's pending issue should keep only its affected workers visible, not every healthy worker.
 
 If a human requested a digest, it is still due on quiet days, and it says "nothing changed". Synthesis across workers belongs to the operator, not to the workers.
+
+## Coordinator return paths
+
+Execution, operator handoff and human-facing publication are separate hops. When
+clients differ, verify each supported hop with useful work: an owner event can
+wake an idle intermediary; its returned result can notify the intended primary
+conversation; and the primary can publish the requested brief. A successful
+terminal callback alone does not prove independent event wake or scheduled
+availability. Do not invent an endpoint, credential or hidden application-state
+bridge to make a diagram work.
+
+An event relay can reduce repeated cross-project status polling where the client
+supports it. Keep it thin and change-only, use stable source/event identity in the
+existing local receipt, and reconcile unknown delivery before retry. Retain the
+working fallback until the replacement's actual acceptance. A read-only digest
+collector consumes an existing writer's result; it does not become a second
+writer or silently retire the old route. Record the relay's actual identity,
+owner, lifetime and acceptance limits locally before treating it as permanent.
+
+Quiet output does not establish low model cost. Inspect the actual model wake,
+profile size, tool steps and available usage evidence; a deterministic gate may
+run only after the model has started. Prefer a short current execution contract
+linked to detailed diagnosis/identity references. Preserve source checks,
+detection needs, receipt semantics and domain bounds when reducing overhead; do
+not claim savings percentages from elapsed time alone.
 
 ## Uniqueness and replacement
 
