@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 — 2026-11-03
+
+Tighten external-contract test value and reuse, diagnosis of a common failed premise, and delivery acceptance after a delegated worker exits. Route the existing review skill to these checks. Existing source ownership, valid evidence reuse and authority remain unchanged; no new framework, service, schedule, memory integration or model selection.
+
 ## 0.1.4 — 2026-11-02
 
 Clarify intended integration identity and user-persona acceptance, maintainer closure of stale/stacked PRs, meaningful validation and compatible proof reuse, actual cross-account review availability, lightweight meeting-to-work reconciliation, and local adoption evidence. Keep repository-specific choices, machine bindings and private source material outside this kit. No new runtime service, mandatory timer or expanded authority.

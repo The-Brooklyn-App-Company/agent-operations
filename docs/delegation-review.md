@@ -32,11 +32,11 @@ The implementer works on a scoped branch from the base SHA and returns implement
 - Known gaps
 - Anything the implementer skipped and the reason
 
-The implementer respects its packet’s merge/deploy boundary and does not broaden scope. Usually it returns a reviewed artifact for the operator to integrate.
+The implementer respects its packet’s merge/deploy boundary and does not broaden scope. Usually it returns a reviewed artifact for the operator to integrate. A worker’s exit or returned notes do not settle the requested delivery. The operator checks the actual head and result against the packet’s acceptance, retaining the existing delivery owner and next action for any missing or partial outcome.
 
 ## Behavioral checks and reusable evidence
 
-Choose checks that exercise the changed behavior and its failure boundaries. Prefer existing CI and representative fixtures over tests that merely repeat the implementation. A failing guard or test is evidence to investigate: repair an incorrect expectation with a documented reason, or repair the behavior; do not delete a protection just to obtain green checks.
+Choose checks that exercise the changed behavior and its failure boundaries through the external contract: a useful check fails when that contract breaks and survives a behavior-preserving refactor. Reuse existing suites, representative fixtures and helpers before adding coverage. Avoid tests that mirror constants or internal calls, and production seams, flags or branches added only for tests; use the existing interface or an established fixture boundary. A failing guard or test is evidence to investigate: repair an incorrect expectation with a documented reason, or repair the behavior; do not delete a protection just to obtain green checks. Before removing a check, name its unique protected contract and the evidence that remains. Apply this to the current change or existing audit candidate, not a new all-repository test inventory.
 
 Reuse accepted evidence when its artifact identity, relevant inputs, environment and test coverage remain compatible. Record which exact commit/artifact the checks exercised and why they apply to the candidate. Re-run affected checks when those conditions change; an unrelated green run or an old approval is insufficient. Source equivalence may justify reuse under the repository's policy, but it must be demonstrated rather than assumed.
 
