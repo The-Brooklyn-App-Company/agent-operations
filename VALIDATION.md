@@ -1,5 +1,7 @@
 # Release validation and limits
 
+Version 0.1.5 was prepared on November 3, 2026. The small guidance delta was authored through a bounded subscription Opus5.5/medium consultation, then checked against the acceptance criteria by the Sol operator. Final independent review and exact offline check evidence belong in the release notes. No installed-client or runtime acceptance is claimed.
+
 Version 0.1.4 was prepared on November 2, 2026. Its public source received independent Sol content/privacy review and an actual subscription Opus5.5 adversarial read. The approval-policy wording was corrected to distinguish verification from settings-change authority. Offline documentation and worker behavior checks passed. This is source/content review, not installed-client or opposite-account acceptance. The previous 0.1.3 review is described below. The 0.1.2 baseline (October 17, 2026) received initial Opus5.5 authoring and an independent GPT-6.1 Sol cold-start walkthrough, followed by a fresh individually scoped Opus5.5 public-kit audit and bounded fix verification; that reviewer accepted all concrete corrections with no remaining handoff blockers. This is content/source review, not another human account’s GitHub approval or installed-runtime acceptance. Review is evidence, not a guarantee.
 
 Actual offline checks cover local documentation links, JSON/frontmatter, captured single-event routing decisions including acknowledged delivery/repeat suppression, failure episodes, unknown reads and uncertain-delivery reconciliation, no-overwrite skill linking in an isolated target, and committed-source archive/hash integrity. Package privacy review examines intended source and metadata; private runtime profiles and transcripts are excluded.
@@ -15,3 +17,7 @@ The upgrade consolidates reviewed source amendments and bounded behavior clarifi
 ## 0.1.4 upgrade scope
 
 The November upgrade tightens intended-target and persona verification, accepted-work convergence, useful validation and local bootstrap/adoption distinctions. All examples remain synthetic. No runtime was installed by this release; validate the actual selected skills, account routes and next natural worker outcome in the adopting environment.
+
+## 0.1.5 upgrade scope
+
+Apply the behavioral-check questions to the next relevant test change or existing audit candidate, and use the premise check when a repair repeatedly fails. A delegated worker exiting does not settle the requested delivery; preserve the existing owner and next action. Reuse valid coverage and proof rather than creating a fresh audit or repeated demonstration.

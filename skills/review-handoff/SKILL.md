@@ -14,7 +14,7 @@ description: Use when preparing a delegation packet, implementing from one, or r
 
 ## Do
 
-1. Follow `<kit-root>/docs/delegation-review.md`.
+1. Follow `<kit-root>/docs/delegation-review.md`, including its behavioral-check, evidence-reuse and returned-result acceptance routes. For repeated failures, use the premise/observation check in `<kit-root>/docs/roles-and-context.md` before another equivalent attempt.
 2. Build or read the packet from `<kit-root>/templates/delegation-packet.md`.
 3. If you are the implementer: work from the base SHA, stay in scope and return implementer notes.
 4. If you are the reviewer: record independent findings against the exact head SHA and the acceptance criteria.
