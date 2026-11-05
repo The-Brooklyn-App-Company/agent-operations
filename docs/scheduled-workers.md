@@ -79,6 +79,45 @@ collector consumes an existing writer's result; it does not become a second
 writer or silently retire the old route. Record the relay's actual identity,
 owner, lifetime and acceptance limits locally before treating it as permanent.
 
+### Transport-only relay and receipt boundaries
+
+Keep an accepted operator-to-local-intermediary-to-coordinator return route until
+its replacement is actually verified. A destination that fails with an unknown
+thread is not a working direct route. Bind each hop to its actual principal,
+host, native identity and permitted scope in the existing private profile; a
+matching title or another principal's successful run is insufficient.
+
+The intermediary admits and returns bounded handoffs. It does not execute the
+recipient's domain work, wait for its approvals or become another coordinator.
+Domain work and approval waits stay with the owning operator so they cannot
+block unrelated returns. Preserve denied and interrupted actions on their
+original route; another hop is not permission to retry or evade a gate.
+
+For one stable event and attempt, retain distinct evidence for transport
+admission, recipient processing, recipient completion, coordinator return and
+user publication. A terminal notification proves only that hop, not publication
+or successful domain work. Keep actual message/turn references and timestamps
+in existing local receipts, not a second queue. Reconcile unknown outcomes at
+the relevant destination before retry; a failure at a later hop does not permit
+resending an acknowledged earlier effect. Do not claim exactly-once delivery.
+
+### Native lifecycle acceptance
+
+A documented wait budget does not prove that a worker stayed alive. Qualify the
+actual supported execution/session lifecycle: an early wake must await its
+original bounded process through terminal output in the same turn, without a
+final answer while it is still running. A missing session is an unresolved
+failure, not a due result or permission to restart the effect.
+
+Before adoption, verify native traces for an early wake through due/claim and
+acknowledged delivery, an interrupted or lost session with no fabricated due
+result, uncertain delivery reconciled without duplicate publication, and failure
+retention without self-archive. Verify successful settlement and archive last
+separately. Offline clock/receipt fixtures do not certify those native behaviors.
+Preserve the existing single writer and timely fallback; label supervised or
+manual recovery separately from unattended success. Each adopting principal and
+host must demonstrate its own round trip, not inherit another account's proof.
+
 Quiet output does not establish low model cost. Inspect the actual model wake,
 profile size, tool steps and available usage evidence; a deterministic gate may
 run only after the model has started. Prefer a short current execution contract
