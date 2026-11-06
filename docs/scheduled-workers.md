@@ -103,12 +103,14 @@ resending an acknowledged earlier effect. Do not claim exactly-once delivery.
 
 ### Admitted request with no useful result
 
-An accepted send may persist the request and start a turn that completes with
-empty output. Treat that as a processing failure, not successful work or proof
+An accepted send may persist a request requiring a useful result and start a turn
+that completes with empty output. Treat that as a processing failure, not successful work or proof
 of a transport outage. Inspect the exact recipient and turn through supported
 native reads: request persistence, archive/loading state, tool calls, output,
 terminal status and exposed errors. Do not infer a limit, cancellation or model
 failure when the API reports none; do not inspect restricted session stores.
+An explicitly quiet acknowledgement or healthy unchanged watcher is different;
+evaluate the requested contract rather than requiring every turn to speak.
 
 Keep the same correlation and distinguish a transport retry from a new bounded
 instruction. Reconcile prior effects first. If the request was admitted and no
