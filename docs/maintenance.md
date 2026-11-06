@@ -10,7 +10,7 @@ Do not paste kit documents into repository instructions. Link to the pinned kit,
 
 ## Pinned versions
 
-Adopt a tagged release, such as `v0.1.6`, through a local checkout. Record the tag in your machine-local profile.
+Adopt a tagged release, such as `v0.1.7`, through a local checkout. Record the tag in your machine-local profile.
 
 To upgrade:
 

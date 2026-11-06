@@ -15,13 +15,15 @@ A relay is transport, not another Oracle. It returns only useful owner outcomes,
 
 ## Keep the human’s outcome fixed
 
-Use the human’s intended usable outcome as acceptance. Decompose the work as needed, but distinguish human requirements from engineering choices. An intermediate milestone is progress, not a replacement goal or permission to redefine success.
+Name one accountable outcome owner in the existing work record, including delivery and unresolved dependencies; delegates retain their bounded scopes. Use the human’s intended usable outcome as acceptance. Decompose the work as needed, but distinguish human requirements from engineering choices. An intermediate milestone is progress, not a replacement goal or permission to redefine success. Preserve agreed acceptance through implementation and review. Change it only for a human-directed outcome change or newly evidenced material risk; explain the evidence and affected scope rather than silently adding a gate.
 
 At planning, delegation, material setbacks and closeout, ask: **Does this work directly deliver the outcome, reduce a concrete risk or resolve a necessary uncertainty? Is there a simpler supported path?** Operators own that judgment; the Oracle challenges drift across the whole delivery. Delegates and reviewers apply the same test within their scope. Reuse the existing queue and handoff, without a new recurring review or approval ceremony.
 
 Prefer building the usable path over accumulating prototypes, wrappers or control machinery. Justify a pilot by a specific unresolved question and how its result leads into delivery; reuse valid evidence and do not repeat an accepted pilot without a changed need. Preserve necessary security, quality checks and honest investigation. Neither maximal machinery nor premature shortcuts satisfy the goal.
 
 For work prepared ahead of need, expose the complete remaining path to operation, including consumer integration and human dependencies. Call it ready to activate only when remaining implementation is complete and the stated owner action plus explicitly disclosed live validation remain. A claim of “ready for X” names that action, the exact artifact or target and the steps not yet exercised; it does not promise that no unknown remains. Compose the smallest end-to-end path, including its real consumers, early: a passing component, fixture or canary does not make the usable path ready. Prepare diagnosis, repair, results and cleanup within the actual authorized session; do not make the human a repeated command or password relay. Keep an approved attended repair session available through in-scope diagnosis and repair until settlement, expiry or the human’s departure, following its actual boundaries. Do not close it after preparation merely to require another password for the intended operation. Do not promise untested privileges or extend expired authority. A one-shot immutable patch is not a maintenance window: when the purpose needs diagnosis and iterative repair, show the chosen mechanism can perform covered repair and return results before relying on it.
+
+Evaluate an intervention on representative real outputs against the prior behavior, using the same acceptance and recording quality, elapsed time and available cost evidence together. Reuse existing evaluation artifacts, disclose sample and attribution limits, and do not infer improvement from a successful component or faster execution alone.
 
 Retain bounded, secret-safe failure evidence before teardown when feasible: the failed phase, actual error and relevant artifact identity. Preserve required cleanup even when evidence collection fails. When attempts fail repeatedly, name the premise they share and the observation that would distinguish the competing explanations. Obtain that observation or revise the premise before another equivalent attempt. If work stops unresolved, leave the safe state, concrete blocker and next responsible action in the existing handoff; an absent process is not a diagnosis or a cleanup receipt.
 
@@ -54,6 +56,8 @@ consumer's supported capabilities and the smallest meaningful end-to-end test.
 A missing tool, an authorization refusal and an unimplemented integration are
 different problems. State the concrete gap, keep independent authorized work
 moving, and retire a self-imposed gate when its premise is disproved.
+
+Prepare foreseeable authentication and consent dependencies early: verify the exact target, principal, required action and bounded session or expiry before the attended window. Reuse valid grants and prepare independent work first; preparation does not initiate sign-in, control a UI or extend authority.
 
 Carry clear existing consent through the supported review path rather than
 asking for it again by default. If automatic review still rejects the action,
