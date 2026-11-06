@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7 — 2026-11-06
+
+Clarify one accountable outcome owner, stable acceptance, early bounded authentication preparation and evaluation on representative outputs across quality, time and cost. Reuse the existing consent, handback and empty-result procedures. Source guidance only; no runtime installation or permission change.
+
 ## 0.1.6 — 2026-11-06
 
 Clarify responsive operator returns, evidence for each delivery stage, bounded diagnosis of empty results and native lifecycle acceptance. Check actual capabilities and the smallest effective path before adding infrastructure; preserve clear consent and exact denial scope. Reuse existing receipts and natural outcomes rather than adding queues or repeated demonstrations. Public examples remain synthetic. No installed profiles, security settings, schedules or services change.
