@@ -49,4 +49,16 @@ Apply [web-request privacy](team-collaboration.md#web-requests-and-external-inst
 
 Ask only when the decision is consequential or needs authentication. When you ask, state the exact action, its effect and what happens if the human says no. Keep distinct needs distinct: authentication or a UI session, a consequential decision, publication scope or a missing capability. Do not merge “did you sign in?” and “do you authorize this use?” into one yes/no. If the next step is reversible and already covered, do it. Carry the exact current human authority into approval review; general autonomy does not waive a genuine restriction.
 
+Before adding infrastructure or asking for a prerequisite, check the actual
+consumer's supported capabilities and the smallest meaningful end-to-end test.
+A missing tool, an authorization refusal and an unimplemented integration are
+different problems. State the concrete gap, keep independent authorized work
+moving, and retire a self-imposed gate when its premise is disproved.
+
+Carry clear existing consent through the supported review path rather than
+asking for it again by default. If automatic review still rejects the action,
+stop that exact action and report its literal reason and execution state; do
+not change routes to obtain a different decision. A new request should address
+the specific missing scope or evidence, not repeat a generic approval.
+
 Do not ask the human to run commands that you can run yourself. When a capability is unavailable, say so plainly and propose a handoff or fallback. Do not work around a missing capability by editing application state.

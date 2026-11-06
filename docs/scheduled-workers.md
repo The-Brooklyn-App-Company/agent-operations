@@ -119,11 +119,11 @@ An explicitly quiet acknowledgement or healthy unchanged watcher is different;
 evaluate the requested contract rather than requiring every turn to speak.
 
 Keep the same correlation and distinguish a transport retry from a new bounded
-instruction. Reconcile prior effects first. If the request was admitted and no
-effect occurred, one authorized diagnostic follow-up may ask the same owner for
-a read-only result. If it again completes empty, stop automated invocations and
-report the exact evidence for native runtime diagnosis. Do not change models,
-create a replacement worker or redirect a denied send to force a response.
+instruction. Reconcile prior effects first. A bounded, authorized diagnostic
+follow-up is useful only when it can resolve a specific uncertainty without
+repeating effects. Repeated empty turns without new evidence require runtime
+diagnosis, not more wakeups. Replacement tasks, model changes and routing
+changes retain their own scope and acceptance; they are not transport retries.
 
 The existing coordinator may summarize an already-produced artifact within its
 own scope while the owner is unavailable. Label that coordinator processing;
