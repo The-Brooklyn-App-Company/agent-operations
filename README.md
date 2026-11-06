@@ -1,12 +1,12 @@
 # Agent Operations
 
-Version 0.1.5
+Version 0.1.6
 
 Agent Operations is a Codex-first reusable operating kit for running coding agents across real repositories. Other clients can adapt the roles and procedures, but must verify their own tools, skill discovery and scheduling controls. It is a set of documents, thin skills and templates, not a framework, service or website. It covers role boundaries, delegation and review, scheduled workers, releases and moving work between machines. It is written to work with the native tools you already have, not with an imagined universal API.
 
 ## Two-minute overview
 
-- **You talk to two places.** A pinned **Oracle** conversation holds cross-project context and judgment. A pinned **operator** conversation owns one repository. The app may use projects as repository containers. You do not need a new conversation for every idea.
+- **One main contact, bounded specialists.** An **Oracle** conversation holds cross-project context and judgment. Existing **operator** conversations own coherent implementation scopes, commonly one repository. Talk directly to a specialist when useful. The app may use projects as repository containers; you do not need a new conversation for every idea.
 - **Agents do the supported work.** The operator runs authorized operations itself, using the tools that are actually installed. It asks you only for consequential consent or authentication, such as signing in, controlling a UI, spending money, sending email or releasing to customers. It does not hand you terminal commands to run.
 - **The outcome stays fixed.** Agents choose the simplest safe path toward what you asked to use. Pilots and subtasks are milestones, not substitute goals. See [outcome alignment](docs/roles-and-context.md#keep-the-humans-outcome-fixed).
 - **Existing work is reused.** Agents inventory existing tasks, schedules and accounts before they propose anything new. They create only what the approved setup requires, without repeated approval for its ordinary steps.

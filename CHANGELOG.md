@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6 — 2026-11-06
+
+Clarify responsive operator returns, evidence for each delivery stage, bounded diagnosis of empty results and native lifecycle acceptance. Check actual capabilities and the smallest effective path before adding infrastructure; preserve clear consent and exact denial scope. Reuse existing receipts and natural outcomes rather than adding queues or repeated demonstrations. Public examples remain synthetic. No installed profiles, security settings, schedules or services change.
+
 ## 0.1.5 — 2026-11-03
 
 Tighten external-contract test value and reuse, diagnosis of a common failed premise, and delivery acceptance after a delegated worker exits. Route the existing review skill to these checks. Existing source ownership, valid evidence reuse and authority remain unchanged; no new framework, service, schedule, memory integration or model selection.

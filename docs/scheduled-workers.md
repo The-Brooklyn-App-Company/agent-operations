@@ -29,6 +29,10 @@ A worker's result checks protect actual boundaries: account identity, tool permi
 
 A metadata watcher only reports. It never reviews diffs, fixes code, posts comments or merges.
 
+Verify capabilities in the actual receiving run. Use its exposed inventory and any supported deferred-tool discovery before declaring a tool unavailable; another conversation's catalog does not establish this run's access. A tool name mentioned in an instruction is not inventory evidence. Preserve the real result and never make an effectful provider call merely to test discovery. An unavailable external tool does not establish that an existing local receipt CLI is unavailable: attempt the permitted bounded local continuation and retain its exit code.
+
+Carry applicable human communication authorization and its trusted source into the local worker profile. An agent handoff alone grants nothing, while an actual standing human grant must not be discarded merely because the run is disposable. Preserve destination and payload scope, and keep private provenance out of this public kit.
+
 ## State and outcomes
 
 - **Healthy and unchanged** stays quiet.
@@ -51,9 +55,105 @@ Send a brief readable handoff: what changed, the actual recipient action or atte
 2. Release your own lock/lease.
 3. Archive only this successful worker chat last, using its supported native archive route. Archiving may immediately end the turn; do not rely on a later finalizer. A finite follow-up also pauses or retires its recurring schedule at settlement/expiry; archiving individual worker chats alone does not stop future runs.
 
+A completion summary, an inbox label or the words “eligible for archive” are not an archive operation. Verify the actual native operation or archive membership separately from result settlement; absence of a transcript item may limit the evidence, not justify inventing a receipt.
+
 Runs that end failed, unknown or with uncertain delivery stay visible until they are resolved. A project's pending issue should keep only its affected workers visible, not every healthy worker.
 
 If a human requested a digest, it is still due on quiet days, and it says "nothing changed". Synthesis across workers belongs to the operator, not to the workers.
+
+## Coordinator return paths
+
+Execution, operator handoff and human-facing publication are separate hops. When
+clients differ, verify each supported hop with useful work: an owner event can
+wake an idle intermediary; its returned result can notify the intended primary
+conversation; and the primary can publish the requested brief. A successful
+terminal callback alone does not prove independent event wake or scheduled
+availability. Do not invent an endpoint, credential or hidden application-state
+bridge to make a diagram work.
+
+An event relay can reduce repeated cross-project status polling where the client
+supports it. Keep it thin and change-only, use stable source/event identity in the
+existing local receipt, and reconcile unknown delivery before retry. Retain the
+working fallback until the replacement's actual acceptance. A read-only digest
+collector consumes an existing writer's result; it does not become a second
+writer or silently retire the old route. Record the relay's actual identity,
+owner, lifetime and acceptance limits locally before treating it as permanent.
+
+### Transport-only relay and receipt boundaries
+
+Keep an accepted operator-to-local-intermediary-to-coordinator return route until
+its replacement is actually verified. A destination that fails with an unknown
+thread is not a working direct route. Bind each hop to its actual principal,
+host, native identity and permitted scope in the existing private profile; a
+matching title or another principal's successful run is insufficient.
+
+The intermediary admits and returns bounded handoffs. It does not execute the
+recipient's domain work, wait for its approvals or become another coordinator.
+Domain work and approval waits stay with the owning operator so they cannot
+block unrelated returns. Preserve denied and interrupted actions on their
+original route; another hop is not permission to retry or evade a gate.
+
+On a material incoming handback, verify its source and stable correlation, then
+return a short useful final promptly so the supported completion callback can
+reach the primary. Do not keep that transport turn open for unrelated source
+work, tests, documentation or approvals. Routine repeats remain quiet under the
+existing receipt contract; the relay does not publish to the human itself.
+
+For one stable event and attempt, retain distinct evidence for transport
+admission, recipient processing, recipient completion, coordinator return and
+user publication. A terminal notification proves only that hop, not publication
+or successful domain work. Keep actual message/turn references and timestamps
+in existing local receipts, not a second queue. Reconcile unknown outcomes at
+the relevant destination before retry; a failure at a later hop does not permit
+resending an acknowledged earlier effect. Do not claim exactly-once delivery.
+
+### Admitted request with no useful result
+
+An accepted send may persist a request requiring a useful result and start a turn
+that completes with empty output. Treat that as a processing failure, not successful work or proof
+of a transport outage. Inspect the exact recipient and turn through supported
+native reads: request persistence, archive/loading state, tool calls, output,
+terminal status and exposed errors. Do not infer a limit, cancellation or model
+failure when the API reports none; do not inspect restricted session stores.
+An explicitly quiet acknowledgement or healthy unchanged watcher is different;
+evaluate the requested contract rather than requiring every turn to speak.
+
+Keep the same correlation and distinguish a transport retry from a new bounded
+instruction. Reconcile prior effects first. A bounded, authorized diagnostic
+follow-up is useful only when it can resolve a specific uncertainty without
+repeating effects. Repeated empty turns without new evidence require runtime
+diagnosis, not more wakeups. Replacement tasks, model changes and routing
+changes retain their own scope and acceptance; they are not transport retries.
+
+The existing coordinator may summarize an already-produced artifact within its
+own scope while the owner is unavailable. Label that coordinator processing;
+never manufacture the owner's acknowledgement or mark its delivery complete.
+Keep domain recovery and transport diagnosis separate. A lookup verifies a
+destination exists, but does not reverse an approval-review identity denial.
+
+### Native lifecycle acceptance
+
+A documented wait budget does not prove that a worker stayed alive. Qualify the
+actual supported execution/session lifecycle: an early wake must await its
+original bounded process through terminal output in the same turn, without a
+final answer while it is still running. A missing session is an unresolved
+failure, not a due result or permission to restart the effect.
+
+Before adoption, verify native traces for an early wake through due/claim and
+acknowledged delivery, an interrupted or lost session with no fabricated due
+result, uncertain delivery reconciled without duplicate publication, and failure
+retention without self-archive. Verify successful settlement and archive last
+separately. Offline clock/receipt fixtures do not certify those native behaviors.
+Preserve the existing single writer and timely fallback; label supervised or
+manual recovery separately from unattended success. Each adopting principal and
+host must demonstrate its own round trip, not inherit another account's proof.
+
+Quiet output does not establish low model cost. Inspect the actual model wake,
+profile size, tool steps and available usage evidence; a deterministic gate may
+run only after the model has started. Prefer a short current execution contract
+linked to detailed diagnosis/identity references. Preserve source checks,
+detection needs, receipt semantics and domain bounds when reducing overhead; do
+not claim savings percentages from elapsed time alone.
 
 ## Uniqueness and replacement
 
