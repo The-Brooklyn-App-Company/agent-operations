@@ -93,6 +93,12 @@ Domain work and approval waits stay with the owning operator so they cannot
 block unrelated returns. Preserve denied and interrupted actions on their
 original route; another hop is not permission to retry or evade a gate.
 
+On a material incoming handback, verify its source and stable correlation, then
+return a short useful final promptly so the supported completion callback can
+reach the primary. Do not keep that transport turn open for unrelated source
+work, tests, documentation or approvals. Routine repeats remain quiet under the
+existing receipt contract; the relay does not publish to the human itself.
+
 For one stable event and attempt, retain distinct evidence for transport
 admission, recipient processing, recipient completion, coordinator return and
 user publication. A terminal notification proves only that hop, not publication
