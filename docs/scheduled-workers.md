@@ -101,6 +101,28 @@ in existing local receipts, not a second queue. Reconcile unknown outcomes at
 the relevant destination before retry; a failure at a later hop does not permit
 resending an acknowledged earlier effect. Do not claim exactly-once delivery.
 
+### Admitted request with no useful result
+
+An accepted send may persist the request and start a turn that completes with
+empty output. Treat that as a processing failure, not successful work or proof
+of a transport outage. Inspect the exact recipient and turn through supported
+native reads: request persistence, archive/loading state, tool calls, output,
+terminal status and exposed errors. Do not infer a limit, cancellation or model
+failure when the API reports none; do not inspect restricted session stores.
+
+Keep the same correlation and distinguish a transport retry from a new bounded
+instruction. Reconcile prior effects first. If the request was admitted and no
+effect occurred, one authorized diagnostic follow-up may ask the same owner for
+a read-only result. If it again completes empty, stop automated invocations and
+report the exact evidence for native runtime diagnosis. Do not change models,
+create a replacement worker or redirect a denied send to force a response.
+
+The existing coordinator may summarize an already-produced artifact within its
+own scope while the owner is unavailable. Label that coordinator processing;
+never manufacture the owner's acknowledgement or mark its delivery complete.
+Keep domain recovery and transport diagnosis separate. A lookup verifies a
+destination exists, but does not reverse an approval-review identity denial.
+
 ### Native lifecycle acceptance
 
 A documented wait budget does not prove that a worker stayed alive. Qualify the
