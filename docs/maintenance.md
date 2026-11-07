@@ -10,7 +10,7 @@ Do not paste kit documents into repository instructions. Link to the pinned kit,
 
 ## Pinned versions
 
-Adopt a tagged release, such as `v0.1.7`, through a local checkout. Record the tag in your machine-local profile.
+Adopt a tagged release, such as `v0.1.8`, through a local checkout. Record the tag in your machine-local profile.
 
 To upgrade:
 
@@ -37,6 +37,8 @@ Create the optional profile at `~/.config/agent-operations/profile.local.json` (
 ## Local adoption evidence
 
 Keep the machine-local inventory separate from this public source: actual checkout/profile/skill paths, client discovery, repository role mapping, account references and native worker definitions belong in the local profile or existing handoff. Inspect actual installed paths and definitions instead of assuming that the example layout was adopted. Never publish these local bindings with the kit.
+
+Identify the actual consuming entrypoint and verify that it loads the intended pinned guide through its discovered skill or supported instruction route. A new contract file without that consumer is preparation, not adoption. A stale copy in an unrelated checkout does not establish the active consumer's version; inspect its resolved binding before proposing an upgrade. Keep skills as thin routes to the owning guide rather than copying policy into each entrypoint.
 
 A published tag or passing source check proves source availability, not adoption. Record the locally selected version, resolved skill bindings and discovery separately, then verify the next relevant task or natural worker run. Report prepared, installed and behaviorally accepted as distinct states; updating this repository does not update another machine or operator automatically.
 
