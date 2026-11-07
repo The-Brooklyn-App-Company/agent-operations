@@ -1,5 +1,7 @@
 # Release validation and limits
 
+Version 0.1.8 is a source-only routing and adoption clarification. Exact independent review, offline checks and package verification belong in release notes. No route coverage or installed behavior is certified by publication.
+
 Version 0.1.7 is a source-only clarification. Independent review and exact offline results belong in release notes; no installed-client or outcome improvement is claimed by publication.
 
 Version 0.1.6 is a November 6 source-only guidance release. Final independent review and offline documentation, worker-fixture and package-integrity results are recorded in its release notes. Prior local route proofs do not establish another operator’s access or unattended delivery. Installation and the next relevant natural outcome remain consumer-owned acceptance; no repeated synthetic event is required merely to adopt documentation.
