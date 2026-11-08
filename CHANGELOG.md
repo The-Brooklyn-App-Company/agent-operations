@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.9 — 2026-11-08
+
+Clarify prompt handback of blocked decisions, checking later replies, exact authenticated confirmation relay and owner consumption. Reuse existing delivery records and preserve action-time consent; no timer, approval queue or spend authority is added.
+
 ## 0.1.8 — 2026-11-07
 
 Clarify route addressability, exact-event acknowledgements and scoped denial evidence. Verify the actual consumer loads pinned guidance; unused files and unrelated checkouts do not prove adoption. Source guidance only; no installed configuration changes.
