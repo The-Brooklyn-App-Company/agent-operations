@@ -1,5 +1,7 @@
 # Release validation and limits
 
+Version 0.1.9 is source-only blocked-decision escalation guidance. Exact independent review and offline/package checks belong in release notes. Publication is not consumer adoption or confirmation of human-message delivery.
+
 Version 0.1.8 is a source-only routing and adoption clarification. Exact independent review, offline checks and package verification belong in release notes. No route coverage or installed behavior is certified by publication.
 
 Version 0.1.7 is a source-only clarification. Independent review and exact offline results belong in release notes; no installed-client or outcome improvement is claimed by publication.
