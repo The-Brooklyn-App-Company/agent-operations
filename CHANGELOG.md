@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.12 — 2026-11-12
+
+Verify that an immediate handoff starts at the intended destination. Carry unresolved handoffs through interruptions using the existing recovery route.
+
 ## 0.1.11 — 2026-11-12
 
 Verify the intended source before repository review, preserve the review checkout while it is in use, and refresh the canonical integration checkout at normal maintainer checkpoints.

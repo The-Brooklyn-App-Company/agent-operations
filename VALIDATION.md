@@ -1,5 +1,7 @@
 # Release validation and limits
 
+Version 0.1.12 clarifies immediate dispatch and recovery. Check the actual recipient turn or existing recovery path on the next relevant handoff.
+
 Version 0.1.11 clarifies review source and checkout maintenance. Verify the resolved guidance at adoption and observe the next relevant review or handoff.
 
 Version 0.1.10 clarifies how to hand off existing consent and handle platform review. Release notes record the independent review and offline checks. Verify actual consumer adoption separately.

@@ -109,6 +109,10 @@ resending an acknowledged earlier effect. Do not claim exactly-once delivery.
 
 ### Admitted request with no useful result
 
+When the human asks to dispatch work now, keep that handoff open until the intended recipient starts the requested work or returns a result that shows it acted. A queued message, accepted send or delegated assignment only proves transport. Check pending immediate handoffs before closing the turn and when resuming after an interruption.
+
+If the intended worker is idle, interrupted or finished, use a supported start or resume operation on the existing destination and verify the new turn or action. If the client cannot start it, or execution still cannot be verified, record the specific blocker, the recovery owner and a verified existing callback or durable wake that will pick it up. If there is no such recovery path, say so and surface the open blocker. Keep the exact target, task and existing event key, and reconcile an uncertain send at the destination before retrying.
+
 An accepted send may persist a request requiring a useful result and start a turn
 that completes with empty output. Treat that as a processing failure, not successful work or proof
 of a transport outage. Inspect the exact recipient and turn through supported
