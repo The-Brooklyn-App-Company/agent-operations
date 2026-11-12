@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.11 — 2026-11-12
+
+Verify the intended source before repository review, preserve the review checkout while it is in use, and refresh the canonical integration checkout at normal maintainer checkpoints.
+
 ## 0.1.10 — 2026-11-12
 
 Preserve direct consent, later corrections and a verifiable source when handing a decision to another operator. Carry platform denials across routes and ask again only for the specific direct decision the platform requires.
