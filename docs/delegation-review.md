@@ -50,6 +50,10 @@ When recommending a fix, separate its incremental benefit on the recent failure/
 
 The reviewer receives the packet's acceptance criteria and the **exact head SHA**. It does not receive the implementer's reasoning, which keeps the findings independent.
 
+Before starting a repository review, verify the working directory, repository, branch and commit. For a review of current integration, compare the checkout with the verified integration ref. For a PR or release review, use the intended head even if another branch is newer. If the review needs local changes, identify those changes alongside the base commit.
+
+Keep the review input stable while the reviewer is using it. Coordinate before switching, updating or cleaning that checkout, including changes to uncommitted review inputs. If the intended source differs, use a separate checkout at the intended commit and tell the reviewer which path to use. Treat findings from an older checkout as evidence about that revision and recheck them against the intended source before acting.
+
 Report findings with these fields:
 
 - Location
@@ -81,6 +85,8 @@ One reviewer is enough by default. Escalate to a stronger model or to a human on
 ## Maintainer integration
 
 The operator shepherds approved work to the repository's accepted integration branch within its actual authority. Inventory open and stacked PRs, their bases, dependencies, current approvals and checks before declaring the work complete. A stale base or unavailable reviewer is a condition to resolve, not a reason to abandon accepted work silently. Rebase or update only within the authorized route, preserve unique changes, and verify the resulting delta and required checks.
+
+At an ordinary handoff or completed integration checkpoint, the repository operator checks the canonical checkout against the documented integration branch. Refresh that branch by fast-forward only after confirming the checkout is on it, clean and idle. Verify the resulting commit. If the checkout is on another branch, switch only when the change is safe and within scope. If another task is using it or it contains uncommitted or divergent work, preserve it and leave the specific exception and next action in the existing handoff. Work that needs the current source can use an isolated checkout while the exception is resolved.
 
 Give each superseded PR an honest disposition: link the accepted replacement and account for its unique work, including any deferred portion and owner. Do not close or merge pending work merely to make the branch list tidy. If integration is outside scope, leave the exact next action and owner in the existing handoff.
 
