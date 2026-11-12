@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.10 — 2026-11-12
+
+Preserve direct consent, later corrections and a verifiable source when handing a decision to another operator. Carry platform denials across routes and ask again only for the specific direct decision the platform requires.
+
 ## 0.1.9 — 2026-11-08
 
 Clarify prompt handback of blocked decisions, checking later replies, exact authenticated confirmation relay and owner consumption. Reuse existing delivery records and preserve action-time consent; no timer, approval queue or spend authority is added.
