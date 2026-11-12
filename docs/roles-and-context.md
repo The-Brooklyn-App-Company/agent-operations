@@ -59,11 +59,19 @@ moving, and retire a self-imposed gate when its premise is disproved.
 
 Prepare foreseeable authentication and consent dependencies early: verify the exact target, principal, required action and bounded session or expiry before the attended window. Reuse valid grants and prepare independent work first; preparation does not initiate sign-in, control a UI or extend authority.
 
-Carry clear existing consent through the supported review path rather than
-asking for it again by default. If automatic review still rejects the action,
-stop that exact action and report its literal reason and execution state; do
-not change routes to obtain a different decision. A new request should address
-the specific missing scope or evidence, not repeat a generic approval.
+Before asking again, reconcile the human's direct decisions and later
+corrections. Check that the current action, target, recipient or account, and
+consequences fit the grant. Pass the exact decision and a source reference the
+receiving owner can verify through the supported review path. Ask the receiver
+to confirm the disposition when it matters to delivery.
+
+Human consent and platform acceptance are separate. If automatic review denies
+the action, record its stated reason and whether anything executed. Preserve
+that denial across routes and continue independent work. Use the supported path
+again only after resolving the stated gap with material new evidence or a
+corrected scope. If the platform
+requires a direct decision in the executing conversation, ask there only for
+that decision. Reuse the rest of the existing authorization.
 
 When an unanswered decision blocks an owner and the human appears away, use the existing authorized coordinator route to surface it. The owner promptly hands back the exact blocked action and scope, verbatim question, source timestamp when exposed and current status without waiting for unrelated implementation to finish. Report age only from an exposed timestamp or label it unknown; do not infer when the question was asked. The coordinator checks for later replies before contacting the human through an authorized channel; elapsed time alone neither grants approval nor establishes absence. Relay the exact authenticated reply with its provenance, then verify the owner consumed it and record the resulting disposition in the existing handoff. Reuse delivery deduplication and unknown-send reconciliation; do not create another approval queue or invent a fixed timer. A relayed answer grants only its actual scope and does not replace mandatory action-time confirmation, authentication or a still-applicable denial.
 
