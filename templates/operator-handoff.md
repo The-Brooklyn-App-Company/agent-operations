@@ -30,6 +30,6 @@ Record what was done, with the resulting SHA, link or ID. Include anything skipp
 
 ## Open
 
-List open decisions, blockers and the next owner.
+Compare the executed step with the full authorized outcome. For remaining work, name the existing owner and next action; distinguish ready authorized work from a real dependency or parked scope. For a wait, name the verified existing result path or checkpoint. Link the owning record rather than creating a second task list.
 
 -
