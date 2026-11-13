@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.13 — 2026-11-13
+
+Reconcile completed milestones against the full authorized outcome and continue ready work through its existing owner. Keep actual dependencies and parked scope distinct, using the existing handoff and result-return path.
+
 ## 0.1.12 — 2026-11-12
 
 Verify that an immediate handoff starts at the intended destination. Carry unresolved handoffs through interruptions using the existing recovery route.

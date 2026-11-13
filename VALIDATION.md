@@ -1,5 +1,7 @@
 # Release validation and limits
 
+Version 0.1.13 clarifies post-milestone continuation. Offline source and existing fixture checks do not prove live follow-through. Verify the next returned result against the remaining outcome through the adopted consumer route.
+
 Version 0.1.12 clarifies immediate dispatch and recovery. Check the actual recipient turn or existing recovery path on the next relevant handoff.
 
 Version 0.1.11 clarifies review source and checkout maintenance. Verify the resolved guidance at adoption and observe the next relevant review or handoff.
