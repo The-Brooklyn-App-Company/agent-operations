@@ -127,6 +127,29 @@ test_interrupted_period_runs_unstarted_hooks() {
   assert_eq "$(ran a) $(ran b)" "0 1"
 }
 
+test_unrecordable_stamp_blocks_the_hook() {
+  hook daily d
+  : >"$T/state/stamps"
+  at "2026-11-17 07:00"
+  run tick.sh --no-relay
+  assert_rc 1
+  assert_eq "$(ran d)" 0
+  assert_has "$T/err" "not running daily/d"
+}
+
+test_failed_alert_is_retried() {
+  at "2026-11-17 12:00"
+  mkdir -p "$T/home/inbox"
+  : >"$T/home/inbox/oracle"
+  run tick.sh --no-relay
+  assert_rc 1
+  assert_no_file "$T/state/watchdog/alpha.last"
+  mv "$T/home/inbox/oracle" "$T/blocker"
+  run tick.sh --no-relay
+  assert_rc 0
+  assert_file "$(ls "$T/home/inbox/oracle"/*-watchdog-alpha.md)"
+}
+
 test_failing_hook_is_reported() {
   hook every bad 'echo "hook says no"; exit 5'
   hook every good

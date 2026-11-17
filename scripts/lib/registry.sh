@@ -89,10 +89,12 @@ ao_inbox_put() {
 }
 
 # ao_note_oracle SLUG TEXT...  One-paragraph note to the Oracle's inbox.
+# Returns non-zero (with the reason on stderr) instead of exiting, so a
+# scheduled run can count the failure and carry on.
 ao_note_oracle() {
   _ao_ns=$1
   shift
-  printf '%s\n' "$*" | ao_inbox_put "$AO_ORACLE_KEY" "$_ao_ns" >/dev/null
+  printf '%s\n' "$*" | (ao_inbox_put "$AO_ORACLE_KEY" "$_ao_ns") >/dev/null
 }
 
 # ao_inbox_count KEY  Print the number of pending notes in KEY's inbox.

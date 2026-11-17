@@ -181,6 +181,22 @@ test_timeout_kills_descendants() {
   assert_no_file "$T/home/stubborn"
 }
 
+test_interrupt_stops_children_before_releasing_lock() {
+  # A supervisor holding a lock is told to stop while its child ignores TERM:
+  # the child must be gone before the lock is released.
+  "$AO_TEST_SHELL" -c '
+    AO_SCRIPTS=$1; . "$AO_SCRIPTS/lib/core.sh"; ao_load; ao_lock demo
+    ao_timeout 60 sh -c "trap \"\" TERM; sleep 13; : >\"$AO_HOME/stubborn\""' sh "$SCRIPTS" \
+    </dev/null >"$T/out" 2>"$T/err" &
+  sup=$!
+  sleep 2
+  kill -s TERM "$sup"
+  wait "$sup"
+  assert_no_file "$T/state/locks/demo.lock"
+  sleep 3
+  assert_no_file "$T/home/stubborn"
+}
+
 test_timeout_coreutils() {
   command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1 || return 0
   lib 'ao_timeout 1 sleep 20; echo "slow=$?"; ao_timeout 5 sh -c "exit 6"; echo "fast=$?"'

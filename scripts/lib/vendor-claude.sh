@@ -16,7 +16,8 @@
 #           ToolSearch,ListAgents,SendMessage, and success is never taken from
 #           the model's words: the JSON event stream must show exactly one
 #           SendMessage call, addressed to this name, whose text is this batch
-#           (whitespace-normalised), and a successful, non-error result for
+#           (exact, ignoring only leading and trailing blank space), and a
+#           successful, non-error result for
 #           that call. Verifying needs jq; without it delivery fails closed.
 #           Delivered is not read.
 # activity: the registered session's transcript
@@ -83,7 +84,7 @@ After sending, print SENT. If SendMessage fails, print FAILED and the error."
 # ignored; every tool_use block in every assistant event is counted.
 _vendor_claude_receipt() {
   jq -nrR --arg to "$2" --rawfile msg "$3" '
-    def norm: gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; "");
+    def norm: sub("^\\s+"; "") | sub("\\s+$"; "");
     def text: if type == "string" then .
       elif type == "array" then map(.text? // "") | join("")
       else tostring end;

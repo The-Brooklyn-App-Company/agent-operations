@@ -46,18 +46,24 @@ relay_sent_base() {
   printf '%s/%s-%s-%s\n' "$AO_SENT" "$AO_T_STAMP" "$OP_KEY" "${1##*/}"
 }
 
-# relay_append NOTE  Add one note to the message being built.
+# relay_append NOTE  Add one note to the message being built. The note joins
+# the batch only once its whole part was read and written; an unreadable
+# note is left claimed (returned to the inbox at the end) and counted.
 relay_append() {
-  _size=$(wc -c <"$1" | tr -d ' ')
-  {
-    printf -- '--- %s\n' "${1##*/}"
-    head -c "$max_bytes" "$1"
-    if [ "$_size" -gt "$max_bytes" ]; then
-      printf '\n[cut at %s of %s bytes; full note: %s]' "$max_bytes" "$_size" "$(relay_sent_base "$1")"
-    fi
-    printf '\n'
-  } >>"$msg"
-  printf '%s\n' "$1" >>"$batch"
+  if ! _size=$(wc -c <"$1" 2>/dev/null | tr -d ' ') || ! ao_is_uint "$_size" ||
+    ! _body=$(head -c "$max_bytes" "$1" 2>/dev/null && echo x); then
+    ao_log "$log" "to=$OP_KEY FAILED: cannot read ${1##*/}; left for the next run"
+    failures=$((failures + 1))
+    return 0
+  fi
+  _body=${_body%x}
+  _part=$(printf -- '--- %s\n%s' "${1##*/}" "$_body"; echo x)
+  _part=${_part%x}
+  if [ "$_size" -gt "$max_bytes" ]; then
+    _part=$_part$(printf '\n[cut at %s of %s bytes; full note: %s]' "$max_bytes" "$_size" "$(relay_sent_base "$1")")
+  fi
+  printf '%s\n' "$_part" >>"$msg" || ao_die "$AO_E_FAIL" "cannot write the relay message"
+  printf '%s\n' "$1" >>"$batch" || ao_die "$AO_E_FAIL" "cannot write the relay batch list"
 }
 
 relay_start() {
@@ -65,14 +71,16 @@ relay_start() {
   : >"$batch"
 }
 
-# relay_archive  Move the delivered batch to the sent archive.
+# relay_archive LIST  Move delivered notes (paths in LIST) to the sent
+# archive; returns 1 if any could not be moved.
 relay_archive() {
   mkdir -p "$AO_SENT" || return 1
   _ok=0
   while IFS= read -r _f; do
+    [ -f "$_f" ] || continue
     _base=$(relay_sent_base "$_f")
     ao_place "$_f" "${_base%.md}" .md >/dev/null || { ao_warn "delivered but not archived: $_f"; _ok=1; }
-  done <"$batch"
+  done <"$1"
   return "$_ok"
 }
 
@@ -90,29 +98,44 @@ relay_flush() {
     failures=$((failures + 1))
     return 1
   fi
-  if relay_archive; then
+  # Record the acknowledgement first, so a failed archive is finished later
+  # without sending the batch again.
+  cat "$batch" >>"$claim/.acked"
+  if relay_archive "$batch"; then
     ao_log "$log" "to=$OP_KEY via=$OP_CLIENT id=$_id files=$_count ok"
   else
-    ao_log "$log" "to=$OP_KEY via=$OP_CLIENT id=$_id files=$_count delivered, ARCHIVE FAILED (will be re-sent)"
+    ao_log "$log" "to=$OP_KEY via=$OP_CLIENT id=$_id files=$_count delivered, ARCHIVE FAILED (archiving retried next run, not re-sent)"
     failures=$((failures + 1))
   fi
 }
 
-# relay_unclaim  Return every claimed note to the inbox (never overwriting).
+# relay_unclaim  Finish archiving notes already acknowledged (listed in
+# .claimed/.acked), and return every other claimed note to the inbox
+# (never overwriting).
 relay_unclaim() {
+  if [ -f "$claim/.acked" ]; then
+    relay_archive "$claim/.acked" || failures=$((failures + 1))
+  fi
   for _c in "$claim"/*.md; do
     [ -f "$_c" ] || continue
+    # Acknowledged but not yet archived: keep it claimed, never re-send.
+    if [ -f "$claim/.acked" ] && grep -Fxq -- "$_c" "$claim/.acked"; then continue; fi
     _n=${_c##*/}
     ao_place "$_c" "$AO_INBOX/$OP_KEY/${_n%.md}" .md >/dev/null ||
       ao_warn "cannot return claimed note $_c to the inbox"
   done
+  set -- "$claim"/*.md
+  [ -f "$1" ] || rm -f "$claim/.acked"
 }
 
 # relay_row  Registry callback: deliver one operator's inbox, if non-empty.
 relay_row() {
   [ -z "$only_key" ] || [ "$OP_KEY" = "$only_key" ] || return 0
   claim=$AO_INBOX/$OP_KEY/.claimed
-  [ -n "$dry_run" ] || [ ! -d "$claim" ] || relay_unclaim
+  if [ -z "$dry_run" ] && [ -d "$claim" ]; then
+    relay_unclaim
+    rmdir "$claim" 2>/dev/null
+  fi
   set -- "$AO_INBOX/$OP_KEY"/*.md
   [ -f "$1" ] || return 0
   case $OP_CLIENT in
@@ -143,6 +166,7 @@ relay_row() {
     relay_append "$_note"
   done
   if [ -s "$batch" ]; then relay_flush || relay_unclaim; fi
+  relay_unclaim
   rmdir "$claim" 2>/dev/null
   return 0
 }

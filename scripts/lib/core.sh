@@ -76,11 +76,21 @@ ao_cleanup() {
   AO_LOCK=
   rm -rf "$AO_TMPDIR"
 }
-# ao_on_signal CODE  Forward the signal to a running timed child (its whole
-# process group where possible), then exit; the EXIT trap cleans up.
+# ao_on_signal CODE  Stop a running timed child (TERM, a grace period, then
+# KILL, to its process group where it has one) and wait for it, then exit;
+# only then does the EXIT trap release the lock and temp files.
 ao_on_signal() {
   if [ -n "${AO_CHILD:-}" ]; then
     kill -s TERM -- "-$AO_CHILD" 2>/dev/null || kill -s TERM "$AO_CHILD" 2>/dev/null
+    _n=0
+    while [ "$_n" -lt 10 ] && kill -0 "$AO_CHILD" 2>/dev/null; do
+      sleep 1
+      _n=$((_n + 1))
+    done
+    kill -s KILL -- "-$AO_CHILD" 2>/dev/null || kill -s KILL "$AO_CHILD" 2>/dev/null
+    wait "$AO_CHILD" 2>/dev/null
+    _ao_reap "$AO_CHILD"
+    AO_CHILD=
   fi
   exit "$1"
 }
@@ -279,29 +289,43 @@ ao_write_atomic() {
 # ao_place SRC BASE EXT  Move SRC to BASE.EXT, or BASE-2.EXT, BASE-3.EXT...
 # without ever replacing an existing file: link(2) refuses an existing name,
 # so concurrent writers cannot overwrite each other. A SRC on another
-# filesystem is first copied to a temp file beside the destination. Fails
-# (status 1) if SRC cannot be removed afterwards. Prints the final path.
+# filesystem is copied once to a temp file beside the destination and that
+# copy is linked; a destination filesystem without hard links fails closed.
+# Fails (status 1) if SRC cannot be removed afterwards. Prints the path.
 ao_place() {
-  _ao_dest=$2$3
+  if _ao_dest=$(_ao_link_noclobber "$1" "$2" "$3"); then
+    rm -f "$1" || return 1
+    printf '%s\n' "$_ao_dest"
+    return 0
+  fi
+  [ "$_ao_dest" = nolink ] || return 1
+  _ao_stage=$(mktemp "$(dirname -- "$2")/.tmp.XXXXXX") || return 1
+  if cp "$1" "$_ao_stage" && _ao_dest=$(_ao_link_noclobber "$_ao_stage" "$2" "$3"); then
+    rm -f "$_ao_stage" "$1" || return 1
+    printf '%s\n' "$_ao_dest"
+    return 0
+  fi
+  rm -f "$_ao_stage"
+  [ "$_ao_dest" != nolink ] || ao_warn "cannot hard-link in $(dirname -- "$2"); not placing $1"
+  return 1
+}
+
+# _ao_link_noclobber SRC BASE EXT  Hard-link SRC to the first free name and
+# print it. Prints `nolink` and fails when linking fails for any reason
+# other than a taken name (other filesystem, no hard-link support).
+_ao_link_noclobber() {
+  _ao_to=$2$3
   _ao_i=1
-  while ! ln "$1" "$_ao_dest" 2>/dev/null; do
-    if [ ! -e "$_ao_dest" ]; then
-      # Not a name clash (e.g. cross-device): stage a copy, then link that.
-      _ao_stage=$(mktemp "$(dirname -- "$_ao_dest")/.tmp.XXXXXX") || return 1
-      if ! cp "$1" "$_ao_stage" || ! _ao_dest=$(ao_place "$_ao_stage" "$2" "$3"); then
-        rm -f "$_ao_stage"
-        return 1
-      fi
-      rm -f "$1" || return 1
-      printf '%s\n' "$_ao_dest"
-      return 0
+  while ! ln "$1" "$_ao_to" 2>/dev/null; do
+    if [ ! -e "$_ao_to" ]; then
+      echo nolink
+      return 1
     fi
     _ao_i=$((_ao_i + 1))
     [ "$_ao_i" -le 999 ] || return 1
-    _ao_dest=$2-$_ao_i$3
+    _ao_to=$2-$_ao_i$3
   done
-  rm -f "$1" || return 1
-  printf '%s\n' "$_ao_dest"
+  printf '%s\n' "$_ao_to"
 }
 
 # ---------------------------------------------------------------- locking

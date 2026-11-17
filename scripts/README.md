@@ -41,7 +41,7 @@ key.
 | `operators/REGISTRY.tsv` | `registry` | One row per session |
 | `operators/WATCHDOG-QUIET.tsv` | `quiet_list` | Dated watchdog exemptions |
 | `inbox/<key>/*.md` | `inbox_dir` | Notes waiting for a session; `.claimed/` holds a batch while it is being delivered |
-| `inbox/sent/` | `sent_dir` | Delivered notes, `<stamp>-<key>-<name>` |
+| `inbox/sent/` | `sent_dir` | Delivered notes, `<stamp>-<key>-<name>`; must be on a filesystem with hard links |
 | `hooks/{every,hourly,daily,weekly}/` | `hooks_dir` | Tick hooks; optional `hooks/gate` |
 | `~/.local/state/agent-operations/` | `state_dir` | Logs, stamps, locks (machine-local; keep out of git and backups) |
 
@@ -147,12 +147,15 @@ should write inboxes. The Claude delivery run is confined: no tool servers,
 no hooks, and only the built-in `ToolSearch`, `ListAgents` and `SendMessage`
 tools. Success is never taken from the model's words: the JSON event stream
 must show exactly one `SendMessage` call, addressed to the registered name,
-whose text is the batch (including its `relay-id` line; whitespace
-normalised), and a successful, non-error result for that call. Verifying
-needs `jq`; without it the relay refuses to deliver. On any mismatch the
-notes return to the inbox and the batch is retried. Delivery is
-at-least-once: a crash between confirmation and archiving re-sends the
-batch. Notes are claimed (renamed into `.claimed/`) before they are read,
+whose text is exactly the batch (including its `relay-id` line; only
+leading and trailing blank space may differ), and a successful, non-error
+result for that call. Verifying needs `jq`; without it the relay refuses to
+deliver. On any mismatch the notes return to the inbox and the batch is
+retried. The check runs after the call, so it detects a wrong or extra send
+rather than preventing it; the tool allow-list is what limits the run.
+A confirmed batch is recorded (`.claimed/.acked`) before archiving, so an
+archive failure is retried without re-sending; only a crash between
+confirmation and that record can re-send a batch. Notes are claimed (renamed into `.claimed/`) before they are read,
 so a note rewritten during delivery stays pending instead of being archived
 unsent.
 

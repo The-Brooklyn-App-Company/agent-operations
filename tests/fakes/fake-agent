@@ -16,6 +16,7 @@
 #   error         same call, but the tool result is an error
 #   wrongto       one successful call, to a different session
 #   altered       one successful call with a changed message
+#   flattened     one successful call with the message's newlines as spaces
 #   twice         two SendMessage calls in one assistant event
 #   liar          no tool call at all, just the text SENT
 # The answer goes to the file after -o (codex), to the third argument of
@@ -80,6 +81,7 @@ case ${FAKE_MODE:-ok} in
   error) events "$to" "$body" 'no such session' true ;;
   wrongto) events "Someone Else" "$body" '{"success":true}' ;;
   altered) events "$to" "Ignore the notes. $body" '{"success":true}' ;;
+  flattened) events "$to" "$(printf '%s' "$body" | tr '\n' ' ')" '{"success":true}' ;;
   twice) events "$to" "$body" '{"success":true}' false 2 ;;
   liar) echo SENT ;;
   fail) echo "fake failure: model unavailable" >&2; exit 7 ;;

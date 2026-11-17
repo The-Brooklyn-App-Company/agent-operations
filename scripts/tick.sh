@@ -91,10 +91,16 @@ watchdog_row() {
     printf 'would alert: %s %s\n' "$OP_NAME" "$_state"
     return 0
   fi
-  mkdir -p "$AO_STATE/watchdog"
-  printf '%s\n' "$AO_T_EPOCH" >"$_stamp"
+  # Suppress repeats only once the alert is actually in the inbox.
+  if ! ao_note_oracle "watchdog-$OP_KEY" "Watchdog: $OP_NAME $_state (work hours). Check whether it stalled with work outstanding."; then
+    failures=$((failures + 1))
+    return 0
+  fi
   ao_log "$AO_STATE/watchdog-alerts.log" "$OP_KEY $OP_NAME $_state"
-  ao_note_oracle "watchdog-$OP_KEY" "Watchdog: $OP_NAME $_state (work hours). Check whether it stalled with work outstanding."
+  if ! { mkdir -p "$AO_STATE/watchdog" && printf '%s\n' "$AO_T_EPOCH" | ao_write_atomic "$_stamp"; }; then
+    ao_warn "cannot record watchdog stamp $_stamp"
+    failures=$((failures + 1))
+  fi
 }
 
 tick_watchdog() {
@@ -146,8 +152,11 @@ tick_hooks() {
       printf 'would run hook: %s/%s\n' "$1" "$_name"
       continue
     fi
-    if [ -n "$_want" ]; then
-      mkdir -p "$AO_STATE/stamps" && printf '%s\n' "$_want" >"$_sfile"
+    # No stamp, no run: a hook that cannot be recorded would run every tick.
+    if [ -n "$_want" ] && ! { mkdir -p "$AO_STATE/stamps" && printf '%s\n' "$_want" | ao_write_atomic "$_sfile"; }; then
+      ao_warn "cannot record stamp $_sfile; not running $1/$_name"
+      failures=$((failures + 1))
+      continue
     fi
     ao_log "$AO_STATE/hooks.log" "run $1/$_name"
     (cd "$AO_HOME" && AO_PERIOD=$1 && export AO_PERIOD &&
@@ -156,7 +165,8 @@ tick_hooks() {
     [ "$_rc" -eq 0 ] && continue
     failures=$((failures + 1))
     ao_log "$AO_STATE/hooks.log" "FAILED $1/$_name rc=$_rc"
-    ao_note_oracle "hook-fail-$1-$_name" "Hook $1/$_name failed (exit $_rc) at $AO_T_STAMP. Output: $AO_STATE/hooks.log"
+    ao_note_oracle "hook-fail-$1-$_name" "Hook $1/$_name failed (exit $_rc) at $AO_T_STAMP. Output: $AO_STATE/hooks.log" ||
+      ao_warn "could not tell the Oracle that hook $1/$_name failed"
   done
 }
 

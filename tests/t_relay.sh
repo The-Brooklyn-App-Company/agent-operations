@@ -31,7 +31,7 @@ test_claude_delivery_archives_notes() {
 }
 
 test_receipt_is_required() {
-  for mode in failed error wrongto altered twice liar; do
+  for mode in failed error wrongto altered flattened twice liar; do
     note alpha 001-a.md "first note"
     FAKE_MODE=$mode run relay.sh
     assert_rc 1
@@ -76,6 +76,35 @@ test_interrupted_claim_is_recovered() {
   FAKE_MODE=sent run relay.sh
   assert_rc 0
   assert_has "$(ls "$T/home/inbox/sent"/*-alpha-old.md)" "left behind"
+  assert_no_file "$T/home/inbox/alpha/.claimed"
+}
+
+test_unreadable_note_is_not_archived() {
+  note alpha a.md "readable"
+  note alpha b.md "secret body"
+  chmod 000 "$T/home/inbox/alpha/b.md"
+  FAKE_MODE=sent run relay.sh
+  chmod 600 "$T/home/inbox/alpha/b.md" 2>/dev/null
+  assert_rc 1
+  assert_has "$T/state/relay.log" "cannot read b.md"
+  assert_file "$T/home/inbox/alpha/b.md"
+  assert_count "$T/home/inbox/sent" 1
+}
+
+test_acknowledged_batch_is_not_resent() {
+  profile_set sent_dir "$T/sent"
+  mkdir -p "$T/sent"
+  chmod 500 "$T/sent"
+  note alpha a.md "once only"
+  FAKE_MODE=sent run relay.sh
+  assert_rc 1
+  assert_has "$T/state/relay.log" "ARCHIVE FAILED"
+  assert_file "$T/home/inbox/alpha/.claimed/.acked"
+  chmod 700 "$T/sent"
+  FAKE_MODE=sent run relay.sh
+  assert_rc 0
+  assert_eq "$(grep -c '^== claude' "$FAKE_LOG")" 1 "sends"
+  assert_has "$(ls "$T/sent"/*-alpha-a.md)" "once only"
   assert_no_file "$T/home/inbox/alpha/.claimed"
 }
 

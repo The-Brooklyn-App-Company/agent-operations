@@ -21,7 +21,8 @@
 #          current directory. Matching lines are printed as file:line only,
 #          never with their text, so the report itself leaks nothing.
 #
-# Exit codes: 0 clean; 1 findings; 2 usage error.
+# Exit codes: 0 clean; 1 findings, or a scan that could not complete (the
+# message says which); 2 usage error.
 set -u
 AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$AO_SCRIPTS/lib/core.sh"
@@ -51,7 +52,8 @@ check_dupes() {
   # each heading, list item, quote or table row starts a new one), so a rule
   # wrapped differently in two files still matches. Locations are the
   # paragraph's first line.
-  _found=$(awk -v minw="$min_words" '
+  found=$(ao_tmp found)
+  awk -v minw="$min_words" '
     function flush(   t, n, i, s, parts, words) {
       if (buf == "") return
       t = tolower(buf)
@@ -82,9 +84,9 @@ check_dupes() {
     END {
       flush()
       for (s in count) if (count[s] > 1) printf "%s: \"%s\"\n", where[s], substr(s, 1, 90)
-    }' "$@" | sort)
-  [ -z "$_found" ] && return 0
-  printf '%s\n' "$_found"
+    }' "$@" >"$found" || ao_die "$AO_E_USAGE" "duplicate scan failed"
+  [ -s "$found" ] || return 0
+  sort "$found"
   return "$AO_E_FAIL"
 }
 
@@ -98,7 +100,8 @@ check_skills() {
   [ $# -gt 0 ] || ao_die "$AO_E_USAGE" "skills needs at least one directory"
   for _d in "$@"; do [ -d "$_d" ] || ao_die "$AO_E_USAGE" "not a directory: $_d"; done
   skills=$(ao_tmp skills)
-  find "$@" -name SKILL.md -type f | sort >"$skills"
+  find "$@" -name SKILL.md -type f >"$skills.raw" || ao_die "$AO_E_USAGE" "cannot list skills"
+  sort "$skills.raw" >"$skills"
   _bad=0
   while IFS= read -r _s; do
     _n=$(wc -l <"$_s" | tr -d ' ')
@@ -124,7 +127,9 @@ check_privacy_each() {
   for _f in "$@"; do
     [ -f "$_f" ] || continue
     [ -r "$_f" ] || { ao_warn "cannot read $_f"; _rc=2; continue; }
-    grep -qI . -- "$_f" 2>/dev/null || continue
+    # grep: 0 text, 1 binary or empty (skip), 2 error (fail).
+    grep -qI . -- "$_f" 2>/dev/null
+    case $? in 0) ;; 1) continue ;; *) ao_warn "cannot read $_f"; _rc=2; continue ;; esac
     check_privacy_scan "$_f" "$_pat" || { ao_warn "could not scan $_f"; _rc=2; }
   done
   return "$_rc"
@@ -174,7 +179,11 @@ check_privacy() {
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
       ao_die "$AO_E_USAGE" "not a git checkout; pass paths explicitly"
     # NUL-delimited, so tracked names with quotes or newlines are scanned too.
-    git ls-files -z | xargs -0 "$AO_SCRIPTS/check.sh" __scan "$patterns" >"$hits" || _err=1
+    inventory=$(ao_tmp inventory)
+    git ls-files -z >"$inventory" || ao_die "$AO_E_USAGE" "git ls-files failed"
+    if [ -s "$inventory" ]; then
+      xargs -0 "$AO_SCRIPTS/check.sh" __scan "$patterns" <"$inventory" >"$hits" || _err=1
+    fi
   else
     for _p in "$@"; do [ -e "$_p" ] || ao_die "$AO_E_USAGE" "no such path: $_p"; done
     for _p in "$@"; do
@@ -182,8 +191,12 @@ check_privacy() {
       find "$_p" -type f ! -path '*/.git/*' -exec "$AO_SCRIPTS/check.sh" __scan "$patterns" {} + >>"$hits" || _err=1
     done
   fi
-  _hits=$(sort -u "$hits")
-  [ "$_err" -eq 0 ] || { [ -n "$_hits" ] && printf '%s\n' "$_hits"; return "$AO_E_FAIL"; }
+  _hits=$(sort -u "$hits") || _err=1
+  if [ "$_err" -ne 0 ]; then
+    [ -z "$_hits" ] || printf '%s\n' "$_hits"
+    ao_msg "privacy scan incomplete: some files could not be read"
+    return "$AO_E_FAIL"
+  fi
   [ -z "$_hits" ] && return 0
   printf '%s\n' "$_hits"
   return "$AO_E_FAIL"
