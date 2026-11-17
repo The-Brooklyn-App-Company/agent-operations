@@ -350,6 +350,7 @@ ao_lease_route() {
   fi
   OP_LEASE=$L_state OP_AUDIT=$L_audit
   OP_PROVIDER=$L_provider
+  _ao_regclient=$OP_CLIENT
   # The client is reported for every state (the outgoing provider while
   # released, the incoming one while assigned), so callers that pick a
   # reviewer from the opposite family follow a handoff at once. Only a held
@@ -357,8 +358,13 @@ ao_lease_route() {
   [ "$OP_CLIENT" = file-only ] || OP_CLIENT=$L_provider
   [ "$L_state" != released ] || return 0
   OP_NAME=$L_session
-  OP_SID=$L_session_id
-  [ "$OP_SID" != - ] || OP_SID=
+  # The lease's session id when it has one; else the registry's, which
+  # belongs to the same client only when the registry names that client.
+  if [ "$L_session_id" != - ]; then
+    OP_SID=$L_session_id
+  elif [ "$_ao_regclient" != "$L_provider" ]; then
+    OP_SID=
+  fi
 }
 
 # ---------------------------------------------------------------- git

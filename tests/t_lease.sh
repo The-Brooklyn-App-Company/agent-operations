@@ -411,7 +411,7 @@ AO_SCRIPTS=$SCRIPTS
 . "\$AO_SCRIPTS/lib/core.sh"
 . "\$AO_SCRIPTS/lib/registry.sh"
 ao_load --no-state
-show() { [ "\$OP_KEY" = "$1" ] && echo "client=\$OP_CLIENT provider=\$OP_PROVIDER lease=\$OP_LEASE audit=\$OP_AUDIT name=\$OP_NAME"; return 0; }
+show() { [ "\$OP_KEY" = "$1" ] && echo "client=\$OP_CLIENT provider=\$OP_PROVIDER lease=\$OP_LEASE audit=\$OP_AUDIT name=\$OP_NAME${2:+ sid=\$OP_SID}"; return 0; }
 ao_registry_each show
 EOF
   "$AO_TEST_SHELL" "$T/resolve.sh" 2>"$T/err"
@@ -419,6 +419,15 @@ EOF
 
 test_resolver_reports_provider_across_handoff() {
   lsetup
+  printf 'wd\tWd\t%s\tsid-wd\tclaude\n' "$T/ops/wd" >>"$T/home/operators/REGISTRY.tsv"
+  mkdir -p "$T/ops/wd"
+  printf 'key=wd\n' >"$T/ops/wd/operator.conf"
+  git_init "$T/ops/wd"
+  # Same client as the registry: its session id stays (the watchdog needs it).
+  acq claude Wd "$T/ops/wd"
+  assert_eq "$(resolve wd sid)" "client=claude provider=claude lease=held audit=- name=Wd sid=sid-wd"
+  with_tty "takeover wd 1" lease.sh --home "$T/ops/wd" takeover --expect-epoch 1 --holder-stopped --provider codex --session wd-x
+  assert_eq "$(resolve wd sid)" "client=codex provider=codex lease=assigned audit=pending name=wd-x sid="
   printf 'fo\tFo\t%s\t-\tfile-only\n' "$T/ops/fo" >>"$T/home/operators/REGISTRY.tsv"
   mkdir -p "$T/ops/fo"
   printf 'key=fo\n' >"$T/ops/fo/operator.conf"
