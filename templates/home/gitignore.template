@@ -1,0 +1,5 @@
+# Machine-local state: never committed.
+.operator/
+inbox/
+*.local
+*.local.*

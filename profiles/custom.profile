@@ -1,12 +1,13 @@
 # Profile: custom. Any CLI that can take a prompt file and write a result.
 # Copy it outside git (default: ~/.config/agent-operations/profile) and edit.
-# Format and every key, with defaults: scripts/README.md#profile.
-# The command contract (run / deliver / activity) is in
-# scripts/lib/vendor-custom.sh. The kit enforces the timeout and closes
-# stdin; your command must keep `run` read-only.
+# Every key and its default: scripts/README.md#profile. The command
+# contract (run / deliver / activity) is in scripts/lib/vendor-custom.sh.
+# The kit enforces the timeout and closes stdin; your command must keep
+# `run` read-only.
 
-oracle_home=~/oracle-home
+oracle_home=~/ops/oracle
 oracle_key=oracle
+work_root=~/src
 path=/usr/local/bin:/usr/bin:/bin
 
 # Relay through your own command, or leave notes for sessions to read.
@@ -20,10 +21,12 @@ worker_cmd=~/bin/my-agent
 worker_model=CHANGE-ME-small-model
 worker_timeout=600
 
+# Also used by the weekly cross-review for custom rows (K-22).
 reviewer_client=custom
 reviewer_cmd=~/bin/my-agent
 reviewer_model=CHANGE-ME-strong-model
 reviewer_timeout=2400
 review_family=single-model
+cross_review=on
 
 secrets=os

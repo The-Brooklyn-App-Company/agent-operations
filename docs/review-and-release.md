@@ -12,7 +12,7 @@ the task needs.
 
 A delegate uses the owner's existing subscription. If quota or access runs
 out it stops and reports; it never switches to API keys, another plan or
-another provider ([K-25](../kit/KIT.md)).
+another provider ([K-26](../kit/KIT.md)).
 
 The implementer works on a scoped branch from the base commit, runs every
 locally reproducible check that CI runs, and returns notes: what changed,
@@ -40,7 +40,7 @@ Review is independent ([K-19](../kit/KIT.md)) and bounded
 3. **Run it boxed.** `scripts/review-run.sh <packet> <out> [<worktree>] [<effort>]`
    runs the profile's reviewer read-only, ephemeral, with stdin closed, a
    hard timeout and effectful tool servers switched off
-   ([K-24](../kit/KIT.md)). It writes the review only on success, so a stale
+   ([K-25](../kit/KIT.md)). It writes the review only on success, so a stale
    file from an earlier round is never mistaken for a new verdict, and
    prints the `review_family` to record with the result.
 4. **Settle every finding** with location, severity (P0 to P3), evidence and
@@ -111,7 +111,7 @@ compatibility, ordering, idempotency, recovery and the permissions needed.
 target environment and the ordered activations, recorded in the
 repository's existing release record. Do not start a parallel tracker.
 
-**Match the target** before any effect ([K-27](../kit/KIT.md)): service,
+**Match the target** before any effect ([K-28](../kit/KIT.md)): service,
 account or tenant, project, environment, resource and acting principal, from
 read-only evidence on the actual execution route. A valid credential or a
 reachable deployment can belong to the wrong target. A mismatch stops the
@@ -134,7 +134,7 @@ purchases and spend stay separate decisions ([K-03](../kit/KIT.md),
 
 **Security fixes** may ship without waiting for the owner only under the
 opt-in gates in [the auto-ship example](../examples/security-auto-ship.md)
-([K-32](../kit/KIT.md)).
+([K-33](../kit/KIT.md)).
 
 ## Teams
 

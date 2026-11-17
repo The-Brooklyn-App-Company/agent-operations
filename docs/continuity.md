@@ -51,7 +51,7 @@ by hand. Park the work, push its branches, write a short handoff in
 `NOTES.md`, stop the old session, then start the new one in the same home
 and update its registry row. Treat every external effect the old session
 may have started as unknown until you have checked the target
-([K-27](../kit/KIT.md)).
+([K-28](../kit/KIT.md)).
 
 ## Mailboxes and doorbells
 

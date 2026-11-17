@@ -1,28 +1,23 @@
 ---
 name: operator-setup
-description: Use when adopting Agent Operations in a conversation or repository, or when re-checking an existing adoption. Not for routine repository work.
+description: Use when setting up Agent Operations (an Oracle home or a new operator) or re-checking an existing setup. Not for routine repository work.
 ---
 
 # Operator setup
 
-## Locate the kit
+The kit root is this skill's real directory, two levels up (`install.sh
+skills` links it there). If it does not resolve, stop and say so.
 
-1. Resolve this skill directory's real path by following symlinks.
-2. Take the directory two levels up as the kit root: `<kit-root>/skills/operator-setup` becomes `<kit-root>`.
-3. On Windows, or if resolution fails, read `kit.kitRoot` from `~/.config/agent-operations/profile.local.json` or the alternate profile path explicitly recorded in local guidance.
-4. If neither works, stop and report. Do not guess paths.
-
-## Do
-
-1. Read `<kit-root>/START-HERE.md` and follow its staged acceptance checkpoints within the actual approved scope.
-2. Use `<kit-root>/docs/roles-and-context.md` for role boundaries.
-3. Inventory read-only first: existing tasks, client version, native tools and signed-in accounts.
-4. Label every item as either existing or proposed new. Reuse what exists.
-5. Continue already-approved steps; pause only for missing authority, a consequential decision or owner-controlled authentication/UI consent. Record the state with `<kit-root>/templates/operator-handoff.md`.
-
-## Never
-
-- Create tasks, schedules, worktrees or remote connections outside the approved setup scope.
-- Start login flows or control UIs without explicit consent.
-- Copy credentials or print secrets.
-- Edit application databases or internal state to simulate a missing capability.
+1. Read `<kit>/README.md` and `<kit>/docs/operators-and-repos.md#install-and-bootstrap`.
+2. Inventory first, read-only: existing homes, the registry, the profile,
+   timers, sessions and signed-in clients. Reuse what exists.
+3. Run `<kit>/scripts/install.sh --dry-run oracle <home>` (or `operator
+   <key> ...`) and show the human the list.
+4. On the human's yes, run it without `--dry-run`; it never overwrites.
+5. Have the human fill in the profile and put any token in the OS secret
+   store themselves (`<kit>/docs/profiles-and-integrations.md`).
+6. Fill in `MANDATE.md` from the human's own words (`<kit>/templates/home/MANDATE.md`).
+7. Leave `settings/` for the human to apply in each client.
+8. Run `<kit>/scripts/check.sh home <home>` and `<kit>/scripts/status.sh`.
+9. Give the human the printed timer command; do not load timers yourself.
+10. Record what was created in the Oracle's journal.

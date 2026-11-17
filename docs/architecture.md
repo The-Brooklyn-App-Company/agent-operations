@@ -76,7 +76,7 @@ Kit rules beat mandates; mandates beat repository mechanics. `check.sh`
 fails on dead links and reports rule-length text duplicated across files
 and skills without a pointer into the docs. An optional weekly cheap-worker
 pass (`drift-check.sh`) reports contradictions between the rules,
-mandates, repository instructions and schedules ([K-31](../kit/KIT.md)).
+mandates, repository instructions and schedules ([K-32](../kit/KIT.md)).
 
 ## Teams
 

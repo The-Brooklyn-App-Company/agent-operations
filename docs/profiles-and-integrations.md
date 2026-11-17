@@ -33,7 +33,7 @@ The kit names capability roles; the profile maps them to clients.
 | Relay (`relay_<client>_*`) | A way to put a note in front of a named session | `file-only`: the session reads its inbox at turn start |
 
 A missing role is one note in the Oracle's inbox, never a silent
-substitution ([K-25](../kit/KIT.md)).
+substitution ([K-26](../kit/KIT.md)).
 
 ## Clients
 
@@ -71,7 +71,7 @@ the only kit scripts that use the network.
 ## Choosing models
 
 Write down a model and effort per role in the profile and change them
-deliberately ([K-25](../kit/KIT.md)). Put frequent light work on the
+deliberately ([K-26](../kit/KIT.md)). Put frequent light work on the
 cheapest tier that proves sufficient, and escalate only on demonstrated
 need: repeated failures, persistent disagreement, high risk. Before
 settling a recurring job's model, a short head-to-head on real inputs beats

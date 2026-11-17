@@ -61,7 +61,7 @@ whole instance.
 | File | Holds |
 | --- | --- |
 | `operators/REGISTRY.tsv` | One row per session the scripts know about ([format](../scripts/README.md#the-oracle-home)) |
-| `SCHEDULES.md` | Every timed job ([K-23](../kit/KIT.md)) |
+| `SCHEDULES.md` | Every timed job ([K-24](../kit/KIT.md)) |
 | `BACKLOG.md`, `JOURNAL.md`, `FACTS.md` | The [continuity records](continuity.md) |
 | `KIT.local.md` | The kit pin and personal overlay rules (`P-nn`, `override K-nn`) |
 | `inbox/` | Notes waiting for sessions; git-ignored |

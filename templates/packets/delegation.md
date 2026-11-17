@@ -1,13 +1,13 @@
 # Delegation packet
 
 - **Task:** `<existing task link>`
-- **Delegate:** `<model / effort>`; reviewer `<different model family / high effort>`; both via the owning human's existing approved provider route. No separate worker subscription or billing fallback; stop and report on quota/access loss.
+- **Delegate:** `<model / effort>`; reviewer `<other model family / high effort>`; both on the owner's existing subscriptions. No billing fallback: stop and report on quota or access loss (K-26).
 - **Repository and base SHA:** `<repo>` @ `<sha>`
 - **Branch:** `<scoped branch>`
 
 ## Goal
 
-State the human’s intended outcome and how this task contributes. Apply [outcome alignment](../docs/roles-and-context.md#keep-the-humans-outcome-fixed); a subtask milestone does not redefine project success.
+State the human’s intended outcome and how this task contributes. Apply kit rule K-11; a subtask milestone does not redefine project success.
 
 ## Scope
 
@@ -30,6 +30,16 @@ Declare the actual task boundary here. Example implementation scope: return a te
 ## Return format
 
 Return the implementer notes below, or reviewer findings.
+
+## Handoff to the merge owner
+
+When this work reaches the repository's merge owner as a pull request
+(K-16), fill this in the pull request body.
+
+- **From operator / branch:**
+- **Base and head SHA:**
+- **Review:** rounds, reviewer family, open findings and their dispositions
+- **Activation needed:** none, or see the release record
 
 ---
 

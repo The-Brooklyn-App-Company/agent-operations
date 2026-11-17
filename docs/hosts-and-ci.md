@@ -22,11 +22,11 @@ a systemd user timer on Linux (shipped, untested). Each tick, under a lock:
 user's launchd or systemd folder and prints the one command that loads it;
 loading it is your step, so no agent installs a persistent job on its own.
 The tick itself belongs in `SCHEDULES.md` like every other timed job
-([K-23](../kit/KIT.md)).
+([K-24](../kit/KIT.md)).
 
 ## Scheduled work
 
-Order every recurring job by cost ([K-22](../kit/KIT.md)): a free script
+Order every recurring job by cost ([K-23](../kit/KIT.md)): a free script
 checks first; a cheap worker classifies only what the script found; a
 session runs only to act.
 
@@ -35,7 +35,7 @@ window or triggering event, input validity and the lock. If nothing is
 eligible and every read was fresh and healthy, end quietly.
 
 **Cheap workers.** `scripts/worker-run.sh <job> <recipient> <prompt>` runs
-the worker role once, boxed ([K-24](../kit/KIT.md)). The prompt tells the
+the worker role once, boxed ([K-25](../kit/KIT.md)). The prompt tells the
 model to answer exactly `NOTHING` when there is nothing worth reporting:
 then nothing is written. Any other answer becomes a note in the recipient's
 inbox. A failure, a timeout, an empty answer or a missing role becomes a
@@ -71,7 +71,7 @@ An always-on host still sleeps, reboots and loses network: report those
 periods as unknown, never as healthy. Remote access must keep working when
 sessions sit idle, and urgent alerts need a push route to the human.
 
-**No routine permission prompts** ([K-26](../kit/KIT.md)). A dialog on an
+**No routine permission prompts** ([K-27](../kit/KIT.md)). A dialog on an
 unattended host blocks work for hours. Treat each unexpected prompt as a
 defect.
 
@@ -93,7 +93,7 @@ defect.
   ([K-05](../kit/KIT.md)). Reading a store item from a new binary can itself
   raise a prompt: grant it once, deliberately.
 
-**Keep churn out** ([K-28](../kit/KIT.md)): the kit's state directory
+**Keep churn out** ([K-29](../kit/KIT.md)): the kit's state directory
 (default `~/.local/state/agent-operations`), inboxes, caches, build output
 and virtual machines go in `.gitignore` and are excluded from backups and
 indexing when they are created.
