@@ -271,9 +271,11 @@ ao_lease_lock() {
 
 _ao_lease_stuck() {
   ao_msg "lease lock $1 is older than ${AO_LEASE_LOCK_MAX}s: failing closed. A human must check that no lease verb is running, then run: lease.sh unlock --timers-off --sessions-stopped"
-  # Tell the Oracle once per stuck lock (the marker sits beside the lock).
-  [ ! -e "$1.reported" ] || return 0
-  : >"$1.reported" 2>/dev/null || return 0
+  # Tell the Oracle once per stuck lock: the marker beside the lock records
+  # which lock (by its mtime) was reported.
+  _ao_lm=$(ao_mtime "$1" 2>/dev/null) || return 0
+  [ "$(cat "$1.reported" 2>/dev/null)" != "$_ao_lm" ] || return 0
+  printf '%s\n' "$_ao_lm" >"$1.reported" 2>/dev/null || return 0
   if [ -n "${AO_INBOX:-}" ]; then
     ao_note_oracle "lease-lock-$H_KEY" "Lease lock stuck for $H_KEY ($1): every lease verb fails closed until a human runs lease.sh unlock there." ||
       ao_warn "could not tell the Oracle about the stuck lock"
