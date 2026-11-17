@@ -10,7 +10,8 @@
 # (disableAllHooks). Verified with Claude Code 2.1.322 on 2026-11-17.
 #
 # run:      no session persistence; built-in tools limited to <role>_tools,
-#           default read-only (Read,Grep,Glob).
+#           which must be a subset of the read-only set Read,Grep,Glob
+#           (anything else, `default` included, is refused).
 # deliver:  a short run whose only job is one call of the built-in
 #           SendMessage tool, addressed to the session's display name. The
 #           message is the relay's fixed-shape pointer (never note text), the
@@ -41,12 +42,18 @@ _VC_UUID='[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 
 vendor_claude_run() {
   _vc_dir=$1 _vc_out=$3 _vc_err=$4
+  _vc_tools=${R_TOOLS:-$_VC_RUN_TOOLS}
+  for _vc_t in $(printf '%s' "$_vc_tools" | tr ',' ' '); do
+    case ",$_VC_RUN_TOOLS," in *",$_vc_t,"*) ;; *)
+      echo "$R_PREFIX: tool '$_vc_t' is not read-only; runs may use only $_VC_RUN_TOOLS" >"$_vc_err"
+      return "$AO_E_USAGE" ;;
+    esac
+  done
   set -- "$R_CMD" -p "$(ao_prompt_text "$2")" --no-session-persistence \
     --restricted --strict-mcp-config --settings "$_VC_SETTINGS"
   [ -z "$R_MODEL" ] || set -- "$@" --model "$R_MODEL"
   [ -z "$R_MAX_TURNS" ] || set -- "$@" --max-turns "$R_MAX_TURNS"
-  _vc_tools=${R_TOOLS:-$_VC_RUN_TOOLS}
-  [ "$_vc_tools" = default ] || set -- "$@" --tools "$_vc_tools"
+  set -- "$@" --tools "$_vc_tools"
   [ -z "$R_DISALLOWED" ] || set -- "$@" --disallowedTools "$R_DISALLOWED"
   AO_RUN_DIR=$_vc_dir
   ao_timeout "$R_TIMEOUT" "$@" >"$_vc_out" 2>"$_vc_err"

@@ -22,8 +22,9 @@ oracle_home() {
   printf 'work_root=%s\n' "$T/src" >>"$AO_PROFILE"
 }
 
-repo() { # DIR
-  mkdir -p "$1" && git -C "$1" init -q && git -C "$1" commit -q --allow-empty -m init
+repo() { # DIR ORIGIN
+  mkdir -p "$1" && git -C "$1" init -q && git -C "$1" commit -q --allow-empty -m init &&
+    git -C "$1" remote add origin "$2"
 }
 
 test_dry_run_lists_everything_and_writes_nothing() {
@@ -89,7 +90,7 @@ test_refusals() {
 
 test_operator_home_row_conf_and_worktree() {
   oracle_home
-  repo "$T/src/infra"
+  repo "$T/src/infra" ssh://git@git.example.com/j/infra
   run install.sh operator web --name "[OPS] Web" \
     --owns git@git.example.com:j/app-web.git --contributes git@git.example.com:j/infra.git
   assert_rc 0
@@ -110,7 +111,7 @@ test_operator_home_row_conf_and_worktree() {
 
 test_operator_dry_run_writes_nothing() {
   oracle_home
-  repo "$T/src/infra"
+  repo "$T/src/infra" git@git.example.com:j/infra.git
   run install.sh --dry-run operator web --contributes git@git.example.com:j/infra.git
   assert_rc 0
   assert_has "$T/out" "would create  $T/ops/web/operator.conf"
@@ -133,10 +134,38 @@ test_one_owner_per_repository() {
   assert_no_file "$T/ops/web"
   run install.sh operator web --owns git@git.example.com:j/infra/
   assert_rc 2
+  run install.sh operator web --owns ssh://git@Git.Example.com:22/j/infra
+  assert_rc 2
   run install.sh operator oracle
   assert_rc 2
   run install.sh operator sent
   assert_rc 2
+}
+
+test_worktree_needs_the_right_checkout() {
+  oracle_home
+  repo "$T/src/infra" git@git.example.com:someone-else/infra.git
+  run install.sh operator web --contributes git@git.example.com:j/infra.git
+  assert_rc 1
+  assert_has "$T/err" "is not a checkout of git@git.example.com:j/infra.git"
+  assert_no_file "$T/src/.worktrees"
+}
+
+test_links_are_never_replaced() {
+  fresh
+  mkdir -p "$T/ops/oracle"
+  ln -s "$T/nowhere" "$T/ops/oracle/NOTES.md"
+  run install.sh oracle "$T/ops/oracle"
+  assert_has "$T/out" "keep    $T/ops/oracle/NOTES.md (exists)"
+  [ -L "$T/ops/oracle/NOTES.md" ] || _fail "link replaced"
+}
+
+test_oracle_client_follows_the_profile_example() {
+  fresh
+  run install.sh oracle "$T/ops/oracle" --profile-example codex-only
+  assert_rc 0
+  assert_has "$T/ops/oracle/operators/REGISTRY.tsv" "pending${TAB}codex"
+  assert_has "$AO_PROFILE" "relay_default=file-only"
 }
 
 test_commits_only_what_it_created() {
@@ -204,7 +233,15 @@ case ${FAKE_GH:-ok} in
 esac
 case $1 in
   pr) [ "$2" = list ] && echo '[{"number":7,"headRefOid":"abc123","state":"OPEN","reviewDecision":null,"url":"https://git.example.com/o/r/pull/7"}]' ;;
-  api) echo '{"state":"success","statuses":[{"target_url":"https://ci.example.com/1"}]}' ;;
+  api) case $2 in
+         *check-runs*) case ${FAKE_RUNS:-ok} in
+             ok) echo '{"check_runs":[{"status":"completed","conclusion":"success","html_url":"https://ci.example.com/2"}]}' ;;
+             running) echo '{"check_runs":[{"status":"in_progress","conclusion":null}]}' ;;
+             failed) echo '{"check_runs":[{"status":"completed","conclusion":"failure"}]}' ;;
+           esac ;;
+         *) if [ -n "${FAKE_STATUS:-}" ]; then echo "$FAKE_STATUS"; else
+              echo '{"state":"success","statuses":[{"state":"success","target_url":"https://ci.example.com/1"}]}'; fi ;;
+       esac ;;
 esac
 exit 0
 EOF
@@ -214,6 +251,12 @@ EOF
   assert_eq "$(cat "$T/out")" "7${TAB}abc123${TAB}OPEN${TAB}NONE${TAB}https://git.example.com/o/r/pull/7"
   "$KIT_DIR/adapters/git-gh.sh" status abc123 o/r </dev/null >"$T/out" 2>"$T/err"
   assert_eq "$(cat "$T/out")" "abc123${TAB}success${TAB}https://ci.example.com/1"
+  FAKE_RUNS=running "$KIT_DIR/adapters/git-gh.sh" status abc123 o/r </dev/null >"$T/out" 2>"$T/err"
+  assert_eq "$(cut -f 2 "$T/out")" pending "a running check"
+  FAKE_RUNS=failed "$KIT_DIR/adapters/git-gh.sh" status abc123 o/r </dev/null >"$T/out" 2>"$T/err"
+  assert_eq "$(cut -f 2 "$T/out")" failure "a failed check"
+  FAKE_STATUS='{"state":"pending","statuses":[]}' "$KIT_DIR/adapters/git-gh.sh" status abc123 o/r </dev/null >"$T/out" 2>"$T/err"
+  assert_eq "$(cut -f 2,3 "$T/out")" "success${TAB}https://ci.example.com/2" "actions-only commit"
   "$KIT_DIR/adapters/git-gh.sh" review-request 7 sam o/r </dev/null
   assert_eq "$?" 0 "review-request"
   assert_has "$FAKE_LOG" "pr edit 7 --add-reviewer sam --repo o/r"

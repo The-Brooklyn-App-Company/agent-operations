@@ -164,7 +164,7 @@ test_reclaim_generation_marker_excludes_contenders() {
   echo 999999999 >"$T/state/locks/demo.lock/pid"
   lib 'ao_lock demo; echo "rc=$?"'
   assert_has "$T/out" "rc=3"
-  assert_has "$T/err" "remove $T/state/locks/demo.lock.reclaim-999999999"
+  assert_file "$T/state/locks/demo.lock.reclaim-999999999"
 }
 
 test_reclaim_backs_off_when_owner_changed() {
@@ -176,6 +176,23 @@ test_reclaim_backs_off_when_owner_changed() {
   lib 'ao_lock demo; echo "rc=$?"'
   assert_has "$T/out" "rc=3"
   assert_eq "$(cat "$T/state/locks/demo.lock/pid")" "$$"
+}
+
+test_repo_key_normalizes_remotes() {
+  lib 'for u in git@Git.Example.com:o/r.git ssh://git@git.example.com:22/o/r https://git.example.com/o/r/ git.example.com/o/r; do ao_repo_key "$u"; done | sort -u'
+  assert_eq "$(cat "$T/out")" "git.example.com/o/r"
+}
+
+test_abandoned_reclaim_marker_is_cleared() {
+  AO_LOCK_TOOL='mkdir'
+  export AO_LOCK_TOOL
+  mkdir -p "$T/state/locks/demo.lock" "$T/state/locks/demo.lock.reclaim-999999999"
+  echo 999999999 >"$T/state/locks/demo.lock/pid"
+  echo 999999998 >"$T/state/locks/demo.lock.reclaim-999999999/pid"
+  lib 'ao_lock demo; echo "rc=$?"'
+  assert_has "$T/out" "rc=3"
+  lib 'ao_lock demo && echo got'
+  assert_has "$T/out" got
 }
 
 test_place_never_clobbers() {

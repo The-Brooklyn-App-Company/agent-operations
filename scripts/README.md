@@ -46,7 +46,7 @@ key.
 | --- | --- | --- |
 | `operators/REGISTRY.tsv` | `registry` | One row per session |
 | `operators/WATCHDOG-QUIET.tsv` | `quiet_list` | Dated watchdog exemptions |
-| `inbox/<key>/*.md` | `inbox_dir` | New notes waiting for a session; `.relay-pending` lists archived notes whose pointer is not yet confirmed |
+| `inbox/<key>/*.md` | `inbox_dir` | New notes waiting for a session; `.claimed/` holds notes being archived (an atomic rename, so a later note under the same name is untouched); `.relay-pending` lists archived notes whose pointer is not yet confirmed |
 | `inbox/sent/` | `sent_dir` | Archived notes, `<stamp>-<key>-<name>.md`; must be on a filesystem with hard links |
 | `hooks/{every,hourly,daily,weekly}/` | `hooks_dir` | Tick hooks; optional `hooks/gate` |
 | `~/.local/state/agent-operations/` | `state_dir` | Logs, stamps, locks, backoff and cross-review state (machine-local; keep out of git and backups) |
@@ -134,9 +134,9 @@ Every role takes the same fields:
 | `<role>_effort` | client default | Reasoning effort (codex) |
 | `<role>_timeout` | `600` | Hard limit in seconds; `0` = none |
 | `<role>_mcp_disable` | none | Extra tool servers to switch off (codex); every server the Codex configuration lists is switched off anyway |
-| `<role>_tools` | runs: `Read,Grep,Glob`; delivery: `ListAgents,SendMessage` | Claude built-in tool allow-list; `default` = the client's full set |
+| `<role>_tools` | runs: `Read,Grep,Glob`; delivery: `ListAgents,SendMessage` | Claude built-in tool allow-list. Runs accept only a subset of `Read,Grep,Glob`; for delivery, `default` = the client's full set |
 | `<role>_max_turns` | client default | Claude turn cap |
-| `<role>_disallowed_tools` | none | Claude deny-list, added on top (useful with `<role>_tools=default`) |
+| `<role>_disallowed_tools` | none | Claude deny-list, added on top |
 | `<role>_token_secret` | none | Secret name, fetched through `secrets` for this role only |
 | `<role>_token_env` | `CLAUDE_CODE_OAUTH_TOKEN` for claude | Variable that receives it, in the client process only |
 

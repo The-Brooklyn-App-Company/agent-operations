@@ -11,7 +11,10 @@
 # pr-poll         open pull requests: number, head sha, state, review
 #                 decision, url (TSV)
 # review-request  ask REVIEWER to review pull request NUMBER
-# status          combined check state of SHA: sha, state, url (TSV)
+# status          combined state of SHA over commit statuses and check runs
+#                 (GitHub Actions): sha, state, url (TSV); state is failure
+#                 if any failed, pending if any is unfinished, success if
+#                 all passed, pending if there are none
 #
 # Exit codes: 0 success; 2 unavailable (network, rate limit); 3
 # misconfigured (no gh or jq, not signed in, unknown verb).
@@ -52,9 +55,19 @@ case ${1-} in
     case $2 in *[!0-9a-f]*) echo "git-gh.sh: not a commit sha: $2" >&2; exit 3 ;; esac
     repo=${3-}
     [ -n "$repo" ] || repo=$(gh_run repo view --json nameWithOwner -q .nameWithOwner) || exit
-    json=$(gh_run api "repos/$repo/commits/$2/status") || exit
-    printf '%s\n' "$json" |
-      jq -r --arg sha "$2" '[$sha, .state, (.statuses[0].target_url // "")] | @tsv' ;;
+    st=$(gh_run api "repos/$repo/commits/$2/status") || exit
+    cr=$(gh_run api "repos/$repo/commits/$2/check-runs?per_page=100") || exit
+    printf '%s\n%s\n' "$st" "$cr" | jq -rs --arg sha "$2" '
+      (.[0].statuses // []) as $s | (.[1].check_runs // []) as $c
+      | ([$s[] | .state | if . == "success" then "success" elif . == "pending" then "pending" else "failure" end]
+         + [$c[] | if .status != "completed" then "pending"
+                   elif (.conclusion | IN("success", "neutral", "skipped")) then "success"
+                   else "failure" end]) as $all
+      | (if ($all | index("failure")) then "failure"
+         elif ($all | length) == 0 or ($all | index("pending")) then "pending"
+         else "success" end) as $state
+      | ([$s[].target_url, $c[].html_url] | map(select(. != null and . != "")) | first) as $url
+      | [$sha, $state, ($url // "")] | @tsv' ;;
   -h | --help) sed -n '2,/^[^#]/{/^#/!d;s/^# \{0,1\}//;p;}' "$0" ;;
   *) echo "git-gh.sh: unknown verb '${1-}'" >&2; exit 3 ;;
 esac

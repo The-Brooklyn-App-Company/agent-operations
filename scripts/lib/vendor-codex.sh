@@ -1,5 +1,6 @@
-# shellcheck shell=sh disable=SC2153
-# (SC2153: R_* globals come from ao_role_load in vendor.sh.)
+# shellcheck shell=sh disable=SC2153,SC2034
+# (SC2153: R_* globals come from ao_role_load in vendor.sh; SC2034:
+# AO_RUN_DIR is read by ao_timeout in core.sh.)
 # vendor-codex.sh - Codex CLI behind the vendor interface (see vendor.sh).
 #
 # run:      `codex exec --ephemeral -s read-only`, final message via -o. The
@@ -12,12 +13,17 @@
 #           start; the relay leaves their notes in place.
 # activity: newest $CODEX_HOME/sessions/**/*<session>*.jsonl.
 
-# _vendor_codex_mcp_args  Print `-c mcp_servers.<name>.enabled=false` words
+# _vendor_codex_mcp_args WORKDIR  Print `-c mcp_servers.<name>.enabled=false` words
 # for every configured server and every server in <role>_mcp_disable, or
 # fail with the reason on stderr.
 _vendor_codex_mcp_args() {
   command -v jq >/dev/null 2>&1 || { echo "jq is required to list Codex tool servers" >&2; return 1; }
-  _vx_list=$(ao_timeout 60 "$R_CMD" mcp list --json 2>/dev/null) || {
+  # Listed from the run's own directory, so project configuration counts.
+  AO_RUN_DIR=$1
+  _vx_list=$(ao_timeout 60 "$R_CMD" mcp list --json 2>/dev/null)
+  _vx_rc=$?
+  AO_RUN_DIR=
+  [ "$_vx_rc" -eq 0 ] || {
     echo "cannot list Codex tool servers ($R_CMD mcp list --json)" >&2
     return 1
   }
@@ -41,7 +47,7 @@ _vendor_codex_mcp_args() {
 
 vendor_codex_run() {
   _vx_dir=$1 _vx_out=$3 _vx_err=$4 _vx_prompt=$2
-  _vx_off=$(_vendor_codex_mcp_args 2>"$_vx_err") || return "$AO_E_USAGE"
+  _vx_off=$(_vendor_codex_mcp_args "$_vx_dir" 2>"$_vx_err") || return "$AO_E_USAGE"
   set -- "$R_CMD" exec --ephemeral --skip-git-repo-check -s read-only -C "$_vx_dir" -o "$_vx_out"
   [ -z "$R_MODEL" ] || set -- "$@" -m "$R_MODEL"
   [ -z "$R_EFFORT" ] || set -- "$@" -c "model_reasoning_effort=\"$R_EFFORT\""

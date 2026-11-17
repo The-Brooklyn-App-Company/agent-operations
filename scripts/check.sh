@@ -230,13 +230,10 @@ check_home() {
       _k=${_l%%=*} _v=${_l#*=}
       case $_k in
         key) ao_is_name "$_v" || { printf '%s/operator.conf:%s: invalid key\n' "$_h" "$_n"; _bad=1; } ;;
-        session.claude | session.codex | session.custom) ;;
+        session.claude | session.codex | session.custom | session.file-only) ;;
         work.*)
           case $_v in
-            *'|owner')
-              _u=${_v%|owner}
-              _u=${_u%/}
-              printf '%s\t%s\n' "${_u%.git}" "$_h" >>"$_owners" ;;
+            *'|owner') printf '%s\t%s\n' "$(ao_repo_key "${_v%|owner}")" "$_h" >>"$_owners" ;;
             *'|contributor') ;;
             *) printf '%s/operator.conf:%s: work value must end in |owner or |contributor\n' "$_h" "$_n"; _bad=1 ;;
           esac ;;

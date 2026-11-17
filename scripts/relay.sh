@@ -25,7 +25,9 @@
 #   -h, --help  this text
 #
 # Writers must create notes atomically (write elsewhere, then mv), or use
-# inbox-put.sh. Moved-but-unconfirmed notes are listed in the inbox's
+# inbox-put.sh. Each new note is first claimed by an atomic rename into the
+# inbox's .claimed/ folder, so a later note under the same name is never
+# touched; archived but unconfirmed notes are listed in the inbox's
 # .relay-pending file until a delivery is confirmed.
 #
 # Environment: AO_PROFILE; AO_KEEP_STREAM (see lib/vendor-claude.sh).
@@ -42,6 +44,7 @@ AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 dry_run=
 only_key=
 failures=0
+claim_n=0
 # File names listed in one message; the rest are counted.
 MAX_LISTED=20
 
@@ -56,18 +59,32 @@ relay_new_notes() {
   done
 }
 
-# relay_move NOTE  Move one note to the archive and record its archived
-# name in the pending list.
-relay_move() {
+# relay_claim NOTE  Rename one note into the inbox's .claimed/ folder under
+# a fresh name. The rename is atomic, so a note written later under the same
+# name stays in the inbox, untouched, for the next run.
+relay_claim() {
+  claim_n=$((claim_n + 1))
+  mkdir -p "$claimdir" || { ao_log "$log" "to=$OP_KEY FAILED: cannot create $claimdir"; failures=$((failures + 1)); return 0; }
+  mv "$1" "$claimdir/$$.$claim_n.${1##*/}" 2>/dev/null ||
+    ao_warn "could not claim $1; it stays for the next run"
+}
+
+# relay_archive CLAIMED  Archive one claimed note: hard-link it into the
+# archive under a name that is never reused, record that name in the
+# pending list, and only then drop the claimed copy. A crash at any point
+# leaves the claimed copy for the next run (at worst archived twice), so a
+# note is never lost unannounced.
+relay_archive() {
   _n=${1##*/}
+  _n=$(printf '%s\n' "$_n" | sed 's/^[0-9]*\.[0-9]*\.//')
   _slug=$(ao_slug "${_n%.md}")
-  _dest=$(ao_place "$1" "$AO_SENT/$AO_T_STAMP-$OP_KEY-${_slug:-note}" .md) || {
-    ao_log "$log" "to=$OP_KEY FAILED: cannot move $_n to $AO_SENT; left for the next run"
+  if ! _dest=$(_ao_link_noclobber "$1" "$AO_SENT/$AO_T_STAMP-$OP_KEY-${_slug:-note}" .md); then
+    ao_log "$log" "to=$OP_KEY FAILED: cannot archive $_n in $AO_SENT (it must allow hard links); left claimed"
     failures=$((failures + 1))
     return 0
-  }
-  printf '%s\n' "${_dest##*/}" >>"$pending" ||
-    ao_die "$AO_E_FAIL" "cannot write $pending"
+  fi
+  printf '%s\n' "${_dest##*/}" >>"$pending" || ao_die "$AO_E_FAIL" "cannot write $pending"
+  rm -f "$1" || ao_warn "cannot remove claimed copy $1"
 }
 
 # relay_message  Write the fixed-shape pointer message for the pending list.
@@ -92,7 +109,7 @@ relay_message() {
 # relay_backoff_due  True when the row may try a delivery now.
 relay_backoff_due() {
   [ -f "$failf" ] || return 0
-  read -r _fails _since <"$failf" 2>/dev/null || return 0
+  read -r _fails _since _told <"$failf" 2>/dev/null || return 0
   ao_is_uint "${_fails:-x}" && ao_is_uint "${_since:-x}" || return 0
   [ "$_fails" -ge "$max_attempts" ] || return 0
   _wait=60 _k=$max_attempts
@@ -103,21 +120,27 @@ relay_backoff_due() {
   [ $((AO_T_EPOCH - _since)) -ge $((_wait * 60)) ]
 }
 
-# relay_failed REASON  Count a failed attempt; the attempt that reaches
-# relay_max_attempts tells the Oracle, once per episode.
+# relay_failed REASON  Count a failed attempt. From relay_max_attempts on,
+# the Oracle is told once per episode: the fail file records whether that
+# note was queued, so a note that could not be written is tried again.
 relay_failed() {
-  _fails=0
-  [ ! -f "$failf" ] || read -r _fails _since <"$failf" 2>/dev/null
+  _fails=0 _told=0
+  [ ! -f "$failf" ] || read -r _fails _since _told <"$failf" 2>/dev/null
   ao_is_uint "${_fails:-x}" || _fails=0
+  ao_is_uint "${_told:-x}" || _told=0
   _fails=$((_fails + 1))
-  if ! { mkdir -p "$AO_STATE/relay" && printf '%s %s\n' "$_fails" "$AO_T_EPOCH" | ao_write_atomic "$failf"; }; then
-    ao_warn "cannot record relay failures in $failf"
-  fi
   ao_log "$log" "to=$OP_KEY via=$OP_CLIENT FAILED attempt $_fails: $1"
   failures=$((failures + 1))
-  [ "$_fails" -eq "$max_attempts" ] || return 0
-  ao_note_oracle "relay-failed-$OP_KEY" "Relay to $OP_NAME ($OP_KEY, via $OP_CLIENT) failed $_fails times; backing off, retrying hourly at most. Its notes are in $AO_SENT, listed in $pending. Last error: $1. Log: $log" ||
-    ao_warn "could not tell the Oracle that the relay to $OP_KEY is failing"
+  if [ "$_fails" -ge "$max_attempts" ] && [ "$_told" -eq 0 ]; then
+    if ao_note_oracle "relay-failed-$OP_KEY" "Relay to $OP_NAME ($OP_KEY, via $OP_CLIENT) failed $_fails times; backing off, retrying hourly at most. Its notes are in $AO_SENT, listed in $pending. Last error: $1. Log: $log"; then
+      _told=1
+    else
+      ao_warn "could not tell the Oracle that the relay to $OP_KEY is failing; will retry"
+    fi
+  fi
+  if ! { mkdir -p "$AO_STATE/relay" && printf '%s %s %s\n' "$_fails" "$AO_T_EPOCH" "$_told" | ao_write_atomic "$failf"; }; then
+    ao_warn "cannot record relay failures in $failf"
+  fi
 }
 
 # relay_deliver  Subshell body for one delivery: a broken transport
@@ -142,9 +165,11 @@ relay_row() {
     return 0
   fi
   pending=$AO_INBOX/$OP_KEY/.relay-pending
+  claimdir=$AO_INBOX/$OP_KEY/.claimed
   failf=$AO_STATE/relay/$OP_KEY.fail
   relay_new_notes >"$new"
-  [ -s "$new" ] || [ -s "$pending" ] || return 0
+  set -- "$claimdir"/*
+  [ -s "$new" ] || [ -s "$pending" ] || [ -e "$1" ] || return 0
   if ! ao_gate relay; then
     ao_log "$log" "to=$OP_KEY held by gate"
     return 0
@@ -155,10 +180,14 @@ relay_row() {
     return 0
   fi
   relay_backoff_due || { ao_log "$log" "to=$OP_KEY backing off after repeated failures"; return 0; }
-  if [ -s "$new" ]; then
-    mkdir -p "$AO_SENT" || { ao_log "$log" "to=$OP_KEY FAILED: cannot create $AO_SENT"; failures=$((failures + 1)); return 0; }
-    while IFS= read -r _note; do relay_move "$_note"; done <"$new"
-  fi
+  mkdir -p "$AO_SENT" || { ao_log "$log" "to=$OP_KEY FAILED: cannot create $AO_SENT"; failures=$((failures + 1)); return 0; }
+  while IFS= read -r _note; do relay_claim "$_note"; done <"$new"
+  # Claimed notes, including any left by an interrupted run.
+  for _c in "$claimdir"/*; do
+    [ -f "$_c" ] || continue
+    relay_archive "$_c"
+  done
+  rmdir "$claimdir" 2>/dev/null
   [ -s "$pending" ] || return 0
   relay_message
   : >"$out"

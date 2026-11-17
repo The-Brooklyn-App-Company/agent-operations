@@ -156,6 +156,34 @@ test_worker_claude_invocation() {
   assert_eq "$(sed -n '/^arg: -p$/{n;p;}' "$FAKE_LOG")" "arg:  -starts with a dash"
 }
 
+test_claude_runs_accept_only_read_only_tools() {
+  profile_set worker_client claude
+  profile_set worker_model haiku
+  prompt
+  for tools in default SendMessage Read,Bash; do
+    profile_set worker_tools "$tools"
+    run worker-run.sh audit alpha "$T/prompt.md"
+    assert_rc 2
+    assert_no_file "$FAKE_LOG"
+  done
+  set -- "$T/home/inbox/oracle"/*-worker-fail-audit*.md
+  assert_has "$1" "is not read-only"
+  profile_set worker_tools Read
+  run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 0
+  assert_has "$FAKE_LOG" "arg: Read"
+}
+
+test_codex_lists_servers_from_the_run_directory() {
+  prompt
+  mv "$T/bin/codex" "$T/bin/codex.real"
+  printf '#!/bin/sh\nif [ "$1" = mcp ]; then pwd -P >"$FAKE_LOG.mcpdir"; echo "[]"; exit 0; fi\nexec "%s" "$@"\n' "$T/bin/codex.real" >"$T/bin/codex"
+  chmod +x "$T/bin/codex"
+  run worker-run.sh audit alpha "$T/prompt.md" "$T/proj/alpha"
+  assert_rc 0
+  assert_eq "$(cat "$FAKE_LOG.mcpdir")" "$T/proj/alpha" "listing directory"
+}
+
 test_worker_custom_contract() {
   profile_set worker_client custom
   profile_set worker_cmd "$T/bin/agent"

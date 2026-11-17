@@ -27,7 +27,8 @@
 #           beside the Oracle home, or --embedded under
 #           <oracle_home>/operators/KEY, or --home DIR), its operator.conf
 #           and registry row, and, for each --contributes repository already
-#           checked out under work_root, a worktree at
+#           checked out under work_root (its origin must match the URL), a
+#           worktree at
 #           <work_root>/.worktrees/KEY/<repo> on branch KEY/main. Refuses a
 #           repository another local operator already owns.
 # skills    Links each kit skill into DIR (a client's skills folder); an
@@ -40,7 +41,7 @@
 # Options:
 #   --name NAME              session display name (default: Oracle, or KEY)
 #   --client CLIENT          claude | codex | custom | file-only (default:
-#                            claude)
+#                            claude; for oracle, follows the profile example)
 #   --team DIR               record the team repository in KIT.local.md
 #   --profile-example NAME   claude-only | codex-only | both | custom
 #
@@ -87,24 +88,42 @@ inst_sed_value() {
   printf '%s\n' "$1" | sed -e 's/[\\|&]/\\&/g'
 }
 
+# inst_exists PATH  True for anything at PATH, a dangling link included.
+inst_exists() {
+  [ -e "$1" ] || [ -L "$1" ]
+}
+
+# inst_publish DEST  Write stdin to DEST without ever replacing anything:
+# a temp file beside it is hard-linked to DEST, which fails if DEST exists.
+inst_publish() {
+  _ip_dir=$(dirname -- "$1")
+  mkdir -p "$_ip_dir" || return 1
+  _ip_tmp=$(mktemp "$_ip_dir/.tmp.XXXXXX") || return 1
+  if cat >"$_ip_tmp" && ln "$_ip_tmp" "$1" 2>/dev/null; then
+    rm -f "$_ip_tmp"
+    return 0
+  fi
+  rm -f "$_ip_tmp"
+  return 1
+}
+
 # inst_render SRC DEST [MODE]  Copy a template with its @NAME@ placeholders
 # filled in, unless DEST exists.
 inst_render() {
-  if [ -e "$2" ]; then
+  if inst_exists "$2"; then
     printf 'keep    %s (exists)\n' "$2"
     return 0
   fi
   inst_say "create  $2"
   [ -z "$dry_run" ] || return 0
-  if ! { mkdir -p "$(dirname -- "$2")" &&
-    sed -e "s|@KEY@|$(inst_sed_value "$v_key")|g" \
+  if ! { sed -e "s|@KEY@|$(inst_sed_value "$v_key")|g" \
       -e "s|@NAME@|$(inst_sed_value "$v_name")|g" \
       -e "s|@CLIENT@|$(inst_sed_value "$v_client")|g" \
       -e "s|@KIT_DIR@|$(inst_sed_value "$KIT")|g" \
       -e "s|@KIT_VERSION@|$(inst_sed_value "$kit_version")|g" \
       -e "s|@KIT_COMMIT@|$(inst_sed_value "$kit_commit")|g" \
       -e "s|@TEAM@|$(inst_sed_value "$v_team")|g" \
-      -e "s|@DATE@|$AO_T_DATE|g" "$1" | ao_write_atomic "$2" &&
+      -e "s|@DATE@|$AO_T_DATE|g" "$1" | inst_publish "$2" &&
     chmod "${3:-644}" "$2"; }; then
     ao_warn "cannot write $2"
     failures=$((failures + 1))
@@ -161,7 +180,7 @@ inst_oracle() {
   [ $# -ge 1 ] || ao_die "$AO_E_USAGE" "usage: install.sh oracle HOME [options]"
   home=$(inst_abs "$1")
   shift
-  v_key=oracle v_name=Oracle v_client=claude v_team=none example=both
+  v_key=oracle v_name=Oracle v_client='' v_team=none example=both
   while [ $# -gt 0 ]; do
     case $1 in
       --team) [ $# -ge 2 ] || ao_die "$AO_E_USAGE" "--team needs a directory"; v_team=$(inst_abs "$2"); shift ;;
@@ -172,8 +191,12 @@ inst_oracle() {
     esac
     shift
   done
-  inst_client "$v_client"
   [ -r "$KIT/profiles/$example.profile" ] || ao_die "$AO_E_USAGE" "no profile example '$example' (see profiles/)"
+  # The Oracle's client follows the profile example unless given.
+  if [ -z "$v_client" ]; then
+    case $example in codex-only) v_client=codex ;; custom) v_client=custom ;; *) v_client=claude ;; esac
+  fi
+  inst_client "$v_client"
   case $home/ in "$KIT"/*) ao_die "$AO_E_USAGE" "the Oracle home must be outside the kit checkout" ;; esac
   profile=$(ao_profile_path)
   case $profile in "$home"/* | "$KIT"/*) ao_die "$AO_E_USAGE" "the profile must live outside git: $profile" ;; esac
@@ -196,13 +219,12 @@ inst_oracle() {
   else
     printf 'keep    %s (exists)\n' "$reg"
   fi
-  if [ -e "$profile" ]; then
+  if inst_exists "$profile"; then
     printf 'keep    %s (exists; check its oracle_home)\n' "$profile"
   else
     inst_say "create  $profile (from profiles/$example.profile)"
-    if [ -z "$dry_run" ] && ! { mkdir -p "$(dirname -- "$profile")" &&
-      sed "s|^oracle_home=.*|oracle_home=$(inst_sed_value "$(inst_tilde "$home")")|" \
-        "$KIT/profiles/$example.profile" | ao_write_atomic "$profile" &&
+    if [ -z "$dry_run" ] && ! { sed "s|^oracle_home=.*|oracle_home=$(inst_sed_value "$(inst_tilde "$home")")|" \
+        "$KIT/profiles/$example.profile" | inst_publish "$profile" &&
       chmod 600 "$profile"; }; then
       ao_warn "cannot write $profile"
       failures=$((failures + 1))
@@ -236,16 +258,9 @@ inst_repo_name() {
   printf '%s\n' "$_n"
 }
 
-# inst_url_key URL  A repository URL without a trailing slash or .git, so
-# two spellings of one repository compare equal.
-inst_url_key() {
-  _uk=${1%/}
-  printf '%s\n' "${_uk%.git}"
-}
-
 # inst_owned_elsewhere URL  Print the key of another operator owning URL.
 inst_owned_elsewhere() {
-  _url=$(inst_url_key "$1")
+  _url=$(ao_repo_key "$1")
   while IFS="$AO_TAB" read -r _k _nm _d _rest; do
     case $_k in '' | '#'*) continue ;; esac
     [ "$_k" != "$v_key" ] || continue
@@ -254,7 +269,7 @@ inst_owned_elsewhere() {
     while IFS= read -r _l; do
       case $_l in work.*'|owner')
         _o=${_l#*=}
-        [ "$(inst_url_key "${_o%|owner}")" != "$_url" ] || { printf '%s\n' "$_k"; return 0; } ;;
+        [ "$(ao_repo_key "${_o%|owner}")" != "$_url" ] || { printf '%s\n' "$_k"; return 0; } ;;
       esac
     done <"$_conf"
   done <"$AO_REGISTRY"
@@ -283,7 +298,10 @@ inst_operator() {
   inst_client "$v_client"
   case $v_name in *"$AO_TAB"* | *"$AO_NL"*) ao_die "$AO_E_USAGE" "--name must be one line without tabs" ;; esac
   [ -z "$embedded" ] || [ -z "$home" ] || ao_die "$AO_E_USAGE" "use --embedded or --home, not both"
-  ao_load --no-state
+  ao_load
+  # One installer at a time: the ownership check and the registry row must
+  # not interleave with another run's.
+  ao_lock install || ao_die "$AO_E_USAGE" "another install.sh is running; try again"
   [ "$v_key" != "$AO_ORACLE_KEY" ] || ao_die "$AO_E_USAGE" "'$v_key' is the Oracle's key"
   [ "$v_key" != "$(basename -- "$AO_SENT")" ] || ao_die "$AO_E_USAGE" "'$v_key' collides with the sent archive folder"
   [ -r "$AO_REGISTRY" ] || ao_die "$AO_E_USAGE" "registry not found: $AO_REGISTRY (run install.sh oracle first)"
@@ -313,7 +331,7 @@ inst_operator() {
   inst_render "$TPL/home/settings/README.md" "$home/settings/README.md"
   [ -n "$embedded" ] || inst_render "$TPL/home/gitignore.template" "$home/.gitignore"
   conf=$home/operator.conf
-  if [ -e "$conf" ]; then
+  if inst_exists "$conf"; then
     printf 'keep    %s (exists; add work lines by hand)\n' "$conf"
   else
     inst_render "$TPL/home/operator.conf" "$conf"
@@ -338,8 +356,14 @@ inst_operator() {
   git clone $_u $work_root/$_r   # then rerun this command for the worktree"
       continue
     fi
+    _origin=$(git -C "$work_root/$_r" remote get-url origin 2>/dev/null) || _origin=
+    if [ "$(ao_repo_key "$_origin")" != "$(ao_repo_key "$_u")" ]; then
+      ao_warn "$work_root/$_r is not a checkout of $_u (origin: ${_origin:-none}); no worktree made"
+      failures=$((failures + 1))
+      continue
+    fi
     _wt=$work_root/.worktrees/$v_key/$_r
-    [ ! -e "$_wt" ] || { printf 'keep    %s (exists)\n' "$_wt"; continue; }
+    inst_exists "$_wt" && { printf 'keep    %s (exists)\n' "$_wt"; continue; }
     inst_say "create  $_wt (worktree, branch $v_key/main)"
     [ -z "$dry_run" ] || continue
     mkdir -p "$(dirname -- "$_wt")"
@@ -396,7 +420,7 @@ inst_timers() {
     '') if [ "$(uname -s)" = Darwin ]; then kind=launchd; else kind=systemd; fi ;;
     *) ao_die "$AO_E_USAGE" "usage: install.sh timers [--launchd | --systemd]" ;;
   esac
-  ao_load --no-state
+  ao_load
   logs=$AO_STATE/logs
   inst_dir "$logs"
   label=local.agent-operations.tick
@@ -422,17 +446,16 @@ EOF
 
 # inst_unit SRC DEST  Render a unit template (its own @NAME@ set).
 inst_unit() {
-  if [ -e "$2" ]; then
+  if inst_exists "$2"; then
     printf 'keep    %s (exists; compare it with %s)\n' "$2" "$1"
     return 0
   fi
   inst_say "create  $2"
   [ -z "$dry_run" ] || return 0
-  if ! { mkdir -p "$(dirname -- "$2")" &&
-    sed -e "s|@LABEL@|$(inst_sed_value "$label")|g" \
+  if ! { sed -e "s|@LABEL@|$(inst_sed_value "$label")|g" \
       -e "s|@KIT_DIR@|$(inst_sed_value "$KIT")|g" \
       -e "s|@PROFILE@|$(inst_sed_value "$AO_PROFILE")|g" \
-      -e "s|@LOG_DIR@|$(inst_sed_value "$logs")|g" "$1" | ao_write_atomic "$2"; }; then
+      -e "s|@LOG_DIR@|$(inst_sed_value "$logs")|g" "$1" | inst_publish "$2"; }; then
     ao_warn "cannot write $2"
     failures=$((failures + 1))
   fi

@@ -12,7 +12,7 @@ These live in the Oracle's home and are stable in 0.2.0.
 | --- | --- | --- |
 | `BACKLOG.md` | Every open commitment: owner, next action, due date, status | Written before the reply that makes the commitment; done items move to the journal |
 | `JOURNAL.md` | Dated, append-only: the human's decisions, standing grants, promises made, deliveries | Written when it happens, never rewritten |
-| `FACTS.md` | Verified facts agents may rely on and repeat: people, repositories, machines, accounts | Nothing is stated outward as fact unless it is listed here or freshly checked |
+| `FACTS.md` | Verified facts agents may rely on and repeat: people, repositories, machines, accounts | Dated, with how each was verified ([K-12](../kit/KIT.md)) |
 
 Each operator keeps its own `MANDATE.md` (scope, finish line, dated grants)
 and `NOTES.md` (dated working memory) in its home.

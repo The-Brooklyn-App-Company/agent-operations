@@ -140,6 +140,17 @@ ao_is_uint() {
   return 0
 }
 
+# ao_repo_key URL  Print a canonical identity for a git remote, so the
+# spellings of one repository compare equal: scheme, user and port dropped,
+# scp-style host:path turned into host/path, host lowercased, a trailing
+# slash and .git removed. git@host:o/r.git, ssh://git@host:22/o/r and
+# https://host/o/r/ all give host/o/r.
+ao_repo_key() {
+  printf '%s\n' "$1" | sed -e 's|^[A-Za-z][A-Za-z0-9+.-]*://||' -e 's|^[^@/]*@||' \
+    -e 's|^\([^/:]*\):[0-9][0-9]*/|\1/|' -e 's|^\([^/:]*\):|\1/|' -e 's|/*$||' -e 's|\.git$||' |
+    awk -F/ 'BEGIN { OFS = "/" } { $1 = tolower($1); print }'
+}
+
 # ao_slug STRING  Print STRING reduced to a filename-safe slug.
 ao_slug() {
   printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^[.-]*//' | cut -c1-60
@@ -408,7 +419,14 @@ _ao_lock_dir() {
     _ao_lock_live "$_ao_ld" "$_ao_gen" && return "$AO_E_BUSY"
     _ao_mark=$_ao_ld.reclaim-$_ao_gen
     if ! mkdir "$_ao_mark" 2>/dev/null; then
-      ao_warn "lock $_ao_ld is being reclaimed (or a reclaimer died: remove $_ao_mark if no process is running)"
+      # A reclaimer that died mid-way leaves its marker: clear it once its
+      # own pid is gone (or it never wrote one and is old), and try again
+      # on the next run.
+      _ao_rp=$(_ao_lock_owner "$_ao_mark")
+      if ! _ao_lock_live "$_ao_mark" "$_ao_rp"; then
+        ao_warn "clearing an abandoned reclaim marker $_ao_mark"
+        rm -rf "$_ao_mark"
+      fi
       return "$AO_E_BUSY"
     fi
     printf '%s\n' "$$" >"$_ao_mark/pid"

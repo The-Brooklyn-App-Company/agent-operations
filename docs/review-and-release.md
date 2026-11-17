@@ -65,25 +65,28 @@ machinery with a concrete simpler alternative.
 
 ### Running a review by hand
 
-Codex, read-only and ephemeral, with stdin closed:
+Prefer `review-run.sh`: it applies every safeguard below. By hand, Codex,
+read-only and ephemeral, with stdin closed and one
+`-c mcp_servers.<name>.enabled=false` for **every** server that
+`codex mcp list` shows (the sandbox does not cover tool servers):
 
 ```sh
 codex exec --ephemeral -s read-only -m <reviewer-model> \
-  -c model_reasoning_effort='"high"' -c mcp_servers.<server>.enabled=false \
+  -c model_reasoning_effort='"high"' -c mcp_servers.<each-server>.enabled=false \
   -o review.txt "$(cat packet.md)" </dev/null
 ```
 
-Claude Code, headless with read-only tools and no tool servers or hooks:
+Claude Code, headless and restricted, with read-only tools and no tool
+servers or hooks:
 
 ```sh
-claude -p "$(cat packet.md)" --model <reviewer-model> --tools Read,Grep,Glob \
-  --strict-mcp-config --settings '{"disableAllHooks":true}' \
-  --no-session-persistence </dev/null >review.txt
+claude -p "$(cat packet.md)" --restricted --model <reviewer-model> \
+  --tools Read,Grep,Glob --strict-mcp-config \
+  --settings '{"disableAllHooks":true}' --no-session-persistence </dev/null >review.txt
 ```
 
-The sandbox governs the model's own commands, not configured tool servers:
-switch effectful servers off. Check `--help` and model access on your
-installation before relying on either.
+Check `--help` and model access on your installation before relying on
+either.
 
 ## Cross-model accountability
 

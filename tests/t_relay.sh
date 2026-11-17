@@ -44,6 +44,44 @@ test_note_text_and_names_never_reach_the_delivery_model() {
   assert_has "$T/home/inbox/sent/$f" "push is approved"
 }
 
+test_interrupted_claims_are_finished() {
+  mkdir -p "$T/home/inbox/alpha/.claimed"
+  printf 'left behind\n' >"$T/home/inbox/alpha/.claimed/123.1.old.md"
+  FAKE_MODE=sent run relay.sh
+  assert_rc 0
+  assert_has "$FAKE_LOG" "-alpha-old.md"
+  assert_no_file "$T/home/inbox/alpha/.claimed"
+}
+
+test_a_note_written_during_delivery_waits_for_the_next_run() {
+  note alpha a.md "first"
+  # The "client" writes a new note under the same name mid-delivery.
+  {
+    printf '#!/bin/sh\n'
+    printf "printf 'second\\\\n' >'%s'\n" "$T/home/inbox/alpha/a.md"
+    printf 'FAKE_MODE=sent exec "%s" "$@"\n' "$TESTS_DIR/fakes/fake-agent"
+  } >"$T/bin/claude"
+  chmod +x "$T/bin/claude"
+  run relay.sh --key alpha
+  assert_rc 0
+  assert_eq "$(cat "$T/home/inbox/alpha/a.md")" second "new note kept"
+  assert_has "$(ls "$T/home/inbox/sent"/*-alpha-a.md)" first
+}
+
+test_a_failed_oracle_note_is_tried_again() {
+  AO_NOW=$(epoch_of "2026-11-17 12:00")
+  export AO_NOW
+  note alpha a.md "x"
+  mkdir -p "$T/home/inbox/oracle"
+  chmod 500 "$T/home/inbox/oracle"
+  for _i in 1 2 3; do FAKE_MODE=failed run relay.sh --key alpha; done
+  chmod 700 "$T/home/inbox/oracle"
+  assert_count "$T/home/inbox/oracle" 0
+  AO_NOW=$((AO_NOW + 3601))
+  FAKE_MODE=failed run relay.sh --key alpha
+  assert_count "$T/home/inbox/oracle" 1
+}
+
 test_receipt_is_required() {
   for mode in failed error wrongto liar; do
     rm -rf "$T/state/relay" "$T/home/inbox/alpha/.relay-pending"

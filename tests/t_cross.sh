@@ -116,12 +116,33 @@ test_switch_in_audit_by_the_incoming_family() {
   assert_eq "$(calls codex)$(calls claude)" 00 "no repeat audit"
 }
 
-test_failures_are_reported_in_the_digest() {
+test_failed_reviews_are_retried_then_reported() {
   both_families
   friday
-  FAKE_MODE=fail run cross-review.sh
-  assert_rc 1
-  assert_has "$(ls "$T/home/inbox/oracle"/*-cross-review-digest.md)" "failed (exit 7)"
+  for _i in 1 2; do
+    FAKE_MODE=fail run cross-review.sh --key alpha
+    assert_rc 1
+    assert_no_file "$T/state/cross-review/alpha.week"
+  done
+  FAKE_MODE=fail run cross-review.sh --key alpha
+  assert_eq "$(calls codex)" 3 "attempts"
+  assert_eq "$(cat "$T/state/cross-review/alpha.week")" 2026-W47 "given up for the week"
+  assert_has "$T/state/cross-review/2026-W47/results.tsv" "failed (exit 7) 3 times"
+}
+
+test_switch_audit_needs_the_incoming_family() {
+  profile_set reviewer_client claude
+  profile_set reviewer_model generic-claude
+  profile_set cross_review_per_run 10
+  friday
+  FAKE_MODE=nothing run cross-review.sh --key alpha
+  assert_has "$T/state/cross-review/2026-W47/results.tsv" "alpha${TAB}weekly${TAB}reviewer${TAB}same-family"
+  sed "s/^alpha\(.*\)sid-alpha\$/alpha\1sid-alpha${TAB}codex/" "$T/home/operators/REGISTRY.tsv" >"$T/reg"
+  mv "$T/reg" "$T/home/operators/REGISTRY.tsv"
+  : >"$FAKE_LOG"
+  run cross-review.sh --key alpha
+  assert_has "$T/state/cross-review/2026-W47/results.tsv" "alpha${TAB}switch${TAB}-${TAB}-${TAB}skipped: no reviewer role configured"
+  assert_eq "$(calls claude)" 0 "no audit by the outgoing family"
 }
 
 test_off_and_dry_run() {
