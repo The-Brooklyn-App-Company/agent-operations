@@ -38,7 +38,7 @@ The maintainer executes the approved ordered plan, verifies the actual target/ar
 - Recovery, if needed
 - The post-deploy report
 
-Keep these states distinct and record each one separately:
+Keep these states distinct and record each one separately; they map onto the [claims ladder](roles-and-context.md#keep-the-humans-outcome-fixed), and green CI is not delivery:
 
 - CI is green.
 - The source is merged.
@@ -60,10 +60,14 @@ Release authority is scoped to the release that was approved. These remain separ
 - Purchases
 - Expanded spend
 
+Production promotion needs the release owner's yes unless a standing grant names it. Widening what may reach production without asking needs the owner's explicit words naming that change; a general autonomy grant is not enough.
+
+A useful standing grant is a **security-release exception**: fixes for published vulnerabilities or exploits, or security issues the team detects, ship once the implementer and the cross-family reviewer agree and required checks are green, without waiting for the owner. Every such release sends the owner a heads-up with what changed, severity, the SHA and the rollback. Everything else still needs the owner's yes for production. If the harness blocks a covered release, report the exact denial; do not route around it.
+
 The release-closeout skill routes to this document. It never grants itself these permissions.
 
 ## Team defaults
 
-Use [team collaboration](team-collaboration.md) for a two-person account policy. Solo adopters use independent agent review and the repository’s authorized integration route; no second human account is required. Neither path grants additional release authority.
+Use [team collaboration](team-collaboration.md) for a two-person account policy, including which PRs need a second human's review. Solo adopters use independent agent review and the repository’s authorized integration route; no second human account is required. Neither path grants additional release authority.
 
 Use one record per production promotion, including failed/partial attempts, times/evidence, recovery baseline, outcomes and remaining owner/action. A docs-only source change with no production promotion does not create a fake production release record. Closeout uses the normal docs path without redeploying the product just to publish a receipt.

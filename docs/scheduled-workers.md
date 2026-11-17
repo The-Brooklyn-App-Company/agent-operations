@@ -159,6 +159,14 @@ linked to detailed diagnosis/identity references. Preserve source checks,
 detection needs, receipt semantics and domain bounds when reducing overhead; do
 not claim savings percentages from elapsed time alone.
 
+## Stewardship
+
+Keep **one inventory** of every timed job wherever it runs: OS schedulers, client scheduled tasks, cheap-model runs and CI crons. Record its owner, cadence, model and cost tier. The Oracle owns the list; an operator registers each job it adds.
+
+- **Cheapest tier that works.** A free deterministic script polls first; a cheap model classifies only when the script finds something; a model session runs only to deliver. Frequent polling is never an operator or main-operator session, which burns usage limits and clutters the conversation.
+- **Review weekly.** Look for stale or duplicate jobs, jobs that can move to a cheaper tier, cost or behavior regressions, and leftover processes. Kill stale ones before they load the host or burn tokens. A model change is done only after a natural run verifies it.
+- **Know what the scheduler can set.** Some clients set a scheduled task's model only in the UI, or block manual test runs; record the actual readback rather than the intended value.
+
 ## Uniqueness and replacement
 
 Run one watcher per repository, principal, role and effect scope. Two accounts with distinct roles are distinct watchers. For example, an author-side watcher and a reviewer-side watcher must not suppress each other's detection of review requests.

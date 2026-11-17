@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.14 — 2026-11-17
+
+Make the kit client-agnostic (Claude Code or Codex) around a main operator, detached operators with durable homes and disposable cheap workers. Adopt cross-family adversarial code review with neutral briefs, a three-round cap, verify-only passes and third-model tie-breaks. Route approvals through the main operator, with explicit harness support for relays, no unlocking of denials and no relayed money movement. Add the claims ladder, a security-release exception pattern, mutual-review scope for promotion PRs, schedule stewardship, rule hygiene, unattended-host practices without permission pop-ups, and a new self-hosted CI guide. Source guidance only; no installed configuration changes.
+
 ## 0.1.13 — 2026-11-13
 
 Reconcile completed milestones against the full authorized outcome and continue ready work through its existing owner. Keep actual dependencies and parked scope distinct, using the existing handoff and result-return path.

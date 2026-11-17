@@ -6,7 +6,7 @@ Keep this file short. It is for navigation and local differences only.
 - **Queue:** `<path or issue tracker link>`
 - **Release record:** `<path>`
 - **Checks:** `<command or CI job names>`
-- **Review:** `<current repo policy; opposite actual account for teams, or an explicitly authorized solo route>`. Preserve current-head checks and stale-approval rules.
+- **Review:** `<current repo policy: cross-family agent review, plus opposite actual account for PRs into the integration branch on team repos, or an explicitly authorized solo route>`. Preserve current-head checks and stale-approval rules.
 - **Practice:** Agent Operations `<version>`. Link to the kit rather than copying it.
 
 ## Local rules that differ from the kit

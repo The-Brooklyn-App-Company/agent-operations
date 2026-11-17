@@ -1,5 +1,7 @@
 # Release validation and limits
 
+Version 0.1.14 makes the kit client-agnostic and adds cross-family review, approvals through the main operator, the claims ladder, unattended-host and self-hosted CI practice. It is source guidance generalized from operating experience; offline checks do not prove an adopter's harness accepts relayed approvals or that its host is free of permission prompts. Verify those on the first real relayed action and the next unattended run.
+
 Version 0.1.13 clarifies post-milestone continuation. Offline source and existing fixture checks do not prove live follow-through. Verify the next returned result against the remaining outcome through the adopted consumer route.
 
 Version 0.1.12 clarifies immediate dispatch and recovery. Check the actual recipient turn or existing recovery path on the next relevant handoff.

@@ -10,10 +10,10 @@ You can start on your laptop today. Remote hosts, scheduled workers and delegati
 
 ## Bootstrap prompt
 
-Paste this into the existing Codex conversation you want to coordinate setup. For several repositories it can become the Oracle; reuse/create repo operators within the approved mapping. A solo, single-repo adopter can start with that conversation as the operator and add an Oracle when useful. Replace the placeholder first.
+Paste this into the existing Claude Code or Codex conversation you want to coordinate setup. For several repositories it can become the Oracle; reuse/create repo operators within the approved mapping. A solo, single-repo adopter can start with that conversation as the operator and add an Oracle when useful. Replace the placeholder first.
 
 ```text
-Adopt Agent Operations v0.1.13 from <local kit checkout, or github.com/The-Brooklyn-App-Company/agent-operations at tag v0.1.13>.
+Adopt Agent Operations v0.1.14 from <local kit checkout, or github.com/The-Brooklyn-App-Company/agent-operations at tag v0.1.14>.
 Read README.md, START-HERE.md and docs/roles-and-context.md. If reading remotely, include cloning a local checkout at the pinned tag in the proposed setup and record it as kit.kitRoot before linking skills. Read the other docs only when a step needs them.
 
 Rules for this setup:
@@ -24,6 +24,7 @@ Rules for this setup:
 - Run supported operations yourself. Do not ask me to run terminal commands for you.
 - If a capability is missing, say so and propose a handoff or fallback. Never edit application databases or internal state files to simulate it.
 - Follow the staged checkpoints in START-HERE.md and stop at the first one that needs my approval.
+- Hard limits: email and posts stay drafts until I say send; no financial trades; no force-push; never print, copy or enter credentials.
 ```
 
 ## Staged walkthrough
@@ -34,12 +35,14 @@ Rules for this setup:
 **Stage 2: Roles.** For a multi-repo setup, choose an existing Oracle and an operator per repository, then pin them. For one repository, begin with one operator if an Oracle adds no useful coordination yet. The agent proposes creating a new conversation only if none fits. See [docs/roles-and-context.md](docs/roles-and-context.md).
 *Checkpoint:* Verify the approved role mapping and supported creation/pinning; do not create duplicates. Confirm the existing destination and supported handoff route for each role, including any account boundary; see [account identity and routing](docs/team-collaboration.md#account-identity-and-routing). If pinning is UI-only, ask the owner to pin it or obtain specific UI consent.
 
+Give each operator a durable home for its mandate (scope, standing grants, finish line), dated notes and list of timed jobs, such as a directory in a repository the main operator maintains. It survives compaction, can be backed up and moves with the operator; machine-local permission settings stay out of shared history. If operators run detached from the main operator, their turn ends will not notify it: agree how they message the main operator and what catches a stalled operator.
+
 A long-lived operator conversation is not proof of continuous execution. State how approved queued work is resumed and who owns in-flight result retrieval. If unattended work is wanted, define its actual scope and supported trigger; configure optional workers only through their separate approved setup and acceptance. Do not promise an always-running agent from a pinned chat or create a background service to simulate one.
 
 **Stage 3: Machine-local profile.** The agent drafts a profile from [templates/machine-local-profile.example.json](templates/machine-local-profile.example.json). The profile lives outside every repository. It holds credential references, never secrets.
 *Checkpoint:* Default to `~/.config/agent-operations/profile.local.json`. Record any alternate path explicitly in local global guidance at Stage 4 so skills can discover it. Keep secrets and other people’s credential bindings out of the profile.
 
-**Stage 4: Instructions.** The agent merges [templates/global-AGENTS.md](templates/global-AGENTS.md) into your existing global instructions without overwriting local rules. It then proposes a short repository `AGENTS.md` based on [templates/repo-AGENTS.md](templates/repo-AGENTS.md).
+**Stage 4: Instructions.** The agent merges [templates/global-AGENTS.md](templates/global-AGENTS.md) into your existing global instructions (for example `CLAUDE.md` for Claude Code or `AGENTS.md` for Codex) without overwriting local rules. It then proposes a short repository instruction file based on [templates/repo-AGENTS.md](templates/repo-AGENTS.md), using the file name your client reads.
 *Checkpoint:* Inspect both diffs, preserve local rules and apply within the approved setup; surface real conflicts.
 
 **Stage 5: Skills.** The agent links only the selected skills from a clean pinned local Git checkout. An extracted release tarball can be read but cannot satisfy the link helper’s tagged-Git check. It uses a symlink on macOS and Linux, and a configured kit-root pointer on Windows. See [docs/maintenance.md](docs/maintenance.md).
@@ -52,6 +55,7 @@ A long-lived operator conversation is not proof of continuous execution. State h
 - Delegation: [docs/delegation-review.md](docs/delegation-review.md)
 - A scheduled worker: [docs/scheduled-workers.md](docs/scheduled-workers.md)
 - Release closeout: [docs/releases.md](docs/releases.md)
-- A remote or replacement host: [docs/host-lifecycle.md](docs/host-lifecycle.md)
+- A remote, always-on or replacement host: [docs/host-lifecycle.md](docs/host-lifecycle.md)
+- Self-hosted CI runners: [docs/self-hosted-ci.md](docs/self-hosted-ci.md)
 
 An approved plan may cover several stages. Do not infer unrelated effects from it or ask the human to reapprove already-covered steps.

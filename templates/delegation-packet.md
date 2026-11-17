@@ -1,7 +1,7 @@
 # Delegation packet
 
 - **Task:** `<existing task link>`
-- **Delegate:** `<model / effort>` via the owning human's existing approved provider route. No separate worker subscription or billing fallback; stop and report on quota/access loss.
+- **Delegate:** `<model / effort>`; reviewer `<different model family / high effort>`; both via the owning human's existing approved provider route. No separate worker subscription or billing fallback; stop and report on quota/access loss.
 - **Repository and base SHA:** `<repo>` @ `<sha>`
 - **Branch:** `<scoped branch>`
 
@@ -25,7 +25,7 @@ Declare the actual task boundary here. Example implementation scope: return a te
 ## Stop criteria
 
 - All acceptance items pass, or you are blocked and report why.
-- Round limit: `<n>`
+- Round limit: `<n, example 3>`. After it, park minor findings with an owner and escalate major ones; a verify-only pass on the last fixes is allowed.
 
 ## Return format
 

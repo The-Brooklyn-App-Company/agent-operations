@@ -10,7 +10,7 @@ Do not paste kit documents into repository instructions. Link to the pinned kit,
 
 ## Pinned versions
 
-Adopt a tagged release, such as `v0.1.13`, through a local checkout. Record the tag in your machine-local profile.
+Adopt a tagged release, such as `v0.1.14`, through a local checkout. Record the tag in your machine-local profile.
 
 To upgrade:
 
@@ -25,9 +25,9 @@ Do not point skills at a moving `main` branch or at whatever the latest version 
 
 ## Installing skills
 
-The four skills live in `skills/<name>/SKILL.md`. Each skill locates the kit at runtime and then reads the canonical documents. On current Codex installations, use the documented user root `~/.agents/skills` or repository `.agents/skills`; preserve a compatible legacy user root only if the installed client already demonstrates discovery there. Reuse the root the client actually discovers; do not create duplicate installations. Current source: [official skill guidance](https://learn.chatgpt.com/docs/build-skills), checked 2026-10-17. Native plugin/import controls can differ by client.
+The four skills live in `skills/<name>/SKILL.md`. Each skill locates the kit at runtime and then reads the canonical documents. Claude Code discovers personal skills under `~/.claude/skills` and project skills under `.claude/skills`. Current Codex installations use the documented user root `~/.agents/skills` or repository `.agents/skills` ([official skill guidance](https://learn.chatgpt.com/docs/build-skills), checked 2026-10-17); preserve a compatible legacy user root only if the installed client already demonstrates discovery there. Reuse the root the client actually discovers; do not create duplicate installations. Native plugin/import controls can differ by client.
 
-The operator can preview selected directory links with `python3 scripts/link_skills.py --target <verified-skills-root> --skill operator-setup`. Add other `--skill` names only as needed. Under the approved setup, append `--apply` to create them from a clean tagged Git checkout. The helper refuses existing conflicting entries and does not overwrite instructions or create schedules. It links the directory, never just SKILL.md. On a fresh conversation verify the chosen skill is listed and explicitly invoke `$operator-setup`; source validation alone does not prove client discovery.
+The operator can preview selected directory links with `python3 scripts/link_skills.py --target <verified-skills-root> --skill operator-setup`. Add other `--skill` names only as needed. Under the approved setup, append `--apply` to create them from a clean tagged Git checkout. The helper refuses existing conflicting entries and does not overwrite instructions or create schedules. It links the directory, never just SKILL.md. On a fresh conversation verify the chosen skill is listed and explicitly invoke it (`/operator-setup` in Claude Code, `$operator-setup` in Codex); source validation alone does not prove client discovery.
 
 Create the optional profile at `~/.config/agent-operations/profile.local.json` (or an explicitly recorded alternate) from the example template, outside shared repositories. Its exact kit field is `kit.kitRoot`. Record the actual profile path in your local global guidance so the agent can find it. For copied/manual skills, provide that binding explicitly; if neither realpath nor an explicit profile binding works, report the gap rather than search unrelated directories.
 
@@ -41,6 +41,12 @@ Keep the machine-local inventory separate from this public source: actual checko
 Identify the actual consuming entrypoint and verify that it loads the intended pinned guide through its discovered skill or supported instruction route. A new contract file without that consumer is preparation, not adoption. A stale copy in an unrelated checkout does not establish the active consumer's version; inspect its resolved binding before proposing an upgrade. Keep skills as thin routes to the owning guide rather than copying policy into each entrypoint.
 
 A published tag or passing source check proves source availability, not adoption. Record the locally selected version, resolved skill bindings and discovery separately, then verify the next relevant task or natural worker run. Report prepared, installed and behaviorally accepted as distinct states; updating this repository does not update another machine or operator automatically.
+
+## Rule hygiene
+
+Rules accrete. Many are written after one failure in an earlier era, for an older model or client, and outlive the mistake. At a regular review, for example weekly, audit instructions, mandates, memories and scheduled prompts for both questions: what mistakes still need a rule, and which ones are no longer happening. Drop rules that no longer earn their place and record why. Replace a rule rather than append a near-duplicate, and archive finished material rather than letting working documents grow.
+
+When the human corrects something, fix the artifact and update the owning rule or example with a dated pointer. A one-off correction stays one-off unless the human says it is durable.
 
 ## Contributing
 
