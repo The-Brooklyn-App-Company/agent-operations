@@ -1,0 +1,3 @@
+# ShellCheck settings for this repository.
+# Resolve sourced files relative to the script that sources them.
+source-path=SCRIPTDIR
