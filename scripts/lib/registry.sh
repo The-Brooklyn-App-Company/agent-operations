@@ -10,6 +10,11 @@
 # client   claude | codex | custom | file-only; empty = profile relay_default
 # Empty fields are not allowed (tabs collapse); use `-`.
 
+# EXPERIMENTAL provider handoff: a lease in <project-dir>/.operator/lease
+# routes the operator to its holder (see lib/lease.sh, ao_lease_route).
+# shellcheck disable=SC1091 # lib/lease.sh is followed from the scripts and checked itself
+. "$AO_SCRIPTS/lib/lease.sh"
+
 # ao_registry_each CALLBACK  Call CALLBACK once per registry row with
 # OP_KEY, OP_NAME, OP_DIR, OP_SID and OP_CLIENT set (see ao_operator_resolve).
 # The registry is read on fd 3 and the callback runs with fd 3 closed and
@@ -37,15 +42,17 @@ ao_registry_has() {
 
 # ao_operator_resolve KEY NAME DIR SESSION CLIENT  Set the OP_* variables for
 # one operator. This is the single place that decides which provider and
-# session currently own an operator. v0.2 reads the registry row; a later
-# provider-handoff lease (for example `<operator-home>/.operator/lease`) can
-# override OP_CLIENT and OP_SID here without touching any caller.
+# session currently own an operator: the registry row, overridden by a lease
+# in the operator home (OP_LEASE: none, held, released, assigned or invalid;
+# OP_AUDIT: switch-in audit state; OP_PROVIDER: the owning family, also
+# under a file-only transport; EXPERIMENTAL, see ao_lease_route).
 ao_operator_resolve() {
   OP_KEY=$1 OP_NAME=$2 OP_SID=$4
   OP_DIR=$(ao_expand_path "$3" /)
   OP_CLIENT=$(ao_cfg relay_default claude)
   [ -z "$5" ] || OP_CLIENT=$5
   case $OP_SID in pending | -) OP_SID= ;; esac
+  ao_lease_route
 }
 
 # ao_gate ACTION  Ask the optional `<hooks_dir>/gate` executable whether an
@@ -53,8 +60,11 @@ ao_operator_resolve() {
 #   gate <action> <key> <client> <session>
 # with exit 0 = proceed, non-zero (or no answer within 30 s) = skip this
 # operator for now. Absent gate: always proceed. Actions today: relay,
-# watchdog. A provider-handoff lease check belongs here.
+# watchdog, doorbell.
 ao_gate() {
+  # A lease that names no holder (released, assigned, unreadable) holds the
+  # operator: nobody to deliver to, nothing to watch.
+  case ${OP_LEASE:-none} in none | held) ;; *) return 1 ;; esac
   [ -x "$AO_HOOKS/gate" ] || return 0
   ao_timeout 30 "$AO_HOOKS/gate" "$1" "$OP_KEY" "$OP_CLIENT" "${OP_SID:--}" </dev/null >/dev/null 2>&1
 }

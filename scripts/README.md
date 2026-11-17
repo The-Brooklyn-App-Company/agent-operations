@@ -16,6 +16,10 @@ usage, environment and exit codes.
 | `inbox-put.sh` | Atomic note into an inbox, for hooks and adapters |
 | `check.sh` | Duplicate rule text, skill shape, privacy scan |
 | `drift-check.sh` | Weekly audit: `check.sh dupes` plus a worker pass with `drift-prompt.md` |
+| `lease.sh` | **Experimental.** Advisory lease per operator: holder, standby, takeover ([continuity](../docs/continuity.md)) |
+| `mail.sh` | **Experimental.** File mailboxes in each home; `ring-all` for a tick hook |
+| `doorbell-claude.sh`, `doorbell-codex.sh` | **Experimental.** "You have mail", never the mail |
+| `ask.sh` | **Experimental.** Asks and the approvals ledger, bound to the lease |
 | `units/` | launchd (macOS) and systemd (Linux, untested) templates for the tick |
 | `lib/` | Shared code: `core.sh`, `registry.sh`, `vendor.sh`, one `vendor-<client>.sh` per harness |
 
@@ -99,6 +103,7 @@ keys warn; keys starting with `x_` are free for local hooks.
 | `secrets` | `os` | Secrets slot: `os` (macOS keychain; libsecret on Linux), `none`, or an adapter path called as `<adapter> get <name>` |
 | `tracker`, `chat`, `githost`, `ci` | `none` | Integration slots, recorded for agents and adapters; the scripts do not read them yet |
 | `attribution` | `none` | AI attribution in commits: `none` or `disclose`; read by agents, not scripts |
+| `lease_stale`, `work_root`, `doorbell_codex`, `doorbell_rering_min` | `4h`, `~/src`, `off`, `60` | Experimental lease layer (see [continuity](../docs/continuity.md)) |
 
 **Roles.** Each role is a prefix: `worker`, `reviewer`, and one relay
 transport per client, `relay_claude`, `relay_codex`, `relay_custom`. Every
@@ -174,9 +179,10 @@ watches carry their own end date and exit quietly after it. Example:
 `../examples/hooks/weekly/50-drift-check`.
 
 An optional executable `hooks/gate` is asked before acting on an operator:
-`gate <action> <key> <client> <session>`, where action is `relay` or
-`watchdog`; non-zero holds that operator for this tick. This is where a
-provider-handoff lease check plugs in. Which client and session own an
+`gate <action> <key> <client> <session>`, where action is `relay`,
+`watchdog` or `doorbell`; non-zero holds that operator for this tick. An
+operator whose home has a lease (experimental) is routed to the holder, and
+held without asking the gate while its lease names no holder. Which client and session own an
 operator is decided in one function, `ao_operator_resolve` in
 `lib/registry.sh`.
 
@@ -201,7 +207,8 @@ Shared by all scripts (`lib/core.sh`): `0` success or nothing to do; `1`
 runtime failure, or findings from a check; `2` usage or configuration error;
 `3` busy (another run holds the lock; benign); `4` required role not
 configured; `124` timed out. Runners otherwise pass through the client's own
-status.
+status. The experimental lease scripts add `5`: refused by
+the lease (not the holder, wrong epoch, a marker or a missing confirmation).
 
 ## Environment
 

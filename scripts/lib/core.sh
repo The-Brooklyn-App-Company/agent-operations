@@ -136,7 +136,8 @@ daily_hour weekly_day weekly_hour hook_timeout
 relay_default relay_label relay_max_bytes relay_max_message_bytes relay_workdir
 drift_rules drift_files drift_repo_files drift_min_words drift_prompt
 drift_prompt_extra drift_workdir drift_to
-review_family tracker chat githost ci secrets attribution'
+review_family tracker chat githost ci secrets attribution
+lease_stale work_root doorbell_codex doorbell_rering_min'
 # Role keys: <prefix>_<field> for these prefixes and fields.
 AO_ROLE_PREFIXES='worker reviewer relay_claude relay_codex relay_custom'
 AO_ROLE_FIELDS='client cmd model effort timeout mcp_disable tools max_turns

@@ -1,0 +1,402 @@
+#!/bin/sh
+# shellcheck disable=SC2034,SC2016
+# (SC2034: rc and friends are read by the harness in lib.sh; SC2016:
+#  backticks and $(...) in single quotes are literal on purpose.)
+# t_lease.sh - EXPERIMENTAL lease: acquire, renew, markers, release,
+# takeover, locks, routing and the switch-in audit.
+. "$(dirname -- "$0")/lib.sh"
+. "$(dirname -- "$0")/lease_lib.sh"
+
+test_acquire_prints_token_once_and_hides_it() {
+  lsetup
+  acq claude Workshop
+  assert_rc 0
+  assert_eq "$EP" 1
+  [ ${#TOK} -eq 32 ] || _fail "token: '$TOK'"
+  assert_lacks "$T/ops/ws/.operator/lease" "$TOK"
+  assert_eq "$(lget state)" held
+  assert_eq "$(lget provider)" claude
+  # Replay by the holder: same epoch, no new token.
+  lease acquire --provider claude --session Workshop --instance "$TOK"
+  assert_rc 0
+  assert_has "$T/out" "epoch: 1"
+  assert_lacks "$T/out" "instance:"
+  # Anyone else is refused and told who holds it.
+  lease acquire --provider codex --session ops-ws
+  assert_rc 5
+  assert_has "$T/err" 'held by claude `Workshop`'
+}
+
+test_renew_and_check_need_token_and_epoch() {
+  lsetup
+  acq claude Workshop
+  lease renew --instance "$TOK" --epoch "$EP"
+  assert_rc 0
+  lease check --instance "$TOK" --epoch "$EP"
+  assert_rc 0
+  lease check --instance "$TOK" --epoch 2
+  assert_rc 5
+  lease renew --instance deadbeef --epoch "$EP"
+  assert_rc 5
+  assert_has "$T/err" "You are the standby"
+  # A name match is never enough.
+  lease renew --instance Workshop --epoch "$EP"
+  assert_rc 5
+}
+
+test_two_holders_cannot_both_acquire() {
+  lsetup
+  for round in 1 2 3 4 5; do
+    rm -f "$T/ops/ws/.operator/lease"
+    "$AO_TEST_SHELL" "$SCRIPTS/lease.sh" --home "$T/ops/ws" acquire --provider claude --session A >"$T/a.out" 2>&1 &
+    pa=$!
+    "$AO_TEST_SHELL" "$SCRIPTS/lease.sh" --home "$T/ops/ws" acquire --provider codex --session B >"$T/b.out" 2>&1 &
+    pb=$!
+    wait "$pa"
+    ra=$?
+    wait "$pb"
+    rb=$?
+    wins=$(grep -l '^instance: ' "$T/a.out" "$T/b.out" | wc -l | tr -d ' ')
+    assert_eq "$wins" 1 "round $round winners"
+    case "$ra$rb" in 05 | 50) ;; *) _fail "round $round exit codes $ra $rb" ;; esac
+  done
+}
+
+test_release_needs_warm_note_and_bumps_epoch_on_acquire() {
+  lsetup
+  acq claude Workshop
+  t1=$TOK
+  lease release --instance "$t1" --epoch 1
+  assert_rc 5
+  assert_has "$T/err" "HANDOFF.md must start"
+  lease note --instance "$t1" --epoch 1
+  assert_rc 0
+  cp "$T/out" "$T/ops/ws/HANDOFF.md"
+  assert_has "$T/ops/ws/HANDOFF.md" "kind: warm"
+  assert_has "$T/ops/ws/HANDOFF.md" "## Switch-in audit"
+  assert_has "$T/ops/ws/HANDOFF.md" "## In flight"
+  lease release --instance "$t1" --epoch 1
+  assert_rc 0
+  assert_eq "$(lget state)" released
+  sha=$(git -C "$T/ops/ws" log -1 --format=%h -- HANDOFF.md)
+  assert_eq "$(lget prev_note)" "$sha"
+  # Idempotent replay after a crash.
+  lease release --instance "$t1" --epoch 1
+  assert_rc 0
+  assert_has "$T/out" "already"
+  # The old holder is now the standby.
+  lease renew --instance "$t1" --epoch 1
+  assert_rc 5
+  acq claude Workshop
+  assert_eq "$EP" 2
+  assert_has "$T/out" "resume from: HANDOFF.md at $sha"
+  # Same client: no switch-in audit.
+  assert_eq "$(lget audit)" -
+}
+
+test_dispatch_marker_blocks_release() {
+  lsetup
+  acq claude Workshop
+  lease dispatch-begin --instance "$TOK" --epoch "$EP" --what "deploy web" --pid $$
+  assert_rc 0
+  mk=$(sed -n 's/^marker: //p' "$T/out")
+  assert_file "$T/ops/ws/.operator/markers/$mk"
+  lease note --instance "$TOK" --epoch "$EP"
+  cp "$T/out" "$T/ops/ws/HANDOFF.md"
+  lease release --instance "$TOK" --epoch "$EP"
+  assert_rc 5
+  assert_has "$T/err" "dispatch marker is open"
+  # Only the holder can dispatch.
+  lease dispatch-begin --instance nottoken --epoch "$EP" --what x
+  assert_rc 5
+  lease dispatch-end --instance "$TOK" --epoch "$EP" --marker "$mk"
+  assert_rc 0
+  assert_no_file "$T/ops/ws/.operator/markers/$mk"
+  lease release --instance "$TOK" --epoch "$EP"
+  assert_rc 0
+}
+
+test_crash_inside_lock_fails_closed_until_unlock() {
+  lsetup
+  acq claude Workshop
+  AO_TEST_CRASH_AT=lease-before-rename lease renew --instance "$TOK" --epoch "$EP"
+  [ "$rc" -ne 0 ] || _fail "crash point not reached"
+  assert_file "$T/ops/ws/.operator/lease.lock"
+  # The lease itself is intact (rename never happened).
+  assert_eq "$(lget state)" held
+  touch -t 202001010000 "$T/ops/ws/.operator/lease.lock"
+  lease renew --instance "$TOK" --epoch "$EP"
+  assert_rc 3
+  assert_has "$T/err" "failing closed"
+  assert_count "$T/home/inbox/oracle" 1
+  # Told once, not on every verb.
+  lease check --instance "$TOK" --epoch "$EP"
+  lease acquire --provider codex --session x
+  assert_rc 3
+  assert_count "$T/home/inbox/oracle" 1
+  # unlock is human-only and needs the assertions.
+  lease unlock
+  assert_rc 5
+  CLAUDECODE=1 lease unlock --timers-off --sessions-stopped
+  assert_rc 5
+  assert_has "$T/err" "human-only"
+  lease unlock --timers-off --sessions-stopped
+  assert_rc 5
+  assert_has "$T/err" "terminal"
+  with_tty "unlock ws" lease.sh --home "$T/ops/ws" unlock --timers-off --sessions-stopped
+  assert_eq "$rc" 0 "unlock rc"
+  assert_no_file "$T/ops/ws/.operator/lease.lock"
+  lease renew --instance "$TOK" --epoch "$EP"
+  assert_rc 0
+}
+
+test_takeover_refused_paths() {
+  lsetup
+  acq claude Workshop
+  # Refused inside an agent tool shell.
+  CLAUDECODE=1 lease takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_rc 5
+  CODEX_THREAD_ID=x lease takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_rc 5
+  # Without the human's assertion.
+  lease takeover --expect-epoch 1 --provider codex --session ops-ws
+  assert_rc 5
+  assert_has "$T/err" "holder-stopped"
+  # Wrong epoch.
+  lease takeover --expect-epoch 7 --holder-stopped --provider codex --session ops-ws
+  assert_rc 5
+  # Without the confirmed prompt (no terminal).
+  lease takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_rc 5
+  assert_has "$T/err" "confirmed by a human at a terminal"
+  # A wrong confirmation.
+  with_tty "yes" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_eq "$rc" 5 "wrong confirmation rc"
+  assert_eq "$(lget state)" held
+  assert_eq "$(lget epoch)" 1
+}
+
+test_takeover_refused_while_dispatcher_paused() {
+  lsetup
+  acq claude Workshop
+  sleep 60 &
+  disp=$!
+  lease dispatch-begin --instance "$TOK" --epoch "$EP" --what "publish release" --pid "$disp"
+  mk=$(sed -n 's/^marker: //p' "$T/out")
+  kill -STOP "$disp"
+  lease status
+  assert_has "$T/out" "stopped (pid $disp)"
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_eq "$rc" 5 "paused dispatcher rc"
+  assert_has "$T/out" "dispatch marker exists"
+  # The dispatcher dies: the marker stays as an unresolved effect.
+  kill -KILL "$disp"
+  wait "$disp" 2>/dev/null
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_eq "$rc" 5 "dead marker rc"
+  # The human settles it; then takeover proceeds.
+  with_tty "settle $mk unknown" lease.sh --home "$T/ops/ws" settle --marker "$mk" --outcome unknown
+  assert_eq "$rc" 0 "settle rc"
+  assert_file "$T/ops/ws/.operator/markers/settled/$mk"
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_eq "$rc" 0 "takeover rc"
+  assert_has "$T/ops/ws/HANDOFF.md" "effect $mk: publish release (outcome unknown"
+}
+
+test_takeover_cold_note_assign_audit_and_old_holder() {
+  lsetup
+  acq claude Workshop
+  old=$TOK
+  printf 'wip\n' >"$T/work/app/dirty.txt"
+  git -C "$T/work/app" checkout -q -b ws/feature
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_eq "$rc" 0 "takeover rc"
+  h=$T/ops/ws/HANDOFF.md
+  assert_has "$h" "epoch: 1   from: claude/"
+  assert_has "$h" "kind: cold"
+  assert_has "$h" "## Switch-in audit"
+  assert_has "$h" "REQUIRED FIRST STEP for the incoming codex session"
+  assert_has "$h" "- app (owner) $T/work/app"
+  assert_has "$h" "branch ws/feature"
+  assert_has "$h" "dirty: 1 file(s): dirty.txt"
+  assert_has "$h" "## On hold"
+  assert_has "$h" "## Grants in play"
+  # Committed first, and the lease points at it.
+  git -C "$T/ops/ws" diff --quiet HEAD -- HANDOFF.md || _fail "cold note not committed"
+  assert_eq "$(lget prev_note)" "$(git -C "$T/ops/ws" log -1 --format=%h -- HANDOFF.md)"
+  assert_eq "$(lget state)" assigned
+  assert_eq "$(lget epoch)" 2
+  assert_eq "$(lget audit)" pending
+  # The old holder wakes: its renew fails and it redirects.
+  lease renew --instance "$old" --epoch 1
+  assert_rc 5
+  # Only the assigned provider and session may acquire.
+  acq claude Workshop
+  assert_rc 5
+  acq codex ops-ws
+  assert_rc 0
+  assert_eq "$EP" 2
+  assert_has "$T/out" "REQUIRED FIRST STEP: switch-in audit"
+  new=$TOK
+  # No new work until the audit is recorded.
+  lease dispatch-begin --instance "$new" --epoch 2 --what "deploy"
+  assert_rc 5
+  assert_has "$T/err" "switch-in audit pending"
+  lease audit-brief --instance "$new" --epoch 2
+  assert_rc 0
+  assert_has "$T/out" "Switch-in audit: ws, epoch 2 (claude -> codex)"
+  assert_has "$T/out" "Leftovers"
+  mkdir -p "$T/ops/ws/audits"
+  printf 'findings: none\n' >"$T/ops/ws/audits/a.md"
+  lease audit-done --instance "$new" --epoch 2 --report audits/a.md
+  assert_rc 5
+  assert_has "$T/err" "commit the report first"
+  git -C "$T/ops/ws" add audits/a.md && git -C "$T/ops/ws" commit -q -m audit
+  lease audit-done --instance "$new" --epoch 2 --report audits/a.md
+  assert_rc 0
+  assert_eq "$(lget audit)" "done"
+  lease dispatch-begin --instance "$new" --epoch 2 --what "deploy"
+  assert_rc 0
+}
+
+test_warm_switch_to_other_client_needs_audit() {
+  lsetup
+  acq claude Workshop
+  lease note --instance "$TOK" --epoch 1
+  cp "$T/out" "$T/ops/ws/HANDOFF.md"
+  lease release --instance "$TOK" --epoch 1
+  acq codex ops-ws
+  assert_eq "$(lget audit)" pending
+  assert_eq "$(lget prev_provider)" claude
+}
+
+test_restore_starts_new_generation() {
+  lsetup
+  acq claude Workshop
+  g1=$(lget generation)
+  rm -rf "$T/ops/ws/.operator"
+  acq claude Workshop
+  assert_rc 0
+  assert_eq "$EP" 1
+  [ "$(lget generation)" != "$g1" ] || _fail "generation did not change"
+}
+
+test_invalid_or_foreign_lease_fails_closed() {
+  lsetup
+  acq claude Workshop
+  sed 's/^host=.*/host=elsewhere/' "$T/ops/ws/.operator/lease" >"$T/l" && mv "$T/l" "$T/ops/ws/.operator/lease"
+  lease renew --instance "$TOK" --epoch 1
+  assert_rc 5
+  assert_has "$T/err" "from host 'elsewhere'"
+  printf 'operator=ws\n$(touch %s/pwned)\n' "$T" >"$T/ops/ws/.operator/lease"
+  lease status
+  assert_rc 1
+  assert_has "$T/err" "invalid"
+  assert_no_file "$T/pwned"
+}
+
+test_redirect_text_and_offer() {
+  lsetup
+  acq claude Workshop
+  lease redirect --provider codex
+  assert_rc 0
+  assert_has "$T/out" 'ws is held by claude `Workshop` since'
+  assert_has "$T/out" "Go there."
+  assert_lacks "$T/out" "looks down"
+  # Five hours later, nothing in flight: the offer appears.
+  AO_NOW=$(($(date +%s) + 18000)) lease redirect --provider codex
+  assert_has "$T/out" "The holder looks down"
+  # A live dispatch suppresses the offer.
+  lease dispatch-begin --instance "$TOK" --epoch 1 --what x --pid $$
+  AO_NOW=$(($(date +%s) + 18000)) lease redirect --provider codex
+  assert_lacks "$T/out" "looks down"
+}
+
+test_concurrent_launch_with_same_token_is_standby() {
+  lsetup
+  sleep 60 &
+  first=$!
+  CLAUDECODE=1 CLAUDE_PID=$first acq claude Workshop
+  assert_eq "$(lget client_pid)" "$first"
+  # A second launch of the same conversation (same token, other process).
+  CLAUDECODE=1 CLAUDE_PID=$$ lease renew --instance "$TOK" --epoch 1
+  assert_rc 5
+  assert_has "$T/err" "another live claude launch"
+  # The first launch is gone: the relaunch carries on as the holder.
+  kill "$first"
+  wait "$first" 2>/dev/null
+  CLAUDECODE=1 CLAUDE_PID=$$ lease renew --instance "$TOK" --epoch 1
+  assert_rc 0
+  assert_eq "$(lget client_pid)" "$$"
+}
+
+test_takeover_refused_while_client_process_runs() {
+  lsetup
+  sleep 60 &
+  cl=$!
+  CLAUDECODE=1 CLAUDE_PID=$cl acq claude Workshop
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_eq "$rc" 5 "rc"
+  assert_has "$T/out" "still running"
+  kill "$cl"
+}
+
+test_routing_follows_the_lease() {
+  lsetup
+  mkdir -p "$T/home/inbox/ws"
+  printf 'hello\n' >"$T/home/inbox/ws/n.md"
+  # Released (or absent holder): the relay holds the note.
+  acq claude Workshop
+  lease note --instance "$TOK" --epoch 1
+  cp "$T/out" "$T/ops/ws/HANDOFF.md"
+  lease release --instance "$TOK" --epoch 1
+  FAKE_MODE=sent run relay.sh --key ws
+  assert_rc 0
+  assert_count "$T/home/inbox/ws" 1
+  assert_has "$T/state/relay.log" "to=ws held by gate"
+  # Held by codex: status reports the provider; held by claude: delivered
+  # to the lease's session name.
+  acq codex ops-ws
+  run status.sh --tsv
+  assert_has "$T/out" "ws${TAB}ops-ws${TAB}codex"
+  lease note --instance "$TOK" --epoch 2
+  cp "$T/out" "$T/ops/ws/HANDOFF.md"
+  lease release --instance "$TOK" --epoch 2
+  run status.sh --tsv
+  assert_has "$T/out" "${TAB}codex${TAB}"
+  acq claude "Workshop-2"
+  FAKE_MODE=sent run relay.sh --key ws
+  assert_rc 0
+  assert_has "$FAKE_LOG" 'to "Workshop-2"'
+  assert_count "$T/home/inbox/ws" 0
+}
+
+# resolve KEY  Print what ao_operator_resolve reports for KEY.
+resolve() {
+  cat >"$T/resolve.sh" <<EOF
+AO_SCRIPTS=$SCRIPTS
+. "\$AO_SCRIPTS/lib/core.sh"
+. "\$AO_SCRIPTS/lib/registry.sh"
+ao_load --no-state
+show() { [ "\$OP_KEY" = "$1" ] && echo "client=\$OP_CLIENT provider=\$OP_PROVIDER lease=\$OP_LEASE audit=\$OP_AUDIT name=\$OP_NAME"; return 0; }
+ao_registry_each show
+EOF
+  "$AO_TEST_SHELL" "$T/resolve.sh" 2>"$T/err"
+}
+
+test_resolver_reports_provider_across_handoff() {
+  lsetup
+  printf 'fo\tFo\t%s\t-\tfile-only\n' "$T/ops/fo" >>"$T/home/operators/REGISTRY.tsv"
+  mkdir -p "$T/ops/fo"
+  printf 'key=fo\n' >"$T/ops/fo/operator.conf"
+  git_init "$T/ops/fo"
+  assert_eq "$(resolve ws)" "client=claude provider=claude lease=none audit=- name=Workshop"
+  acq claude Workshop
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_eq "$(resolve ws)" "client=codex provider=codex lease=assigned audit=pending name=ops-ws"
+  # A file-only transport still reports the owning family.
+  acq codex ops-fo "$T/ops/fo"
+  assert_eq "$(resolve fo)" "client=file-only provider=codex lease=held audit=- name=ops-fo"
+}
+
+ao_test_main "$0"

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Every-tick hook (EXPERIMENTAL): ring the doorbell of each lease holder that
+# has mail in its home's .operator/inbox (scripts/mail.sh ring-all). Copy to
+# <hooks_dir>/every/ and make it executable. tick.sh provides AO_SCRIPTS and
+# AO_PROFILE.
+exec "$AO_SCRIPTS/mail.sh" ring-all
