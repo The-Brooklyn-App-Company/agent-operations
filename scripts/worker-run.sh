@@ -10,9 +10,9 @@
 #   any other output                       -> note in RECIPIENT's inbox
 #   the run fails, times out, or exits 0
 #   without any output                     -> note in the Oracle's inbox
-#   the role is missing or misconfigured,
-#   or the prompt or workdir is unusable   -> note in the Oracle's inbox
-# Surrounding blank lines and spaces around NOTHING are ignored.
+#   the role is missing or misconfigured, the
+#   recipient unknown, or the prompt or
+#   workdir unusable                       -> note in the Oracle's inbox
 # The prompt must tell the model to print exactly NOTHING when there is
 # nothing worth reporting.
 #
@@ -33,10 +33,10 @@ AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$AO_SCRIPTS/lib/registry.sh"
 . "$AO_SCRIPTS/lib/vendor.sh"
 
-# worker_is_nothing FILE  True when FILE's only non-blank line is NOTHING.
+# worker_is_nothing FILE  True when FILE is exactly NOTHING (a final
+# newline allowed).
 worker_is_nothing() {
-  awk 'NF { n++; line = $0 }
-    END { exit !(n == 1 && line ~ /^[[:space:]]*NOTHING[[:space:]]*$/) }' "$1"
+  [ "$(cat "$1")" = NOTHING ]
 }
 
 # worker_is_empty FILE  True when FILE holds nothing but whitespace.
@@ -92,9 +92,9 @@ main() {
   ao_is_name "$job" || ao_die "$AO_E_USAGE" "invalid job name '$job'"
   ao_is_name "$role" || ao_die "$AO_E_USAGE" "invalid role '$role'"
   ao_load
+  AO_ON_DIE=worker_on_die
   workdir=${4:-$AO_HOME}
   ao_registry_has "$recipient" || ao_die "$AO_E_USAGE" "recipient '$recipient' is not in the registry ($AO_REGISTRY)"
-  AO_ON_DIE=worker_on_die
   if ! ao_role_load "$role"; then
     AO_ON_DIE=
     ao_note_oracle "role-missing-$role" "Role '$role' is not configured in $AO_PROFILE; worker job \`$job\` was skipped."

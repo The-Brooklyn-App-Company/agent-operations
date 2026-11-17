@@ -5,11 +5,13 @@
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now agent-operations-tick.timer
 # For ticks while logged out: loginctl enable-linger "$USER" (one-time).
+# Substituted paths are quoted, so spaces are fine; they must not contain
+# double quotes, backslashes or % (systemd specifiers).
 [Unit]
 Description=agent-operations tick (watchdog, hooks, relay)
 
 [Service]
 Type=oneshot
-Environment=AO_PROFILE=@PROFILE@
-ExecStart=/bin/sh @KIT_DIR@/scripts/tick.sh
+Environment="AO_PROFILE=@PROFILE@"
+ExecStart=/bin/sh "@KIT_DIR@/scripts/tick.sh"
 Nice=10

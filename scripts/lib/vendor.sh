@@ -12,9 +12,10 @@
 #   <prefix>_timeout      hard limit in seconds (0 = none)
 #   <prefix>_mcp_disable  comma list of tool servers to switch off (codex);
 #                         claude runs load no tool servers at all
-#   <prefix>_tools        claude tool allow-list for runs (default read-only)
+#   <prefix>_tools        claude tool allow-list; default Read,Grep,Glob for
+#                         runs, ToolSearch,ListAgents,SendMessage for delivery
 #   <prefix>_max_turns    claude turn cap
-#   <prefix>_disallowed_tools  claude deny-list (relay delivery hardening)
+#   <prefix>_disallowed_tools  claude deny-list, added on top
 #   <prefix>_token_secret secret name fetched via the `secrets` slot
 #   <prefix>_token_env    env var that receives it (claude default:
 #                         CLAUDE_CODE_OAUTH_TOKEN)
@@ -67,7 +68,7 @@ ao_role_load() {
   R_EFFORT=$(ao_cfg "$1_effort" '')
   R_TIMEOUT=$(ao_cfg_uint "$1_timeout" 600) || exit
   R_MCP=$(ao_cfg "$1_mcp_disable" '')
-  R_TOOLS=$(ao_cfg "$1_tools" 'Read,Grep,Glob')
+  R_TOOLS=$(ao_cfg "$1_tools" '')
   R_MAX_TURNS=$(ao_cfg "$1_max_turns" '')
   R_DISALLOWED=$(ao_cfg "$1_disallowed_tools" '')
   R_TOKEN_SECRET=$(ao_cfg "$1_token_secret" '')

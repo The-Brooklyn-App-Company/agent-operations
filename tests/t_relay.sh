@@ -23,14 +23,15 @@ test_claude_delivery_archives_notes() {
   assert_has "$FAKE_LOG" 'stdin: eof'
   assert_has "$FAKE_LOG" "cwd: $T/home"
   for a in stream-json --verbose --strict-mcp-config '{"disableAllHooks":true}' \
-    Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Task,Skill; do
+    --tools ToolSearch,ListAgents,SendMessage; do
     assert_has "$FAKE_LOG" "arg: $a"
   done
+  assert_lacks "$FAKE_LOG" "arg: --disallowedTools"
   assert_has "$FAKE_LOG" "relay-id: "
 }
 
 test_receipt_is_required() {
-  for mode in failed wrongto noid twice liar; do
+  for mode in failed error wrongto altered twice liar; do
     note alpha 001-a.md "first note"
     FAKE_MODE=$mode run relay.sh
     assert_rc 1
@@ -38,6 +39,44 @@ test_receipt_is_required() {
     assert_has "$T/state/relay.log" "receipt:"
   done
   assert_no_file "$T/home/inbox/sent"
+}
+
+test_receipt_needs_jq() {
+  # A PATH with the fakes and basic tools but no jq.
+  mkdir -p "$T/nojq"
+  for t in sh cat sed awk grep head tail wc tr mkdir mv rm ln cp date mktemp dirname sort cut stat sleep kill printf ls touch rmdir timeout; do
+    p=$(command -v "$t") && [ "${p#/}" != "$p" ] && ln -s "$p" "$T/nojq/$t"
+  done
+  profile_set path "$T/bin:$T/nojq"
+  note alpha a.md "x"
+  FAKE_MODE=sent run relay.sh
+  assert_rc 1
+  assert_count "$T/home/inbox/alpha" 1
+  assert_has "$T/state/relay.log" "jq is required"
+}
+
+test_note_rewritten_during_delivery_stays_pending() {
+  note alpha a.md "ORIGINAL"
+  # The fake rewrites the inbox note while "delivering".
+  cat >"$T/bin/claude" <<EOF
+#!/bin/sh
+printf 'NEW UNDELIVERED\n' >"$T/home/inbox/alpha/a.md.tmp" && mv "$T/home/inbox/alpha/a.md.tmp" "$T/home/inbox/alpha/a.md"
+FAKE_MODE=sent exec "$TESTS_DIR/fakes/fake-agent" "\$@"
+EOF
+  chmod +x "$T/bin/claude"
+  run relay.sh
+  assert_rc 0
+  assert_eq "$(cat "$T/home/inbox/alpha/a.md")" "NEW UNDELIVERED"
+  assert_has "$(ls "$T/home/inbox/sent"/*-alpha-a.md)" "ORIGINAL"
+}
+
+test_interrupted_claim_is_recovered() {
+  mkdir -p "$T/home/inbox/alpha/.claimed"
+  printf 'left behind\n' >"$T/home/inbox/alpha/.claimed/old.md"
+  FAKE_MODE=sent run relay.sh
+  assert_rc 0
+  assert_has "$(ls "$T/home/inbox/sent"/*-alpha-old.md)" "left behind"
+  assert_no_file "$T/home/inbox/alpha/.claimed"
 }
 
 test_large_backlog_goes_in_batches() {

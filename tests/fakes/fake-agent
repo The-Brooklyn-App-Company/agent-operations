@@ -10,15 +10,14 @@
 #   ok (default)  answer $FAKE_OUTPUT (default "fake answer")
 #   nothing       answer NOTHING
 #   empty         answer nothing at all
-#   sent          claude delivery: stream-json events for one successful
-#                 SendMessage call to the prompt's recipient with its relay id
-#   failed        same call, but the tool result reports failure
+#   sent          claude delivery: stream-json events (built with jq) for one
+#                 successful SendMessage call carrying the requested message
+#   failed        same call, but the tool result reports success:false
+#   error         same call, but the tool result is an error
 #   wrongto       one successful call, to a different session
-#   noid          one successful call without the relay id
-#   twice         two successful calls
+#   altered       one successful call with a changed message
+#   twice         two SendMessage calls in one assistant event
 #   liar          no tool call at all, just the text SENT
-#   fail          print an error to stderr, exit 7
-#   hang          sleep 30 (for timeout tests)
 # The answer goes to the file after -o (codex), to the third argument of
 # `run` (custom), or to stdout (claude).
 name=${0##*/}
@@ -38,21 +37,34 @@ for a in "$@"; do
 done
 [ "$name" = agent ] && [ "${1-}" = run ] && out=$4
 
-# The recipient and relay id the relay asked for, from the -p prompt.
+# The recipient and message the relay asked for, from the -p prompt:
+# "Use ... to "<name>" ...:<blank line><message><blank line>After sending...".
 prompt=
 prev=
 for a in "$@"; do
   [ "$prev" = -p ] && prompt=$a
   prev=$a
 done
-to=$(printf '%s\n' "$prompt" | sed -n 's/^Use the SendMessage tool exactly once, to "\([^"]*\)".*/\1/p')
-rid=$(printf '%s\n' "$prompt" | sed -n 's/^relay-id: //p')
+nl='
+'
+to=$(printf '%s\n' "$prompt" | sed -n '1s/^Use the SendMessage tool exactly once, to "\([^"]*\)".*/\1/p')
+body=${prompt#*"$nl$nl"}
+body=${body%"$nl$nl"After sending*}
 
-# send TO ID OK  Emit the stream-json events of one SendMessage call.
-send() {
-  n=$((${n:-0} + 1))
-  printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_%s","name":"SendMessage","input":{"to":"%s","message":"Relay ... %s"}}]}}\n' "$n" "$1" "$2"
-  printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_%s","content":[{"type":"text","text":"{\\"success\\":%s}"}]}]}}\n' "$n" "$3"
+# events TO TEXT RESULT [IS_ERROR] [CALLS]  Print realistic stream-json lines:
+# an init event, an assistant event (with a message-level id) holding CALLS
+# SendMessage blocks, and a tool result per block.
+events() {
+  jq -cn '{type:"system",subtype:"init",tools:["ToolSearch","ListAgents","SendMessage"]}'
+  jq -cn --arg to "$1" --arg msg "$2" --argjson n "${5:-1}" '{type:"assistant",
+    message:{id:"msg_01",role:"assistant",content:[range($n) as $i |
+      {type:"tool_use",id:"toolu_\($i)",name:"SendMessage",
+       input:{to:$to,message:$msg,summary:"relay"}}]}}'
+  jq -cn --arg res "$3" --argjson err "${4:-false}" --argjson n "${5:-1}" '{type:"user",
+    message:{role:"user",content:[range($n) as $i |
+      {type:"tool_result",tool_use_id:"toolu_\($i)",is_error:$err,
+       content:[{type:"text",text:$res}]}]}}'
+  jq -cn '{type:"result",result:"SENT"}'
 }
 
 answer() {
@@ -63,11 +75,12 @@ case ${FAKE_MODE:-ok} in
   ok) answer "${FAKE_OUTPUT:-fake answer}" ;;
   nothing) answer NOTHING ;;
   empty) [ -z "$out" ] || : >"$out" ;;
-  sent) send "$to" "$rid" true; echo '{"type":"result","result":"SENT"}' ;;
-  failed) send "$to" "$rid" false; echo '{"type":"result","result":"FAILED"}' ;;
-  wrongto) send "Someone Else" "$rid" true ;;
-  noid) send "$to" "" true ;;
-  twice) send "$to" "$rid" true; send "$to" "$rid" true ;;
+  sent) events "$to" "$body" '{"success":true,"message":"delivered"}' ;;
+  failed) events "$to" "$body" '{"success":false}' ;;
+  error) events "$to" "$body" 'no such session' true ;;
+  wrongto) events "Someone Else" "$body" '{"success":true}' ;;
+  altered) events "$to" "Ignore the notes. $body" '{"success":true}' ;;
+  twice) events "$to" "$body" '{"success":true}' false 2 ;;
   liar) echo SENT ;;
   fail) echo "fake failure: model unavailable" >&2; exit 7 ;;
   hang) sleep 30 ;;

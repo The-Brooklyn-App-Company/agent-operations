@@ -8,9 +8,12 @@
 # labelled as automated (relay_label), tagged with a unique relay id, and
 # handed to the row's client transport: claude, codex (experimental) or
 # custom. Rows whose client is `file-only` are left alone: that session
-# reads its inbox at turn start. Each confirmed batch moves to <sent_dir> as
-# <stamp>-<key>-<name> (never overwriting); a failed batch stays put and is
-# retried on the next run, and later batches for that row wait. The relay is
+# reads its inbox at turn start. Notes are first claimed (renamed into the
+# inbox's hidden .claimed/ folder), so a note rewritten during delivery is
+# never archived unsent. Each confirmed batch moves to <sent_dir> as
+# <stamp>-<key>-<name> (never overwriting); on a failed batch every claimed
+# note returns to the inbox for the next run. Notes left claimed by an
+# interrupted run are returned first. Delivery is at-least-once. The relay is
 # transport only: it never interprets, filters or acts on notes.
 #
 # Options:
@@ -95,9 +98,21 @@ relay_flush() {
   fi
 }
 
+# relay_unclaim  Return every claimed note to the inbox (never overwriting).
+relay_unclaim() {
+  for _c in "$claim"/*.md; do
+    [ -f "$_c" ] || continue
+    _n=${_c##*/}
+    ao_place "$_c" "$AO_INBOX/$OP_KEY/${_n%.md}" .md >/dev/null ||
+      ao_warn "cannot return claimed note $_c to the inbox"
+  done
+}
+
 # relay_row  Registry callback: deliver one operator's inbox, if non-empty.
 relay_row() {
   [ -z "$only_key" ] || [ "$OP_KEY" = "$only_key" ] || return 0
+  claim=$AO_INBOX/$OP_KEY/.claimed
+  [ -n "$dry_run" ] || [ ! -d "$claim" ] || relay_unclaim
   set -- "$AO_INBOX/$OP_KEY"/*.md
   [ -f "$1" ] || return 0
   case $OP_CLIENT in
@@ -113,17 +128,23 @@ relay_row() {
     printf 'would relay %s note(s) to %s via %s\n' "$#" "$OP_KEY" "$OP_CLIENT"
     return 0
   fi
-  relay_start
+  mkdir -p "$claim" || { ao_log "$log" "to=$OP_KEY FAILED: cannot create $claim"; failures=$((failures + 1)); return 0; }
   for _note in "$@"; do
-    [ -f "$_note" ] || continue
     case $_note in *"$AO_NL"*) ao_warn "skipping note with a newline in its name: $_note"; continue ;; esac
+    mv "$_note" "$claim/" 2>/dev/null || ao_warn "could not claim $_note; it stays for the next run"
+  done
+  relay_start
+  for _note in "$claim"/*.md; do
+    [ -f "$_note" ] || continue
     if [ -s "$batch" ] && [ $(($(wc -c <"$msg") + max_bytes + NOTE_OVERHEAD)) -gt "$budget" ]; then
-      relay_flush || return 0
+      relay_flush || { relay_unclaim; return 0; }
       relay_start
     fi
     relay_append "$_note"
   done
-  [ ! -s "$batch" ] || relay_flush
+  if [ -s "$batch" ]; then relay_flush || relay_unclaim; fi
+  rmdir "$claim" 2>/dev/null
+  return 0
 }
 
 main() {

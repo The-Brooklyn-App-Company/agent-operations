@@ -40,7 +40,7 @@ key.
 | --- | --- | --- |
 | `operators/REGISTRY.tsv` | `registry` | One row per session |
 | `operators/WATCHDOG-QUIET.tsv` | `quiet_list` | Dated watchdog exemptions |
-| `inbox/<key>/*.md` | `inbox_dir` | Notes waiting for a session |
+| `inbox/<key>/*.md` | `inbox_dir` | Notes waiting for a session; `.claimed/` holds a batch while it is being delivered |
 | `inbox/sent/` | `sent_dir` | Delivered notes, `<stamp>-<key>-<name>` |
 | `hooks/{every,hourly,daily,weekly}/` | `hooks_dir` | Tick hooks; optional `hooks/gate` |
 | `~/.local/state/agent-operations/` | `state_dir` | Logs, stamps, locks (machine-local; keep out of git and backups) |
@@ -112,9 +112,9 @@ role takes the same fields:
 | `<role>_effort` | client default | Reasoning effort (codex) |
 | `<role>_timeout` | `600` | Hard limit in seconds; `0` = none |
 | `<role>_mcp_disable` | none | Comma list of tool servers to switch off (codex). Claude runs load no tool servers at all |
-| `<role>_tools` | `Read,Grep,Glob` | Claude tool allow-list for runs; `default` = the client's full set |
+| `<role>_tools` | runs: `Read,Grep,Glob`; delivery: `ToolSearch,ListAgents,SendMessage` | Claude built-in tool allow-list; `default` = the client's full set |
 | `<role>_max_turns` | client default | Claude turn cap |
-| `<role>_disallowed_tools` | relay: `Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Task,Skill` | Claude deny-list for delivery runs; `none` drops it |
+| `<role>_disallowed_tools` | none | Claude deny-list, added on top (useful with `<role>_tools=default`) |
 | `<role>_token_secret` | none | Secret name, fetched through `secrets` for this role only |
 | `<role>_token_env` | `CLAUDE_CODE_OAUTH_TOKEN` for claude | Variable that receives it |
 
@@ -130,7 +130,7 @@ role interface, so adding a harness touches nothing else.
 
 | Client | run | deliver | activity |
 | --- | --- | --- | --- |
-| `claude` | `claude -p`, no session persistence, read-only tools | Headless run calls the built-in `SendMessage` once; confirmed from the event stream (below) | `<session>.jsonl` under `$CLAUDE_CONFIG_DIR/projects/<dir-slug>/`, else the newest transcript there |
+| `claude` | `claude -p`, no session persistence, read-only tools | Headless run with only the messaging tools calls the built-in `SendMessage` once (Claude Code 2.1.224+); confirmed from the event stream with `jq` (below) | `<session>.jsonl` under `$CLAUDE_CONFIG_DIR/projects/<dir-slug>/`, else the newest transcript there |
 | `codex` | `codex exec --ephemeral -s read-only`, listed servers off | **Experimental:** one read-only `codex exec resume <session>` turn | Newest `$CODEX_HOME/sessions/**/*<session>*.jsonl` |
 | `custom` | `<cmd> run <workdir> <prompt> <out>` | `<cmd> deliver <name> <session> <message> <relay-id>` | `<cmd> activity <dir> <session>` (optional) |
 | `file-only` | n/a | Nothing: the session reads its inbox at turn start | n/a |
@@ -143,19 +143,26 @@ read: report a relayed message as delivered, not as acted on.
 **Relay trust boundary.** Whatever can write to an inbox can put text in
 front of a model twice: the delivery run, and the receiving session, which
 sees the note labelled as automated. Only local automation you control
-should write inboxes. The Claude delivery run is constrained (no tool
-servers, no hooks, effectful built-in tools denied), and success is never
-taken from the model's words: the stream must show exactly one `SendMessage`
-call, to the registered name, carrying the batch's `relay-id`, with a
-successful result. A mismatch is logged, the notes stay, and the batch is
-retried. The deny-list is a deny-list, so review it against your client's
-tool set.
+should write inboxes. The Claude delivery run is confined: no tool servers,
+no hooks, and only the built-in `ToolSearch`, `ListAgents` and `SendMessage`
+tools. Success is never taken from the model's words: the JSON event stream
+must show exactly one `SendMessage` call, addressed to the registered name,
+whose text is the batch (including its `relay-id` line; whitespace
+normalised), and a successful, non-error result for that call. Verifying
+needs `jq`; without it the relay refuses to deliver. On any mismatch the
+notes return to the inbox and the batch is retried. Delivery is
+at-least-once: a crash between confirmation and archiving re-sends the
+batch. Notes are claimed (renamed into `.claimed/`) before they are read,
+so a note rewritten during delivery stays pending instead of being archived
+unsent.
 
 ## Hooks and the gate
 
 `tick.sh` runs executables in `hooks/every/` on each tick and those in
-`hourly/`, `daily/` and `weekly/` once per period, in name order (files
-ending in `.example`, `.disabled` or `~` are skipped). A hook gets
+`hourly/`, `daily/` and `weekly/` once per period, in name order; files
+ending in `.example`, `.disabled` or `~` are skipped. Each hook is stamped
+as it starts, so an interrupted hook waits for the next period while hooks
+that never started run on the next tick. A hook gets
 `AO_PROFILE`, `AO_HOME`, `AO_INBOX`, `AO_STATE`, `AO_SCRIPTS`,
 `AO_ORACLE_KEY` and `AO_PERIOD`, closed stdin and `oracle_home` as its
 working directory; its output goes to `<state_dir>/hooks.log`. To tell a

@@ -115,6 +115,18 @@ test_weekly_hook_catches_up() {
   assert_eq "$(ran w)" 1 "not yet due next week"
 }
 
+test_interrupted_period_runs_unstarted_hooks() {
+  hook daily a
+  hook daily b
+  AO_NOW=$(epoch_of "2026-11-17 07:00")
+  export AO_NOW
+  mkdir -p "$T/state/stamps"
+  # As if a previous tick died while running hook a.
+  echo 2026-11-17 >"$T/state/stamps/daily-a"
+  run tick.sh --no-relay
+  assert_eq "$(ran a) $(ran b)" "0 1"
+}
+
 test_failing_hook_is_reported() {
   hook every bad 'echo "hook says no"; exit 5'
   hook every good
@@ -160,7 +172,7 @@ test_dry_run_runs_no_hooks() {
   run tick.sh --dry-run
   assert_has "$T/out" "would run hook: daily/d"
   assert_eq "$(ran d)" 0
-  assert_no_file "$T/state/stamps/daily"
+  assert_no_file "$T/state/stamps/daily-d"
 }
 
 test_tick_relays() {

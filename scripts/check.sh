@@ -114,16 +114,20 @@ check_skills() {
   [ "$_bad" -eq 0 ] || return "$AO_E_FAIL"
 }
 
-# check_privacy_files PATH...  List the files to scan, one per line.
-check_privacy_files() {
-  if [ $# -eq 0 ]; then
-    git ls-files 2>/dev/null || ao_die "$AO_E_USAGE" "not a git checkout; pass paths explicitly"
-    return
-  fi
-  for _p in "$@"; do
-    [ -e "$_p" ] || ao_die "$AO_E_USAGE" "no such path: $_p"
-    find "$_p" -type f ! -path '*/.git/*'
+# check_privacy_each PATTERNS FILE...  Scan each text file (internal entry
+# point, run through xargs -0 / find -exec so any file name is safe). Exits
+# 2 if a file cannot be read.
+check_privacy_each() {
+  _pat=$1
+  shift
+  _rc=0
+  for _f in "$@"; do
+    [ -f "$_f" ] || continue
+    [ -r "$_f" ] || { ao_warn "cannot read $_f"; _rc=2; continue; }
+    grep -qI . -- "$_f" 2>/dev/null || continue
+    check_privacy_scan "$_f" "$_pat" || { ao_warn "could not scan $_f"; _rc=2; }
   done
+  return "$_rc"
 }
 
 # check_privacy_scan FILE PATTERNS  Print `FILE:LINE: kind` for each finding.
@@ -164,14 +168,20 @@ check_privacy() {
     # Blank lines would match everything; # lines are comments.
     grep -v -e '^[[:space:]]*$' -e '^#' "$denylist" >"$patterns"
   fi
-  files=$(ao_tmp files) hits=$(ao_tmp hits)
-  check_privacy_files "$@" >"$files" || exit "$AO_E_USAGE"
+  hits=$(ao_tmp hits)
   _err=0
-  while IFS= read -r _f; do
-    [ -f "$_f" ] || continue
-    grep -qI . "$_f" 2>/dev/null || continue
-    check_privacy_scan "$_f" "$patterns" >>"$hits" || { ao_warn "could not scan $_f"; _err=1; }
-  done <"$files"
+  if [ $# -eq 0 ]; then
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+      ao_die "$AO_E_USAGE" "not a git checkout; pass paths explicitly"
+    # NUL-delimited, so tracked names with quotes or newlines are scanned too.
+    git ls-files -z | xargs -0 "$AO_SCRIPTS/check.sh" __scan "$patterns" >"$hits" || _err=1
+  else
+    for _p in "$@"; do [ -e "$_p" ] || ao_die "$AO_E_USAGE" "no such path: $_p"; done
+    for _p in "$@"; do
+      case $_p in -*) _p=./$_p ;; esac
+      find "$_p" -type f ! -path '*/.git/*' -exec "$AO_SCRIPTS/check.sh" __scan "$patterns" {} + >>"$hits" || _err=1
+    done
+  fi
   _hits=$(sort -u "$hits")
   [ "$_err" -eq 0 ] || { [ -n "$_hits" ] && printf '%s\n' "$_hits"; return "$AO_E_FAIL"; }
   [ -z "$_hits" ] && return 0
@@ -184,6 +194,7 @@ main() {
     dupes) shift; check_dupes "$@" ;;
     skills) shift; check_skills "$@" ;;
     privacy) shift; check_privacy "$@" ;;
+    __scan) shift; check_privacy_each "$@" ;;
     -h | --help) ao_usage; exit 0 ;;
     *) ao_die "$AO_E_USAGE" "usage: check.sh dupes|skills|privacy ... (see --help)" ;;
   esac

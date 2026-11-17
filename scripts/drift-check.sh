@@ -27,8 +27,9 @@
 #
 # Environment: AO_PROFILE.
 #
-# Exit codes: 0 done (findings are routed, not failures); 2 usage or
-# configuration error; otherwise worker-run.sh's status.
+# Exit codes: 0 done (findings are routed, not failures); 1 the report could
+# not be written; 2 usage or configuration error; otherwise worker-run.sh's
+# status.
 set -u
 AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$AO_SCRIPTS/lib/core.sh"
@@ -114,7 +115,7 @@ main() {
     {
       printf 'Drift check (deterministic only) at %s: passages duplicated across files. Keep each rule in one home and point to it.\n\n' "$AO_T_STAMP"
       cat "$dupes"
-    } | ao_inbox_put "$to" drift-check >/dev/null
+    } | ao_inbox_put "$to" drift-check >/dev/null || exit "$AO_E_FAIL"
     exit 0
   fi
   drift_compose

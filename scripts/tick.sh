@@ -12,8 +12,8 @@
 #      Oracle's inbox; at most one per operator per watchdog_realert_min.
 #   2. Hooks. Executables in <hooks_dir>/every run on every tick; those in
 #      hourly/, daily/ (from daily_hour) and weekly/ (from weekly_day at
-#      weekly_hour, catching up later that ISO week) run once per period,
-#      in name order, each under hook_timeout. A failing hook leaves one
+#      weekly_hour, catching up later that ISO week) run once per period
+#      each (stamped as they start), in name order, under hook_timeout. A failing hook leaves one
 #      note in the Oracle's inbox. Hooks get AO_PROFILE, AO_HOME, AO_INBOX,
 #      AO_STATE, AO_SCRIPTS, AO_ORACLE_KEY and AO_PERIOD, stdin closed,
 #      cwd = oracle_home; their output goes to <state_dir>/hooks.log.
@@ -122,30 +122,36 @@ tick_period_key() {
   esac
 }
 
-# tick_hooks PERIOD  Run PERIOD's hooks if the period is due.
+# tick_hooks PERIOD  Run each of PERIOD's hooks that has not yet run in the
+# current period. Each hook is stamped (<state_dir>/stamps/<period>-<hook>)
+# just before it starts: an interrupted hook is not retried until the next
+# period, while hooks that never started still run on the next tick.
 tick_hooks() {
   _dir=$AO_HOOKS/$1
   [ -d "$_dir" ] || return 0
+  _want=
   if [ "$1" != every ]; then
     _want=$(tick_period_key "$1")
-    _sfile=$AO_STATE/stamps/$1
-    [ -n "$_want" ] && [ "$(cat "$_sfile" 2>/dev/null)" != "$_want" ] || return 0
-    if [ -z "$dry_run" ]; then
-      mkdir -p "$AO_STATE/stamps"
-      printf '%s\n' "$_want" >"$_sfile"
-    fi
+    [ -n "$_want" ] || return 0
   fi
   for _hook in "$_dir"/*; do
     _name=${_hook##*/}
     case $_name in .* | *~ | *.disabled | *.example) continue ;; esac
     [ -f "$_hook" ] && [ -x "$_hook" ] || continue
+    _sfile=$AO_STATE/stamps/$1-$_name
+    if [ -n "$_want" ] && [ "$(cat "$_sfile" 2>/dev/null)" = "$_want" ]; then
+      continue
+    fi
     if [ -n "$dry_run" ]; then
       printf 'would run hook: %s/%s\n' "$1" "$_name"
       continue
     fi
+    if [ -n "$_want" ]; then
+      mkdir -p "$AO_STATE/stamps" && printf '%s\n' "$_want" >"$_sfile"
+    fi
     ao_log "$AO_STATE/hooks.log" "run $1/$_name"
     (cd "$AO_HOME" && AO_PERIOD=$1 && export AO_PERIOD &&
-      ao_timeout "$hook_timeout" "$_hook" </dev/null >>"$AO_STATE/hooks.log" 2>&1)
+      ao_timeout "$hook_timeout" "$_hook" >>"$AO_STATE/hooks.log" 2>&1)
     _rc=$?
     [ "$_rc" -eq 0 ] && continue
     failures=$((failures + 1))

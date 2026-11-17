@@ -108,13 +108,29 @@ test_cleanup_only_releases_own_lock() {
   assert_file "$T/state/locks/demo.lock"
 }
 
-test_stale_reclaim_marker_is_cleared() {
-  mkdir -p "$T/state/locks/demo.lock" "$T/state/locks/demo.lock.reclaim"
+test_reclaim_generation_marker_excludes_contenders() {
+  mkdir -p "$T/state/locks/demo.lock" "$T/state/locks/demo.lock.reclaim-999999999"
   echo 999999999 >"$T/state/locks/demo.lock/pid"
-  touch -t 202001010000 "$T/state/locks/demo.lock.reclaim"
-  lib 'ao_lock demo; echo "first=$?"; ao_lock demo && echo second'
-  assert_has "$T/out" "first=3"
-  assert_has "$T/out" "second"
+  lib 'ao_lock demo; echo "rc=$?"'
+  assert_has "$T/out" "rc=3"
+  assert_has "$T/err" "remove $T/state/locks/demo.lock.reclaim-999999999"
+}
+
+test_reclaim_backs_off_when_owner_changed() {
+  # A lock held by a live process (this test shell) is never reclaimed.
+  mkdir -p "$T/state/locks/demo.lock"
+  echo $$ >"$T/state/locks/demo.lock/pid"
+  lib 'ao_lock demo; echo "rc=$?"'
+  assert_has "$T/out" "rc=3"
+  assert_eq "$(cat "$T/state/locks/demo.lock/pid")" "$$"
+}
+
+test_place_never_clobbers() {
+  lib 'mkdir -p "$AO_HOME/d"; echo old >"$AO_HOME/d/n.md"; echo new >"$AO_STATE/src"
+    ao_place "$AO_STATE/src" "$AO_HOME/d/n" .md'
+  assert_eq "$(cat "$T/out")" "$T/home/d/n-2.md"
+  assert_eq "$(cat "$T/home/d/n.md")" old
+  assert_no_file "$T/state/src"
 }
 
 test_inbox_put_never_overwrites() {
@@ -156,12 +172,13 @@ test_timeout_kills_descendants() {
   for _bin in $_bins; do
     AO_TIMEOUT_BIN=$_bin
     export AO_TIMEOUT_BIN
-    lib 'ao_timeout 1 sh -c "(sleep 3; : >\"$AO_HOME/survivor\") & sleep 20"; echo "rc=$?"'
+    lib 'ao_timeout 1 sh -c "(sleep 3; : >\"$AO_HOME/survivor\") & (trap \"\" TERM; sleep 12; : >\"$AO_HOME/stubborn\") & sleep 20"; echo "rc=$?"'
     assert_has "$T/out" "rc=124"
     assert_eq "$(wc -c <"$T/err" | tr -d ' ')" 0 "stderr bytes ($_bin)"
   done
-  sleep 3
+  sleep 4
   assert_no_file "$T/home/survivor"
+  assert_no_file "$T/home/stubborn"
 }
 
 test_timeout_coreutils() {

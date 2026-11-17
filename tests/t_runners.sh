@@ -69,6 +69,15 @@ test_worker_nothing_must_be_exact() {
   FAKE_OUTPUT="NOTHING
 but also one finding" run worker-run.sh audit alpha "$T/prompt.md"
   assert_count "$T/home/inbox/alpha" 1
+  FAKE_OUTPUT="  NOTHING" run worker-run.sh audit2 alpha "$T/prompt.md"
+  assert_count "$T/home/inbox/alpha" 2
+}
+
+test_worker_unknown_recipient_reaches_oracle() {
+  prompt
+  run worker-run.sh audit nobody "$T/prompt.md"
+  assert_rc 2
+  assert_has "$(ls "$T/home/inbox/oracle"/*-worker-fail-audit.md)" "not in the registry"
 }
 
 test_worker_failure_goes_to_oracle() {
@@ -100,8 +109,6 @@ test_worker_role_missing_degrades_loudly() {
 
 test_worker_rejects_unknown_recipient_and_bad_job() {
   prompt
-  run worker-run.sh audit nobody "$T/prompt.md"
-  assert_rc 2
   run worker-run.sh "../evil" alpha "$T/prompt.md"
   assert_rc 2
   assert_no_file "$FAKE_LOG"

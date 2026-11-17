@@ -81,6 +81,15 @@ A sentence repeated within one file only, which is not a cross-file duplicate.
 EOF
 }
 
+test_check_privacy_tracked_odd_names() {
+  mkdir -p "$T/repo"
+  (cd "$T/repo" && git init -q . && printf 'x %s\n' "dev@""corp.io" >'odd"name.md' && git add .) || return 0
+  (cd "$T/repo" && "$AO_TEST_SHELL" "$SCRIPTS/check.sh" privacy >"$T/out" 2>"$T/err")
+  rc=$?
+  assert_rc 1
+  assert_has "$T/out" 'odd"name.md:1: e-mail address'
+}
+
 test_check_dupes() {
   dupe_fixture
   run check.sh dupes "$T/docs/a.md" "$T/docs/b.md"
@@ -116,6 +125,7 @@ test_check_privacy() {
   printf 'mail %s and dev@example.com\n' "ops@""acme-corp.io" >"$T/repo/b.md"
   printf 'Codename Bluebird ships\nclean line\n' >"$T/repo/c.md"
   printf "cd '%s'\n" "/ho""me/bob" >"$T/repo/odd | name=x.md"
+  printf 'x %s\n' "dev@""corp.io" >"$T/repo/-dash\"quote.md"
   printf '# local denylist\n\nbluebird\n' >"$T/deny"
   run check.sh privacy --denylist "$T/deny" "$T/repo"
   assert_rc 1
@@ -123,6 +133,7 @@ test_check_privacy() {
   assert_has "$T/out" "$T/repo/b.md:1: e-mail address"
   assert_has "$T/out" "$T/repo/c.md:1: denylist match"
   assert_has "$T/out" "$T/repo/odd | name=x.md:1: home path"
+  assert_has "$T/out" "$T/repo/-dash\"quote.md:1: e-mail address"
   assert_lacks "$T/out" "c.md:2"
   assert_lacks "$T/out" "someone"
   assert_lacks "$T/out" "Bluebird"
@@ -130,6 +141,7 @@ test_check_privacy() {
   printf 'dev@example.com\n' >"$T/repo/b.md"
   printf 'clean\n' >"$T/repo/c.md"
   printf 'clean\n' >"$T/repo/odd | name=x.md"
+  printf 'clean\n' >"$T/repo/-dash\"quote.md"
   run check.sh privacy --denylist "$T/deny" "$T/repo"
   assert_rc 0
 }
