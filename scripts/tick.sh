@@ -113,12 +113,10 @@ tick_period_key() {
   case $1 in
     hourly) printf '%s-%s\n' "$AO_T_DATE" "$AO_T_HOUR" ;;
     daily)
-      _h=$(ao_cfg_uint daily_hour 6) || exit
-      [ "$AO_T_HOUR" -lt "$_h" ] || printf '%s\n' "$AO_T_DATE" ;;
+      [ "$AO_T_HOUR" -lt "$daily_hour" ] || printf '%s\n' "$AO_T_DATE" ;;
     weekly)
-      _d=$(ao_cfg_uint weekly_day 5) || exit
-      _h=$(ao_cfg_uint weekly_hour 6) || exit
-      if [ "$AO_T_DOW" -gt "$_d" ] || { [ "$AO_T_DOW" -eq "$_d" ] && [ "$AO_T_HOUR" -ge "$_h" ]; }; then
+      if [ "$AO_T_DOW" -gt "$weekly_day" ] ||
+        { [ "$AO_T_DOW" -eq "$weekly_day" ] && [ "$AO_T_HOUR" -ge "$weekly_hour" ]; }; then
         printf '%s\n' "$AO_T_WEEK"
       fi ;;
   esac
@@ -178,6 +176,9 @@ main() {
   ao_load
   ao_lock tick || { ao_msg "previous tick still running; skipping"; exit "$AO_E_BUSY"; }
   hook_timeout=$(ao_cfg_uint hook_timeout 900) || exit
+  daily_hour=$(ao_cfg_uint daily_hour 6) || exit
+  weekly_day=$(ao_cfg_uint weekly_day 5) || exit
+  weekly_hour=$(ao_cfg_uint weekly_hour 6) || exit
   tick_watchdog
   for period in every hourly daily weekly; do tick_hooks "$period"; done
   [ -z "$relay" ] || tick_relay

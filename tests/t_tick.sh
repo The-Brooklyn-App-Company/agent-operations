@@ -194,4 +194,10 @@ test_bad_window_config() {
   assert_rc 2
 }
 
+test_bad_hook_config_is_an_error() {
+  profile_set daily_hour six
+  run tick.sh --no-relay
+  assert_rc 2
+}
+
 ao_test_main "$0"
