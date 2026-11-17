@@ -13,6 +13,9 @@ setup_ask() {
   OTOK=$TOK OEP=$EP
   acq claude Workshop
   WTOK=$TOK WEP=$EP
+  # A live wrapper process for reservations made with --pid.
+  sleep 60 &
+  LIVE=$!
   ask new --action merge --target org/app#42 --revision abc123 --risk low --rollback "git revert"
   assert_rc 0
   ID=$(sed -n 's/^ask: //p' "$T/out")
@@ -39,7 +42,7 @@ approve() {
 
 reserve() {
   run ask.sh reserve "$ID" --home "$T/ops/ws" --instance "$WTOK" --epoch "$WEP" \
-    --target "${1:-org/app#42}" --revision "${2:-abc123}" --pid "$(dead_pid)"
+    --target "${1:-org/app#42}" --revision "${2:-abc123}" --pid "${RPID:-$LIVE}"
   _m=$(sed -n 's/^marker: //p' "$T/out")
   [ -z "$_m" ] || MK=$_m
 }
@@ -161,6 +164,8 @@ test_crash_mid_reserve_leaves_marker_for_the_human() {
   # The marker blocks takeover until settled; settling not-landed voids it.
   with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
   assert_eq "$rc" 5 "takeover rc"
+  kill "$LIVE"
+  wait "$LIVE" 2>/dev/null
   with_tty "settle $mk not-landed" lease.sh --home "$T/ops/ws" settle --marker "$mk" --outcome not-landed
   assert_eq "$rc" 0 "settle rc"
   assert_eq "$(status_of ws-1)" void
@@ -176,6 +181,8 @@ test_crash_after_reserved_goes_on_hold_at_takeover() {
   [ "$rc" -ne 0 ] || _fail "crash point not reached"
   # used was written, the marker stayed: the human settles it as landed.
   rm -rf "$T/ops/ws/.operator/lease.lock"
+  kill "$LIVE"
+  wait "$LIVE" 2>/dev/null
   with_tty "settle $MK landed" lease.sh --home "$T/ops/ws" settle --marker "$MK" --outcome landed
   assert_eq "$rc" 0 "settle rc"
   assert_eq "$(status_of ws-1)" used
@@ -201,6 +208,74 @@ test_audit_pending_blocks_new_asks() {
   ask new --action deploy --target web --revision v2 --risk low --rollback redeploy
   assert_rc 5
   assert_has "$T/err" "switch-in audit pending"
+}
+
+test_new_mails_the_oracle() {
+  setup_ask
+  assert_has "$T/out" "mailed: oracle"
+  f=$(ls "$T/home/.operator/inbox/new"/*.md)
+  assert_has "$f" "Ask ws-1 waiting for approval: merge org/app#42 at abc123"
+  assert_has "$f" "from: ws/claude"
+}
+
+test_reserve_runs_the_effect_and_is_fenced_from_settle() {
+  setup_ask
+  approve
+  # The reservation commit blocks in a hook; meanwhile the human tries to
+  # settle the marker. The marker's process (reserve itself) is alive, so
+  # settle refuses, and the ask ends used once the effect ran.
+  printf '#!/bin/sh\n: >"%s/entered"\nwhile [ ! -f "%s/go" ]; do sleep 1; done\n' "$T" "$T" >"$T/ops/ws/.git/hooks/pre-commit"
+  chmod +x "$T/ops/ws/.git/hooks/pre-commit"
+  "$AO_TEST_SHELL" "$SCRIPTS/ask.sh" reserve ws-1 --home "$T/ops/ws" --instance "$WTOK" --epoch "$WEP" \
+    --target org/app#42 --revision abc123 -- touch "$T/effect" >"$T/r.out" 2>"$T/r.err" &
+  rp=$!
+  i=0
+  while [ ! -f "$T/entered" ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+  set -- "$T/ops/ws/.operator/markers"/2*
+  mk=${1##*/}
+  with_tty "settle $mk not-landed" lease.sh --home "$T/ops/ws" settle --marker "$mk" --outcome not-landed
+  assert_eq "$rc" 5 "settle during reservation"
+  assert_has "$T/out" "stop it first"
+  : >"$T/go"
+  wait "$rp"
+  assert_eq "$?" 0 "reserve rc"
+  assert_file "$T/effect"
+  assert_eq "$(status_of ws-1)" used
+  assert_no_file "$T/ops/ws/.operator/markers/$mk"
+}
+
+test_failed_effect_stays_reserved_and_done_needs_live_process() {
+  setup_ask
+  approve
+  run ask.sh reserve ws-1 --home "$T/ops/ws" --instance "$WTOK" --epoch "$WEP" \
+    --target org/app#42 --revision abc123 -- sh -c 'exit 4'
+  assert_rc 4
+  assert_eq "$(status_of ws-1)" reserved
+  set -- "$T/ops/ws/.operator/markers"/2*
+  mk=${1##*/}
+  # Its process (that reserve run) is gone: done is refused, the human settles.
+  run ask.sh "done" ws-1 --home "$T/ops/ws" --instance "$WTOK" --epoch "$WEP" --marker "$mk"
+  assert_rc 5
+  assert_has "$T/err" "process died"
+  # A reservation without a command needs a live wrapper pid.
+  RPID=$(dead_pid) reserve
+  assert_rc 2
+}
+
+test_second_launch_cannot_act_as_holder() {
+  lsetup
+  sleep 60 &
+  first=$!
+  CLAUDECODE=1 CLAUDE_PID=$first acq claude Workshop
+  WTOK=$TOK WEP=$EP
+  CLAUDECODE=1 CLAUDE_PID=$$ run ask.sh new --home "$T/ops/ws" --instance "$WTOK" --epoch "$WEP" \
+    --action a --target t --revision r --risk low --rollback none
+  assert_rc 5
+  CLAUDECODE=1 CLAUDE_PID=$$ run mail.sh claim --home "$T/ops/ws" --instance "$WTOK" --epoch "$WEP"
+  assert_rc 5
+  CLAUDECODE=1 CLAUDE_PID=$$ lease check --instance "$WTOK" --epoch "$WEP"
+  assert_rc 5
+  kill "$first"
 }
 
 ao_test_main "$0"

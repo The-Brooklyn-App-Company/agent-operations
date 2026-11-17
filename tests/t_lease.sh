@@ -107,7 +107,7 @@ test_dispatch_marker_blocks_release() {
   assert_rc 5
   assert_has "$T/err" "dispatch marker is open"
   # Only the holder can dispatch.
-  lease dispatch-begin --instance nottoken --epoch "$EP" --what x
+  lease dispatch-begin --instance nottoken --epoch "$EP" --what x --pid $$
   assert_rc 5
   lease dispatch-end --instance "$TOK" --epoch "$EP" --marker "$mk"
   assert_rc 0
@@ -131,6 +131,7 @@ test_crash_inside_lock_fails_closed_until_unlock() {
   assert_count "$T/home/inbox/oracle" 1
   # Told once, not on every verb.
   lease check --instance "$TOK" --epoch "$EP"
+  assert_rc 3
   lease acquire --provider codex --session x
   assert_rc 3
   assert_count "$T/home/inbox/oracle" 1
@@ -239,15 +240,17 @@ test_takeover_cold_note_assign_audit_and_old_holder() {
   assert_has "$T/out" "REQUIRED FIRST STEP: switch-in audit"
   new=$TOK
   # No new work until the audit is recorded.
-  lease dispatch-begin --instance "$new" --epoch 2 --what "deploy"
+  lease dispatch-begin --instance "$new" --epoch 2 --what "deploy" --pid $$
   assert_rc 5
   assert_has "$T/err" "switch-in audit pending"
   lease audit-brief --instance "$new" --epoch 2
   assert_rc 0
-  assert_has "$T/out" "Switch-in audit: ws, epoch 2 (claude -> codex)"
+  assert_has "$T/out" "# Switch-in audit: ws, generation"
+  assert_has "$T/out" "epoch 2 (claude -> codex)"
+  head -n 1 "$T/out" >"$T/hdr"
   assert_has "$T/out" "Leftovers"
   mkdir -p "$T/ops/ws/audits"
-  printf 'findings: none\n' >"$T/ops/ws/audits/a.md"
+  { cat "$T/hdr"; printf 'findings: none\n'; } >"$T/ops/ws/audits/a.md"
   lease audit-done --instance "$new" --epoch 2 --report audits/a.md
   assert_rc 5
   assert_has "$T/err" "commit the report first"
@@ -255,7 +258,7 @@ test_takeover_cold_note_assign_audit_and_old_holder() {
   lease audit-done --instance "$new" --epoch 2 --report audits/a.md
   assert_rc 0
   assert_eq "$(lget audit)" "done"
-  lease dispatch-begin --instance "$new" --epoch 2 --what "deploy"
+  lease dispatch-begin --instance "$new" --epoch 2 --what "deploy" --pid $$
   assert_rc 0
 }
 
@@ -439,6 +442,88 @@ test_resolver_reports_provider_across_handoff() {
   # A file-only transport still reports the owning family.
   acq codex ops-fo "$T/ops/fo"
   assert_eq "$(resolve fo)" "client=file-only provider=codex lease=held audit=- name=ops-fo"
+}
+
+test_dead_marker_needs_settle_not_dispatch_end() {
+  lsetup
+  acq claude Workshop
+  sh -c 'sleep 30' &
+  w=$!
+  lease dispatch-begin --instance "$TOK" --epoch "$EP" --what "publish" --pid "$w"
+  mk=$(sed -n 's/^marker: //p' "$T/out")
+  kill "$w"
+  wait "$w" 2>/dev/null
+  lease dispatch-end --instance "$TOK" --epoch "$EP" --marker "$mk"
+  assert_rc 5
+  assert_has "$T/err" "process died"
+  assert_file "$T/ops/ws/.operator/markers/$mk"
+  # dispatch-begin refuses a pid that is not running, or none.
+  lease dispatch-begin --instance "$TOK" --epoch "$EP" --what x --pid "$w"
+  assert_rc 2
+  lease dispatch-begin --instance "$TOK" --epoch "$EP" --what x
+  assert_rc 2
+}
+
+test_stuck_lock_fails_closed_for_check_and_mail() {
+  lsetup
+  acq claude Workshop
+  old_lock "$T/ops/ws"
+  lease check --instance "$TOK" --epoch "$EP"
+  assert_rc 3
+  run mail.sh claim --home "$T/ops/ws" --instance "$TOK" --epoch "$EP"
+  assert_rc 3
+}
+
+test_unwritable_operator_dir_fails_promptly() {
+  lsetup
+  acq claude Workshop
+  chmod 500 "$T/ops/ws/.operator"
+  lease renew --instance "$TOK" --epoch "$EP"
+  chmod 700 "$T/ops/ws/.operator"
+  assert_rc 1
+  assert_has "$T/err" "cannot create"
+}
+
+test_audit_report_is_bound_to_the_handoff() {
+  lsetup
+  acq claude Workshop
+  mkdir -p "$T/ops/ws/audits"
+  printf 'old findings\n' >"$T/ops/ws/audits/old.md"
+  git -C "$T/ops/ws" add audits/old.md && git -C "$T/ops/ws" commit -q -m old
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  acq codex ops-ws
+  for bad in operator.conf audits/old.md ../ops/ws/operator.conf "$T/ops/ws/operator.conf"; do
+    lease audit-done --instance "$TOK" --epoch 2 --report "$bad"
+    assert_rc 5
+  done
+  assert_eq "$(lget audit)" pending
+  # A report committed before the handoff, even with the right header.
+  lease audit-brief --instance "$TOK" --epoch 2
+  head -n 1 "$T/out" >"$T/hdr"
+  assert_has "$T/hdr" "generation $(lget generation), epoch 2 (claude -> codex)"
+  cp "$T/hdr" "$T/ops/ws/audits/new.md"
+  printf 'no findings\n' >>"$T/ops/ws/audits/new.md"
+  git -C "$T/ops/ws" add audits/new.md && git -C "$T/ops/ws" commit -q -m audit
+  lease audit-done --instance "$TOK" --epoch 2 --report audits/new.md
+  assert_rc 0
+  assert_eq "$(lget audit)" "done"
+}
+
+test_foreign_host_lease_is_not_routed() {
+  lsetup
+  acq codex ops-ws
+  sed 's/^host=.*/host=elsewhere/' "$T/ops/ws/.operator/lease" >"$T/l" && mv "$T/l" "$T/ops/ws/.operator/lease"
+  assert_eq "$(resolve ws)" "client=claude provider=claude lease=invalid audit=- name=Workshop"
+}
+
+test_failed_publish_is_not_reported_as_sent() {
+  lsetup
+  chmod 500 "$T/ops/ws/.operator/inbox/new"
+  printf 'hello\n' >"$T/body"
+  srun mail.sh send ws --kind notice --from oracle/claude <"$T/body"
+  chmod 700 "$T/ops/ws/.operator/inbox/new"
+  assert_rc 1
+  assert_lacks "$T/out" "sent:"
 }
 
 ao_test_main "$0"

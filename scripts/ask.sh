@@ -13,14 +13,19 @@
 # Operator verbs (holder only; --instance T --epoch N from lease.sh acquire):
 #   new --action A --target T --revision R --risk TEXT --rollback TEXT
 #           Append and commit one ask (id <key>-<n>, status open); prints the
-#           id. Then mail the Oracle (mail.sh send <oracle> --kind notice).
-#   reserve ID --target T --revision R [--pid PID]
-#           Under the lease lock: check the committed approval row (same
-#           generation, epoch, action, target and revision; not expired; not
-#           used), create a dispatch marker, mark the ask reserved; then
-#           commit ASKS.md. Prints `marker: ID`. Dispatch only after this
-#           succeeds. A target or revision that differs from the ask voids it.
-#   done ID --marker M     After the effect: mark used, remove the marker.
+#           id, and mails the Oracle a notice (mail.sh send <oracle>).
+#   reserve ID --target T --revision R (-- CMD [ARG...] | --pid PID)
+#           Under the lease lock throughout: check the committed approval row
+#           (same generation, epoch, action, target and revision; not
+#           expired; not used), create a dispatch marker, mark the ask
+#           reserved and commit ASKS.md. Prints `marker: ID`. With -- CMD it
+#           then runs the effect itself (this process stays on the marker)
+#           and marks it used on exit 0; a failure leaves it reserved for the
+#           human to settle. With --pid, PID must be the live wrapper doing
+#           the effect, which calls done afterwards. A target or revision
+#           that differs from the ask voids it.
+#   done ID --marker M     After the effect: mark used, remove the marker
+#           (refused once the marker's process died: the human settles).
 #   void ID --reason TEXT  Withdraw an open ask.
 #   list                   Print the asks.
 #
@@ -57,7 +62,7 @@ lock() {
 holder() {
   [ -n "$o_instance" ] && [ -n "$o_epoch" ] || ao_die "$AO_E_USAGE" "$verb needs --instance TOKEN and --epoch N"
   ao_lease_load
-  if ! ao_lease_is_holder "$o_instance" "$o_epoch"; then
+  if ! ao_lease_holder "$o_instance" "$o_epoch"; then
     ao_lease_unlock
     ao_msg "not the holder: $(ao_lease_describe)"
     refuse "only the holder of $H_KEY may $verb (this session is the standby)"
@@ -145,7 +150,13 @@ do_new() {
   fi
   ao_lease_unlock
   echo "ask: $_id"
-  echo "Now tell the Oracle: echo 'Ask $_id waiting' | mail.sh send $AO_ORACLE_KEY --kind notice --from $H_KEY/$L_provider"
+  # Tell the Oracle (a notification; the human answers in the Oracle thread).
+  if printf 'Ask %s waiting for approval: %s %s at %s (risk: %s; rollback: %s)\n' "$_id" "$o_action" "$o_target" "$o_revision" "$o_risk" "$o_rollback" |
+    "$AO_SCRIPTS/mail.sh" send "$AO_ORACLE_KEY" --kind notice --from "$H_KEY/$L_provider" >/dev/null; then
+    echo "mailed: $AO_ORACLE_KEY"
+  else
+    ao_warn "ask $_id committed, but mailing the Oracle failed: tell it yourself"
+  fi
 }
 
 do_approve() {
@@ -191,15 +202,41 @@ find_row() {
   return 0
 }
 
+# reserve_rollback MARKER  Undo an uncommitted reservation (under the lock).
+reserve_rollback() {
+  if ! asks_restore || ! rm -f "$H_OP/markers/$1"; then
+    ao_die "$AO_E_FAIL" "rollback failed: marker $1 and ASKS.md need a human"
+  fi
+}
+
+# finish_used MARKER  Mark the reserved ask used and remove its marker, then
+# commit; under the lock throughout.
+finish_used() {
+  ao_ask_set_status "$ASKS" "$o_id" used || ao_die "$AO_E_FAIL" "cannot update ASKS.md"
+  _ao_crash done-after-asks
+  rm -f "$H_OP/markers/$1" || ao_die "$AO_E_FAIL" "cannot remove marker $1"
+  ao_git_commit "$H_HOME" "asks: $o_id used" ASKS.md || ao_warn "ASKS.md says used but is not committed; commit it"
+}
+
 do_reserve() {
   ao_is_name "$o_id" || ao_die "$AO_E_USAGE" "reserve needs an ask ID"
   check_field --target "$o_target"
   check_field --revision "$o_revision"
-  _pid=${o_pid:-$PPID}
-  ao_is_uint "$_pid" || ao_die "$AO_E_USAGE" "--pid must be a process id"
+  # The marker must name a process that lives for the whole effect: this
+  # one when reserve runs the command itself, else a live wrapper's --pid.
+  if [ $# -gt 0 ]; then
+    _pid=$$
+  else
+    ao_is_uint "$o_pid" || ao_die "$AO_E_USAGE" "reserve needs -- CMD [ARG...] (recommended) or --pid PID of the live process doing the effect"
+    [ "$(ao_proc_state "$o_pid")" != dead ] || ao_die "$AO_E_USAGE" "--pid $o_pid is not a running process"
+    _pid=$o_pid
+  fi
   use_operator_home
   ao_load --no-state
   lock
+  # Read the clock under the lock, so a wait for the lock cannot stretch an
+  # approval past its expiry.
+  ao_clock
   holder
   no_audit_pending
   asks_clean
@@ -226,7 +263,7 @@ EOF
     ao_lease_unlock
     refuse "the approval row for $o_id does not match the ask (action, target or revision)"
   }
-  awk -v now="$(ao_utc "$AO_T_EPOCH")" -v until="$_aexp" 'BEGIN { exit !(now "" < until "") }' || { ao_lease_unlock; refuse "the approval for $o_id expired at $_aexp"; }
+  unexpired "$_aexp" || { ao_lease_unlock; refuse "the approval for $o_id expired at $_aexp"; }
   if [ "$o_target" != "$_tgt" ] || [ "$o_revision" != "$_rev" ]; then
     ao_ask_set_status "$ASKS" "$o_id" void || ao_die "$AO_E_FAIL" "cannot update ASKS.md"
     ao_git_commit "$H_HOME" "asks: $o_id void (target or revision changed)" ASKS.md || ao_warn "ASKS.md voided but not committed"
@@ -237,17 +274,38 @@ EOF
   _ao_crash reserve-after-marker
   ao_ask_set_status "$ASKS" "$o_id" reserved || ao_die "$AO_E_FAIL" "cannot update ASKS.md (marker $_mk left: settle it)"
   _ao_crash reserve-after-asks
-  ao_lease_unlock
+  # Committed under the lock: nothing (settle, takeover) can change the ask
+  # between the reservation and the permission to dispatch.
   if ! ao_git_commit "$H_HOME" "asks: $o_id reserved" ASKS.md; then
-    lock
-    if ! ao_ask_set_status "$ASKS" "$o_id" open || ! rm -f "$H_OP/markers/$_mk"; then
-      ao_die "$AO_E_FAIL" "commit failed and the rollback failed: marker $_mk and ASKS.md need a human"
-    fi
-    ao_lease_unlock
+    reserve_rollback "$_mk"
     ao_die "$AO_E_FAIL" "cannot commit ASKS.md; reservation rolled back, do not dispatch"
   fi
+  ao_clock
+  if ! unexpired "$_aexp"; then
+    ao_ask_set_status "$ASKS" "$o_id" void && rm -f "$H_OP/markers/$_mk"
+    ao_git_commit "$H_HOME" "asks: $o_id void (approval expired during reservation)" ASKS.md || ao_warn "ASKS.md voided but not committed"
+    ao_lease_unlock
+    refuse "the approval for $o_id expired while reserving: void, re-ask; do not dispatch"
+  fi
+  ao_lease_unlock
   echo "reserved: $o_id ($_act $_tgt @ $_rev)"
   echo "marker: $_mk"
+  [ $# -gt 0 ] || return 0
+  # Run the effect with this process on the marker; mark used on exit 0.
+  "$@"
+  _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    ao_msg "the command failed (exit $_rc): its effect is unknown. $o_id stays reserved and marker $_mk open until the human checks the target and settles it"
+    exit "$_rc"
+  fi
+  lock
+  finish_used "$_mk"
+  ao_lease_unlock
+  echo "used: $o_id"
+}
+
+unexpired() {
+  awk -v now="$(ao_utc "$AO_T_EPOCH")" -v until="$1" 'BEGIN { exit !(now "" < until "") }'
 }
 
 do_done() {
@@ -261,13 +319,14 @@ do_done() {
   [ -f "$_mf" ] && [ "$(ao_marker_get "$_mf" ask)" = "$o_id" ] || { ao_lease_unlock; refuse "no open marker $o_marker for $o_id"; }
   [ "$(ao_marker_get "$_mf" instance)" = "$L_instance" ] && [ "$(ao_marker_get "$_mf" epoch)" = "$L_epoch" ] ||
     { ao_lease_unlock; refuse "marker $o_marker belongs to another holder or epoch"; }
+  if [ "$(ao_proc_state "$(ao_marker_get "$_mf" pid)" "$(ao_marker_get "$_mf" pid_start)")" = dead ]; then
+    ao_lease_unlock
+    refuse "marker $o_marker's process died: the effect is unknown until a human checks the target and settles it (lease.sh settle)"
+  fi
   _row=$(ao_ask_row "$ASKS" "$o_id") || { ao_lease_unlock; refuse "no ask $o_id"; }
   [ "$(printf '%s\n' "$_row" | cut -f9)" = reserved ] || { ao_lease_unlock; refuse "ask $o_id is not reserved"; }
-  ao_ask_set_status "$ASKS" "$o_id" used || ao_die "$AO_E_FAIL" "cannot update ASKS.md"
-  _ao_crash done-after-asks
-  rm -f "$_mf" || ao_die "$AO_E_FAIL" "cannot remove $_mf"
+  finish_used "$o_marker"
   ao_lease_unlock
-  ao_git_commit "$H_HOME" "asks: $o_id used" ASKS.md || ao_warn "ASKS.md updated but not committed; commit it"
   echo "used: $o_id"
 }
 
@@ -282,8 +341,11 @@ do_void() {
   _row=$(ao_ask_row "$ASKS" "$o_id") || { ao_lease_unlock; refuse "no ask $o_id"; }
   [ "$(printf '%s\n' "$_row" | cut -f9)" = open ] || { ao_lease_unlock; refuse "only an open ask can be voided"; }
   ao_ask_set_status "$ASKS" "$o_id" void || ao_die "$AO_E_FAIL" "cannot update ASKS.md"
+  if ! ao_git_commit "$H_HOME" "asks: $o_id void ($o_reason)" ASKS.md; then
+    asks_restore
+    ao_die "$AO_E_FAIL" "cannot commit ASKS.md; ask unchanged"
+  fi
   ao_lease_unlock
-  ao_git_commit "$H_HOME" "asks: $o_id void ($o_reason)" ASKS.md || ao_die "$AO_E_FAIL" "cannot commit ASKS.md"
   echo "void: $o_id"
 }
 
@@ -307,6 +369,7 @@ main() {
         _var=o_$(printf '%s' "${1#--}" | tr - _)
         eval "$_var=\$2"
         shift ;;
+      --) shift; break ;;
       -h | --help) ao_usage; exit 0 ;;
       -*) ao_die "$AO_E_USAGE" "unknown option '$1' (see --help)" ;;
       *) [ -z "$o_id" ] || ao_die "$AO_E_USAGE" "one ask ID only"; o_id=$1 ;;
@@ -317,7 +380,7 @@ main() {
   case $verb in
     new) do_new ;;
     approve) do_approve ;;
-    reserve) do_reserve ;;
+    reserve) do_reserve "$@" ;;
     done) do_done ;;
     void) do_void ;;
     list) do_list ;;

@@ -56,13 +56,13 @@ Record every step's result (pass, fail, surprise) in the operator's notes.
 | 4 | Send the same text to Codex again | "already forwarded"; still one file |
 | 5 | Back in Claude, start a turn | `mail.sh claim` shows the forward, marked as notification. It does **not** start the changelog work by itself; it tells you and acts when you say so in this thread. Ask it to `ack` |
 | 6 | Ask Claude to file a dummy ask: `ask.sh new --action noop --target test --revision 1 --risk none --rollback none`. In the **Oracle** thread, approve it in words; the Oracle runs `ask.sh approve demo-1 --words "<your words>"` | Row in `ASKS.md` (open) and in the Oracle's `APPROVALS.tsv`, both committed |
-| 7 | Claude: `ask.sh reserve demo-1 --target test --revision 1`, then `ask.sh done demo-1 --marker <id>` | `reserved`, then `used`; a second `reserve` is refused |
+| 7 | Claude: `ask.sh reserve demo-1 --target test --revision 1 -- true` (the command stands in for the effect) | `reserved` then `used`, both committed; a second `reserve` is refused |
 | 8 | Ask Claude to run, in the background: `lease.sh dispatch-run --instance <token> --epoch 1 --what test -- sleep 600`. In your terminal, `lease.sh status` shows the marker and its pid; pause it: `kill -STOP <pid>` | `status` shows the marker `stopped` |
 | 9 | Close the Claude session. In **your terminal**: `$K/scripts/lease.sh takeover --expect-epoch 1 --holder-stopped --provider codex --session '<codex name>'` | Refused: dispatch marker exists (and, while the Claude process lives, its client process too) |
 | 10 | `kill -KILL <pid>`; `$K/scripts/lease.sh settle --marker <id> --outcome not-landed` (type the confirmation) | Settled; marker moved to `settled/` |
 | 11 | Run the takeover again; type the confirmation | Cold note committed (`git log -1`), lease `assigned` to codex, epoch 2 |
 | 12 | In Codex: "Acquire the lease: `lease.sh acquire --provider codex --session '<its name>'`" | Prints **REQUIRED FIRST STEP: switch-in audit**; `dispatch-begin` and `ask.sh new` refuse until `audit-done` |
-| 13 | Ask Codex to run `lease.sh audit-brief`, do the audit, commit the report and run `audit-done` | `switch-in audit recorded`; dispatch now allowed |
+| 13 | Ask Codex to run `lease.sh audit-brief`, do the audit, commit the report (starting with the brief's first line) and run `audit-done` | `switch-in audit recorded`; dispatch now allowed |
 | 14 | Re-open the old Claude session and send any message | Its `renew` fails; it redirects to Codex and does no work |
 | 15 | Approval from step 6 (if unused, file a new one in epoch 1 first) | `reserve` in Codex is refused: approvals do not cross a takeover |
 

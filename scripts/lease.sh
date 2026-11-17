@@ -94,18 +94,7 @@ standby() {
 
 need_holder() {
   need_token
-  ao_lease_is_holder "$o_instance" "$o_epoch" || standby
-}
-
-# pid_guard  Refuse when another live launch of the client holds the lease
-# with the same token (a concurrent resume of one conversation).
-pid_guard() {
-  _me=$(ao_client_pid "$L_provider")
-  [ -n "$_me" ] && [ -n "$L_client_pid" ] && [ "$L_client_pid" != - ] || return 0
-  [ "${_me%% *}" != "$L_client_pid" ] || return 0
-  [ "$(ao_proc_state "$L_client_pid" "$L_client_start")" != dead ] || return 0
-  ao_msg "another live $L_provider launch (pid $L_client_pid) holds this lease with the same token; this launch is the standby"
-  standby
+  ao_lease_holder "$o_instance" "$o_epoch" || standby
 }
 
 set_client_pid() {
@@ -304,13 +293,15 @@ do_audit_brief() {
   ao_lease_load
   need_holder
   cat <<EOF
-# Switch-in audit: $H_KEY, epoch $L_epoch ($L_prev_provider -> $L_provider)
+$(audit_header)
 
 You are the incoming family. Review adversarially what the outgoing session
 left; trust no note without checking it against the repos. Report findings
 as fixed, rejected (with reason) or deferred (with owner), commit the report
 in this home (for example audits/$AO_T_DATE-switch-in-epoch-$L_epoch.md), then
 run: lease.sh audit-done --instance <token> --epoch $L_epoch --report <path>
+The report must start with the first line of this brief, exactly, and be
+committed after the handoff note.
 
 Check, at least:
 1. Unfinished work: branches, PRs, half-applied changes, open asks, effects
@@ -334,21 +325,40 @@ EOF
 
 do_audit_done() {
   need_token
-  [ -n "$o_report" ] || ao_die "$AO_E_USAGE" "audit-done needs --report PATH (a committed file in this home)"
-  case $o_report in /*) _rp=$o_report ;; *) _rp=$H_HOME/$o_report ;; esac
-  [ -s "$_rp" ] || refuse "report not found or empty: $_rp"
-  if ! git -C "$H_HOME" ls-files --error-unmatch -- "$_rp" >/dev/null 2>&1 || ! ao_git_clean "$H_HOME" "$_rp"; then
-    refuse "commit the report first: $_rp"
+  [ -n "$o_report" ] || ao_die "$AO_E_USAGE" "audit-done needs --report PATH (relative to the home, committed)"
+  case $o_report in /* | ../* | */../* | */.. | ..) refuse "--report must be a path inside the home, relative to it" ;; esac
+  _rp=$H_HOME/$o_report
+  [ ! -L "$_rp" ] || refuse "--report must be a regular file, not a link"
+  [ -f "$_rp" ] && [ -s "$_rp" ] || refuse "report not found or empty: $_rp"
+  if ! git -C "$H_HOME" ls-files --error-unmatch -- "$o_report" >/dev/null 2>&1 || ! ao_git_clean "$H_HOME" "$o_report"; then
+    refuse "commit the report first: $o_report"
   fi
-  _sha=$(git -C "$H_HOME" log -1 --format=%h -- "$_rp")
+  _sha=$(git -C "$H_HOME" log -1 --format=%H -- "$o_report")
   lock
   ao_lease_load
-  ao_lease_is_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
+  ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
   [ "$L_audit" = pending ] || { ao_lease_unlock; echo "no switch-in audit pending"; return 0; }
-  L_audit="done" L_audit_note=$_sha
+  # Bound to this handoff: the brief's first line (key, generation, epoch,
+  # transition), committed after the handoff note.
+  [ "$(sed -n 1p "$_rp")" = "$(audit_header)" ] || {
+    ao_lease_unlock
+    refuse "the report must start with: $(audit_header)"
+  }
+  if [ "$L_prev_note" != none ]; then
+    if [ "$(git -C "$H_HOME" rev-parse "$L_prev_note" 2>/dev/null)" = "$_sha" ] ||
+      ! git -C "$H_HOME" merge-base --is-ancestor "$L_prev_note" "$_sha" 2>/dev/null; then
+      ao_lease_unlock
+      refuse "the report must be committed after the handoff note $L_prev_note"
+    fi
+  fi
+  L_audit="done" L_audit_note=$(printf '%s' "$_sha" | cut -c1-12)
   ao_lease_write || ao_die "$AO_E_FAIL" "cannot write $H_LEASE"
   ao_lease_unlock
-  echo "switch-in audit recorded: $_sha. New work may start."
+  echo "switch-in audit recorded: $L_audit_note. New work may start."
+}
+
+audit_header() {
+  printf '# Switch-in audit: %s, generation %s, epoch %s (%s -> %s)\n' "$H_KEY" "$L_generation" "$L_epoch" "$L_prev_provider" "$L_provider"
 }
 
 holder_id() {
@@ -375,8 +385,7 @@ do_acquire() {
   if [ -n "$L_PRESENT" ]; then
     case $L_state in
       held)
-        if [ -n "$o_instance" ] && ao_lease_is_holder "$o_instance" "$L_epoch"; then
-          pid_guard
+        if [ -n "$o_instance" ] && ao_lease_holder "$o_instance" "$L_epoch"; then
           _replay=1
         else
           ao_lease_unlock
@@ -429,8 +438,7 @@ do_renew() {
   need_token
   lock
   ao_lease_load
-  ao_lease_is_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
-  pid_guard
+  ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
   stamp_heartbeat
   set_client_pid "$L_provider"
   ao_lease_write || ao_die "$AO_E_FAIL" "cannot write $H_LEASE"
@@ -441,8 +449,11 @@ do_renew() {
 
 do_check() {
   need_token
+  # Under the lock, so a stuck lock fails closed here too.
+  lock
   ao_lease_load
-  ao_lease_is_holder "$o_instance" "$o_epoch" || standby
+  ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
+  ao_lease_unlock
   echo "holder: $H_KEY epoch $L_epoch"
 }
 
@@ -450,12 +461,15 @@ do_dispatch_begin() {
   need_token
   check_text --what "$o_what"
   [ -z "$o_ask" ] || ao_is_name "$o_ask" || ao_die "$AO_E_USAGE" "--ask must be an ask id"
-  _pid=${o_pid:-$PPID}
-  ao_is_uint "$_pid" || ao_die "$AO_E_USAGE" "--pid must be a process id"
+  # The marker must name a process that lives for the whole effect (a kit
+  # wrapper); a short-lived shell would leave it dead at once. dispatch-run
+  # is the wrapper.
+  ao_is_uint "$o_pid" || ao_die "$AO_E_USAGE" "dispatch-begin needs --pid PID of the process doing the effect (or use dispatch-run)"
+  [ "$(ao_proc_state "$o_pid")" != dead ] || ao_die "$AO_E_USAGE" "--pid $o_pid is not a running process"
+  _pid=$o_pid
   lock
   ao_lease_load
-  ao_lease_is_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
-  pid_guard
+  ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
   audit_gate
   _mk=$(ao_marker_create dispatch "$o_what" "$o_ask" "$_pid") || ao_die "$AO_E_FAIL" "cannot create a dispatch marker"
   _ao_crash dispatch-after-marker
@@ -470,8 +484,7 @@ do_dispatch_run() {
   [ -z "$o_ask" ] || ao_is_name "$o_ask" || ao_die "$AO_E_USAGE" "--ask must be an ask id"
   lock
   ao_lease_load
-  ao_lease_is_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
-  pid_guard
+  ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
   audit_gate
   _mk=$(ao_marker_create dispatch "$o_what" "$o_ask" $$) || ao_die "$AO_E_FAIL" "cannot create a dispatch marker"
   ao_lease_unlock
@@ -501,6 +514,10 @@ do_dispatch_end() {
     ao_lease_unlock
     refuse "marker $o_marker belongs to another holder or epoch"
   }
+  if [ "$(ao_proc_state "$(ao_marker_get "$_mf" pid)" "$(ao_marker_get "$_mf" pid_start)")" = dead ]; then
+    ao_lease_unlock
+    refuse "marker $o_marker's process died: its effect is unknown until a human checks the target and settles it (lease.sh settle)"
+  fi
   rm -f "$_mf" || ao_die "$AO_E_FAIL" "cannot remove $_mf"
   ao_lease_unlock
   echo "ended: $o_marker"
@@ -535,7 +552,7 @@ do_release() {
   _ao_crash release-after-commit
   lock
   ao_lease_load
-  ao_lease_is_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
+  ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
   ! markers_present || { ao_lease_unlock; refuse "a dispatch marker appeared; not releasing"; }
   L_state=released L_prev_epoch=$L_epoch L_prev_note=$_sha
   ao_lease_write || ao_die "$AO_E_FAIL" "cannot write $H_LEASE"
@@ -685,10 +702,10 @@ do_settle() {
   fi
   printf 'outcome=%s\nsettled=%s\n' "$o_outcome" "$(ao_utc "$AO_T_EPOCH")" >>"$_mf"
   mv "$_mf" "$H_OP/markers/settled/" || ao_die "$AO_E_FAIL" "cannot move $_mf"
-  ao_lease_unlock
   if [ -n "$_changed" ]; then
     ao_git_commit "$H_HOME" "asks: $_ask settled ($o_outcome)" ASKS.md || ao_warn "ASKS.md updated but not committed"
   fi
+  ao_lease_unlock
   echo "settled: $o_marker ($o_outcome)"
 }
 

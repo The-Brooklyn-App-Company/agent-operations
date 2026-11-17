@@ -36,7 +36,7 @@ replaced atomically under `mkdir .operator/lease.lock`.
 
 | Field | Meaning |
 | --- | --- |
-| `operator`, `host` | Home key and machine; a lease from another host is refused (one machine in this version) |
+| `operator`, `host` | Home key and machine; a lease from another host is refused by every verb and not routed (one machine in this version) |
 | `provider`, `session`, `session_id` | Who holds it: client, display name, and the id the transport needs (routing only, never identity) |
 | `instance` | First 32 hex digits of the SHA-256 of the holder's **instance token**. The token is printed once by `acquire` into that session's context and never stored |
 | `generation` | Random; new whenever `.operator/` is recreated (install, restore) |
@@ -59,9 +59,10 @@ unlock --timers-off --sessions-stopped` after checking that nothing runs.
 holder and creates the marker in one step under the lock; `dispatch-end`
 removes it. Prefer the wrapper `lease.sh dispatch-run ... -- CMD`, which
 keeps a live process on the marker for the whole effect and ends it only on
-exit 0. With separate begin and end calls (and with `ask.sh reserve`), pass
-`--pid` of the process doing the effect; otherwise the marker shows `dead` at
-once, which still blocks handoff but tells the human less. A marker whose process died
+exit 0. Separate `dispatch-begin --pid PID` and `dispatch-end` calls need PID
+to be the live process doing the effect (a wrapper); `dispatch-end` and
+`ask.sh done` refuse once that process has died, because its effect is then
+unknown and only the human may settle it. A marker whose process died
 stays as an **unresolved effect** until the human settles it (`lease.sh
 settle --marker ID --outcome landed|not-landed|unknown`). Markers block
 `release` and `takeover`.
@@ -107,8 +108,8 @@ an operator off every active transport.
 | --- | --- | --- |
 | Ask | Holder | `ask.sh new --action --target --revision --risk --rollback` commits a row to `ASKS.md` with the lease generation and epoch, then mails the Oracle |
 | Approve | Oracle holder | After the human answers in the Oracle thread: `ask.sh approve ID --words "<verbatim>"` copies the committed ask into `APPROVALS.tsv` with an expiry and commits it. Only the holder of the Oracle home's lease can |
-| Reserve | Holder | `ask.sh reserve ID --target T --revision R` under the lock: the committed row (HEAD, not the working tree) must match generation, epoch, action, target and revision and be unexpired; creates the marker, marks `reserved`, commits. Only then dispatch |
-| Done | Holder | `ask.sh done ID --marker M` marks `used`, removes the marker |
+| Reserve | Holder | `ask.sh reserve ID --target T --revision R -- CMD`, all under the lock: the committed row (HEAD, not the working tree) must match generation, epoch, action, target and revision and be unexpired at a clock read under the lock; creates the marker, marks `reserved`, commits; then runs CMD with itself on the marker and marks `used` on exit 0. A failed CMD stays `reserved` for the human to settle |
+| Done | Holder | With `reserve --pid PID` instead of a command, the live wrapper PID runs `ask.sh done ID --marker M` afterwards |
 
 An approval is used once. A changed target or revision voids the ask. Any
 holder change (release and acquire, takeover) bumps the epoch and any
@@ -166,7 +167,9 @@ the incoming family must, **before any new work**, run a full adversarial
 audit of what the outgoing family left: unfinished work, cruft, leftover
 worktrees and branches, and drift between notes and reality. `lease.sh
 audit-brief` prints the checklist and evidence; the report is committed in
-the home and recorded with `lease.sh audit-done --report PATH`. Until then
+the home and recorded with `lease.sh audit-done --report PATH`. The report
+must start with the brief's first line (key, generation, epoch, transition),
+live inside the home, and be committed after the handoff note. Until then
 `dispatch-begin`, `ask.sh new` and `ask.sh reserve` refuse. The kit's
 resolver (`ao_operator_resolve`) reports the lease's client for every lease
 state, and `OP_PROVIDER` (the owning family, also when the transport is
@@ -252,7 +255,5 @@ prefix_rule(pattern=["scripts/lease.sh", ["unlock", "settle"]], decision="forbid
 - Commits of `HANDOFF.md` and `ASKS.md` use your git configuration and
   hooks; a signing prompt or a slow hook makes those verbs slow or fail
   (the lease is left unchanged).
-- `claim` and `ack` check the holder without the lock; a takeover between
-  the check and the move only re-announces mail.
 - One machine per operator; multi-machine leases, automatic failover and
   crash-safe resume are later work.

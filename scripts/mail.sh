@@ -64,8 +64,13 @@ use_home() {
 
 need_holder() {
   [ -n "$o_instance" ] && [ -n "$o_epoch" ] || ao_die "$AO_E_USAGE" "$verb needs --instance TOKEN and --epoch N"
+  # Validation and the file moves that follow happen under the lease lock
+  # (released at exit), so a takeover cannot slip in between; a stuck lock
+  # fails closed.
+  ao_lease_lock || exit "$AO_E_BUSY"
   ao_lease_load
-  if ! ao_lease_is_holder "$o_instance" "$o_epoch"; then
+  if ! ao_lease_holder "$o_instance" "$o_epoch"; then
+    ao_lease_unlock
     ao_msg "not the holder: $(ao_lease_describe)"
     refuse "only the holder moves mail files; this session is the standby (lease.sh redirect)"
   fi
@@ -106,7 +111,8 @@ do_send() {
   ao_load --no-state
   read_body
   find_home "$o_key"
-  _id=$(publish "$_kh" "$o_from" "$o_key" "$o_kind" "$_body")
+  _id=$(publish "$_kh" "$o_from" "$o_key" "$o_kind" "$_body") && [ -n "$_id" ] ||
+    ao_die "$AO_E_FAIL" "not sent: cannot publish in $_kh/.operator/inbox"
   echo "sent: $_id to $o_key ($o_kind)"
   [ -z "$o_ring" ] || ring_key "$o_key"
 }
@@ -153,7 +159,10 @@ do_forward() {
   fi
   # mkdir is atomic: of two concurrent forwards of one turn, one sends.
   mkdir "$_mark" 2>/dev/null || { echo "already forwarded; not sent again"; return 0; }
-  _id=$(publish "$H_HOME" "human-via-$o_via" "$H_KEY" forward "$_body") || { rm -rf "$_mark"; exit "$AO_E_FAIL"; }
+  if ! _id=$(publish "$H_HOME" "human-via-$o_via" "$H_KEY" forward "$_body") || [ -z "$_id" ]; then
+    rm -rf "$_mark"
+    ao_die "$AO_E_FAIL" "not forwarded: cannot publish in $H_OP/inbox"
+  fi
   echo "forwarded: $_id to the holder ($L_provider \`$L_session\`)"
   if [ -n "${AO_REGISTRY:-}" ]; then
     ring_key "$H_KEY" || true
@@ -233,7 +242,7 @@ ring_current() {
   [ -n "$_pending" ] || return 0
   ao_gate doorbell || { ao_log "$log" "$OP_KEY doorbell held by gate"; return 0; }
   # A new holder (client or epoch) is rung even for mail already rung for.
-  _fp=$(printf '%s\n' "$OP_CLIENT $OP_NAME" "$_pending" | cksum | cut -d' ' -f1)
+  _fp=$(printf '%s\n' "$OP_CLIENT $OP_NAME $OP_EPOCH" "$_pending" | cksum | cut -d' ' -f1)
   _stamp=$AO_STATE/doorbell/$OP_KEY
   _last=$(cat "$_stamp" 2>/dev/null) || _last=
   _lt=${_last%% *} _lf=${_last#* }

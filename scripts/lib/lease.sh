@@ -232,6 +232,25 @@ ao_lease_is_holder() {
   [ -n "$1" ] && [ "$(ao_token_hash "$1")" = "$L_instance" ]
 }
 
+# ao_lease_launch_ok  False (with a message) when another live launch of the
+# holder's client presents the same token: a concurrent resume of one
+# conversation. Only clients that expose their process (Claude Code) are
+# checked; a launch whose predecessor is gone carries on.
+ao_lease_launch_ok() {
+  _ao_me=$(ao_client_pid "$L_provider")
+  [ -n "$_ao_me" ] && [ -n "$L_client_pid" ] && [ "$L_client_pid" != - ] || return 0
+  [ "${_ao_me%% *}" != "$L_client_pid" ] || return 0
+  [ "$(ao_proc_state "$L_client_pid" "$L_client_start")" != dead ] || return 0
+  ao_msg "another live $L_provider launch (pid $L_client_pid) holds this lease with the same token; this launch is the standby"
+  return 1
+}
+
+# ao_lease_holder TOKEN EPOCH  The one holder check every holder verb uses:
+# token and epoch match the loaded lease, and no other live launch holds it.
+ao_lease_holder() {
+  ao_lease_is_holder "$1" "$2" && ao_lease_launch_ok
+}
+
 # ao_lease_describe  One line naming the holder, for refusals and replies.
 ao_lease_describe() {
   if [ -z "$L_PRESENT" ]; then
@@ -257,8 +276,14 @@ ao_lease_describe() {
 ao_lease_lock() {
   _ao_lck=$H_OP/lease.lock
   [ -d "$H_OP" ] || ao_die "$AO_E_USAGE" "$H_OP does not exist (run: lease.sh init)"
+  _ao_absent=0
   while ! mkdir "$_ao_lck" 2>/dev/null; do
-    _ao_lm=$(ao_mtime "$_ao_lck" 2>/dev/null) || continue
+    if ! _ao_lm=$(ao_mtime "$_ao_lck" 2>/dev/null); then
+      # No lock to wait for, yet mkdir failed: not contention.
+      _ao_absent=$((_ao_absent + 1))
+      [ "$_ao_absent" -lt 3 ] || ao_die "$AO_E_FAIL" "cannot create $_ao_lck (permissions?)"
+      continue
+    fi
     if [ $(($(date +%s) - _ao_lm)) -gt "$AO_LEASE_LOCK_MAX" ]; then
       _ao_lease_stuck "$_ao_lck"
       return "$AO_E_BUSY"
@@ -344,13 +369,16 @@ ao_markers_open() {
 ao_lease_route() {
   OP_LEASE=none
   OP_AUDIT=-
+  OP_EPOCH=-
   OP_PROVIDER=$OP_CLIENT
   [ -e "$OP_DIR/.operator/lease" ] || return 0
-  if ! ao_lease_read "$OP_DIR/.operator/lease" || [ "$L_operator" != "$OP_KEY" ]; then
+  if ! ao_lease_read "$OP_DIR/.operator/lease" || [ "$L_operator" != "$OP_KEY" ] ||
+    [ "$L_host" != "$(ao_host)" ]; then
     OP_LEASE=invalid
     return 0
   fi
   OP_LEASE=$L_state OP_AUDIT=$L_audit
+  OP_EPOCH=$L_generation-$L_epoch
   OP_PROVIDER=$L_provider
   _ao_regclient=$OP_CLIENT
   # The client is reported for every state (the outgoing provider while
