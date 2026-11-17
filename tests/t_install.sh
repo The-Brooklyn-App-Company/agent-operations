@@ -56,6 +56,7 @@ test_oracle_home_is_created_and_committed() {
   assert_eq "$(find "$AO_PROFILE" -perm 600 | wc -l | tr -d ' ')" 1 "profile mode 600"
   assert_has "$T/out" "Next, by hand:"
   assert_eq "$(git -C "$h" log --oneline | wc -l | tr -d ' ')" 1 "commits"
+  assert_eq "$(git -C "$h" ls-files KIT.local.md)" KIT.local.md "kit pin tracked"
   assert_eq "$(git -C "$h" status --porcelain | wc -l | tr -d ' ')" 0 "uncommitted files"
   run check.sh home "$h"
   assert_rc 0
@@ -130,10 +131,24 @@ test_one_owner_per_repository() {
   assert_rc 2
   assert_has "$T/err" "already owned by operator 'infra'"
   assert_no_file "$T/ops/web"
+  run install.sh operator web --owns git@git.example.com:j/infra/
+  assert_rc 2
   run install.sh operator oracle
   assert_rc 2
   run install.sh operator sent
   assert_rc 2
+}
+
+test_commits_only_what_it_created() {
+  oracle_home
+  printf 'private\n' >"$T/ops/oracle/private.txt"
+  git -C "$T/ops/oracle" add private.txt
+  run install.sh operator web --embedded
+  assert_rc 0
+  git -C "$T/ops/oracle" show --format= --name-only HEAD >"$T/files"
+  assert_lacks "$T/files" "private.txt"
+  assert_has "$T/files" "operators/web/AGENTS.md"
+  assert_eq "$(git -C "$T/ops/oracle" diff --cached --name-only)" "private.txt" "still staged"
 }
 
 test_skills_are_linked_never_replaced() {

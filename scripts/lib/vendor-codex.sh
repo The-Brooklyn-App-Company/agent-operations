@@ -21,15 +21,19 @@ _vendor_codex_mcp_args() {
     echo "cannot list Codex tool servers ($R_CMD mcp list --json)" >&2
     return 1
   }
-  _vx_names=$(printf '%s\n' "$_vx_list" | jq -r '.[]?.name // empty' 2>/dev/null) || {
-    echo "unreadable Codex tool-server list" >&2
+  _vx_names=
+  if printf '%s\n' "$_vx_list" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    _vx_names=$(printf '%s\n' "$_vx_list" | jq -r '.[] | .name // empty' 2>/dev/null)
+  else
+    echo "unreadable Codex tool-server list (expected a JSON array)" >&2
     return 1
-  }
-  _vx_extra=$(printf '%s\n' "$R_MCP" | tr ',' '\n')
-  for _vx_n in $_vx_names $_vx_extra; do
+  fi
+  # One name per line; a name with any other character fails the run.
+  printf '%s\n%s\n' "$_vx_names" "$R_MCP" | tr ',' '\n' | while IFS= read -r _vx_n; do
+    [ -n "$_vx_n" ] || continue
     case $_vx_n in *[!A-Za-z0-9_-]*)
       echo "unexpected Codex tool-server name '$_vx_n'; not running" >&2
-      return 1 ;;
+      exit 1 ;;
     esac
     printf -- '-c mcp_servers.%s.enabled=false\n' "$_vx_n"
   done

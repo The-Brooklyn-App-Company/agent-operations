@@ -233,7 +233,10 @@ check_home() {
         session.claude | session.codex | session.custom) ;;
         work.*)
           case $_v in
-            *'|owner') printf '%s\t%s\n' "${_v%|owner}" "$_h" >>"$_owners" ;;
+            *'|owner')
+              _u=${_v%|owner}
+              _u=${_u%/}
+              printf '%s\t%s\n' "${_u%.git}" "$_h" >>"$_owners" ;;
             *'|contributor') ;;
             *) printf '%s/operator.conf:%s: work value must end in |owner or |contributor\n' "$_h" "$_n"; _bad=1 ;;
           esac ;;

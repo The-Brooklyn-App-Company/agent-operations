@@ -19,8 +19,9 @@
 #           stream must show exactly one SendMessage call, addressed to this
 #           name, and a successful, non-error result for that call. The
 #           stream is checked even when the client exits non-zero or times
-#           out, so a send that landed is never repeated. If the text differs
-#           from the message the delivery still counts, with a warning.
+#           out, so a send that landed is never repeated. If the text differs,
+#           or the run made other SendMessage calls as well, the delivery
+#           still counts, with a warning.
 #           Verifying needs jq; without it delivery fails closed. Delivered
 #           is not read. AO_KEEP_STREAM=<file> keeps a copy of the event
 #           stream, for diagnosis.
@@ -86,7 +87,7 @@ After sending, print SENT. If SendMessage fails, print FAILED and the error."
     ok) return 0 ;;
     altered)
       _vc_tail=$(cat "$_vc_out")
-      printf 'warning: SendMessage text differs from the message (client exit %s)\n%s\n' "$_vc_rc" "$_vc_tail" >"$_vc_out"
+      printf 'warning: delivered, but the run changed the text or made other SendMessage calls (client exit %s)\n%s\n' "$_vc_rc" "$_vc_tail" >"$_vc_out"
       return 0 ;;
   esac
   echo "receipt: ${_vc_verdict:-unreadable event stream} (client exit $_vc_rc)" >>"$_vc_out"
@@ -95,11 +96,13 @@ After sending, print SENT. If SendMessage fails, print FAILED and the error."
 }
 
 # _vendor_claude_receipt STREAM NAME MESSAGE_FILE  Print `ok` if the event
-# stream proves the delivery, `altered` if it proves a successful send to
-# NAME with different text, else the reason. Lines that are not JSON are
-# ignored; every tool_use block in every assistant event is counted. The
-# tool result's text is JSON with "success": true in Claude Code 2.1.322
-# (see tests/fixtures/).
+# stream proves exactly one successful SendMessage to NAME with the message
+# text; `altered` if it proves a successful send to NAME but the text
+# differs or other SendMessage calls were made too (delivered, with a
+# warning: never re-sent); else the reason nothing was delivered. Lines
+# that are not JSON are ignored; every tool_use block in every assistant
+# event is counted. The tool result's text is JSON with "success": true in
+# Claude Code 2.1.322 (see tests/fixtures/).
 _vendor_claude_receipt() {
   jq -nrR --arg to "$2" --rawfile msg "$3" '
     def norm: sub("^\\s+"; "") | sub("\\s+$"; "");
@@ -109,19 +112,22 @@ _vendor_claude_receipt() {
     [inputs | fromjson? | objects] as $ev
     | [$ev[] | select(.type == "assistant") | .message.content[]?
         | select(.type? == "tool_use" and .name == "SendMessage")] as $sends
-    | if ($sends | length) != 1 then "expected one SendMessage call, saw \($sends | length)"
-      else $sends[0] as $s
-      | if ($s.input.to // "") != $to then "SendMessage was addressed to \($s.input.to // "nobody"), not \($to)"
-        else ([$ev[] | select(.type == "user") | .message.content[]?
-                | select(.type? == "tool_result" and .tool_use_id == $s.id)] | first) as $r
+    | [$ev[] | select(.type == "user") | .message.content[]?
+        | select(.type? == "tool_result")] as $results
+    | def result($s): [$results[] | select(.tool_use_id == $s.id)] | first;
+      def verdict($s): result($s) as $r
         | if $r == null then "no result for the SendMessage call"
           elif $r.is_error == true then "SendMessage returned an error"
           elif ($r.content | text | (fromjson? // {}) | .success?) != true then "SendMessage did not report success"
-          elif ([$s.input.message, $s.input.content] | map(select(type == "string") | norm)
-              | any(. == ($msg | norm))) | not then "altered"
-          else "ok" end
-        end
-      end' <"$1" 2>/dev/null
+          else "sent" end;
+    [$sends[] | select((.input.to // "") == $to)] as $mine
+    | [$mine[] | select(verdict(.) == "sent")] as $landed
+    | if ($sends | length) == 0 then "no SendMessage call"
+      elif ($mine | length) == 0 then "SendMessage was addressed to \($sends[0].input.to // "nobody"), not \($to)"
+      elif ($landed | length) == 0 then verdict($mine[0])
+      elif ($sends | length) == 1 and ([$landed[0].input.message, $landed[0].input.content]
+              | map(select(type == "string") | norm) | any(. == ($msg | norm))) then "ok"
+      else "altered" end' <"$1" 2>/dev/null
 }
 
 vendor_claude_activity() {

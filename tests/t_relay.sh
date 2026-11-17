@@ -45,7 +45,7 @@ test_note_text_and_names_never_reach_the_delivery_model() {
 }
 
 test_receipt_is_required() {
-  for mode in failed error wrongto twice liar; do
+  for mode in failed error wrongto liar; do
     rm -rf "$T/state/relay" "$T/home/inbox/alpha/.relay-pending"
     note alpha "$mode.md" "x"
     FAKE_MODE=$mode run relay.sh --key alpha
@@ -63,13 +63,29 @@ test_landed_send_counts_even_when_the_client_fails() {
   assert_no_file "$T/home/inbox/alpha/.relay-pending"
 }
 
-test_altered_text_is_delivered_with_a_warning() {
-  note alpha a.md "x"
-  FAKE_MODE=altered run relay.sh --key alpha
+test_altered_or_extra_sends_are_delivered_with_a_warning() {
+  for mode in altered twice; do
+    rm -rf "$T/home/inbox/oracle"
+    note alpha "$mode.md" "x"
+    FAKE_MODE=$mode run relay.sh --key alpha
+    assert_rc 0
+    assert_has "$T/state/relay.log" "delivered with a warning"
+    assert_has "$(ls "$T/home/inbox/oracle"/*-relay-warning-alpha.md)" "changed the message text or made other SendMessage calls"
+    assert_no_file "$T/home/inbox/alpha/.relay-pending"
+  done
+  : >"$FAKE_LOG"
+  FAKE_MODE=twice run relay.sh --key alpha
+  assert_eq "$(calls)" 0 "no re-send"
+}
+
+test_long_lists_point_to_a_manifest() {
+  _i=0
+  while [ "$_i" -lt 21 ]; do note alpha "n$_i.md" "x"; _i=$((_i + 1)); done
+  FAKE_MODE=sent run relay.sh
   assert_rc 0
-  assert_has "$T/state/relay.log" "delivered with a warning"
-  assert_has "$(ls "$T/home/inbox/oracle"/*-relay-warning-alpha.md)" "changed the message text"
-  assert_no_file "$T/home/inbox/alpha/.relay-pending"
+  assert_has "$FAKE_LOG" "- and 1 more, all listed in relay-alpha-"
+  m=$(ls "$T/home/inbox/sent"/relay-alpha-*.txt)
+  assert_eq "$(wc -l <"$m" | tr -d ' ')" 21 "manifest lines"
 }
 
 test_repeated_failures_back_off_and_tell_the_oracle_once() {

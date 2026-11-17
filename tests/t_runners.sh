@@ -36,9 +36,13 @@ test_worker_codex_fails_closed_without_a_server_list() {
   assert_rc 2
   assert_no_file "$FAKE_LOG"
   assert_has "$(ls "$T/home/inbox/oracle"/*-worker-fail-audit.md)" "cannot list Codex tool servers"
-  FAKE_MCP='[{"name":"bad name;x"}]' run worker-run.sh audit alpha "$T/prompt.md"
-  assert_rc 2
-  assert_no_file "$FAKE_LOG"
+  for bad in '[{"name":"bad name;x"}]' '[{"name":"two words"}]' null '{}'; do
+    FAKE_MCP=$bad run worker-run.sh audit alpha "$T/prompt.md"
+    assert_rc 2
+    assert_no_file "$FAKE_LOG"
+  done
+  FAKE_MCP='[]' run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 0
 }
 
 test_worker_result_goes_to_recipient() {

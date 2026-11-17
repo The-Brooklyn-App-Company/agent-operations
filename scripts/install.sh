@@ -137,8 +137,9 @@ inst_commit() {
   if ! git -C "$1" rev-parse --git-dir >/dev/null 2>&1; then
     git -C "$1" init -q || { ao_warn "git init failed in $1"; failures=$((failures + 1)); return 0; }
   fi
-  while IFS= read -r _f; do git -C "$1" add -- "$_f" >/dev/null 2>&1; done <"$_mine"
-  if git -C "$1" commit -q -m "$2" >/dev/null 2>&1; then
+  # Only these paths: anything else already staged stays out of the commit.
+  if git -C "$1" add --pathspec-from-file="$_mine" >/dev/null 2>&1 &&
+    git -C "$1" commit -q -m "$2" --pathspec-from-file="$_mine" >/dev/null 2>&1; then
     printf 'commit  %s: %s\n' "$1" "$2"
   else
     ao_warn "could not commit in $1 (is git user.name set?); commit it yourself"
@@ -235,15 +236,27 @@ inst_repo_name() {
   printf '%s\n' "$_n"
 }
 
+# inst_url_key URL  A repository URL without a trailing slash or .git, so
+# two spellings of one repository compare equal.
+inst_url_key() {
+  _uk=${1%/}
+  printf '%s\n' "${_uk%.git}"
+}
+
 # inst_owned_elsewhere URL  Print the key of another operator owning URL.
 inst_owned_elsewhere() {
-  _url=$1
+  _url=$(inst_url_key "$1")
   while IFS="$AO_TAB" read -r _k _nm _d _rest; do
     case $_k in '' | '#'*) continue ;; esac
     [ "$_k" != "$v_key" ] || continue
     _conf=$(ao_expand_path "$_d" /)/operator.conf
     [ -r "$_conf" ] || continue
-    if grep -Fq -- "=$_url|owner" "$_conf"; then printf '%s\n' "$_k"; return 0; fi
+    while IFS= read -r _l; do
+      case $_l in work.*'|owner')
+        _o=${_l#*=}
+        [ "$(inst_url_key "${_o%|owner}")" != "$_url" ] || { printf '%s\n' "$_k"; return 0; } ;;
+      esac
+    done <"$_conf"
   done <"$AO_REGISTRY"
   return 1
 }

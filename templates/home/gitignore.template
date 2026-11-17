@@ -3,3 +3,4 @@
 inbox/
 *.local
 *.local.*
+!KIT.local.md

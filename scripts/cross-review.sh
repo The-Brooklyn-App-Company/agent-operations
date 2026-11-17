@@ -182,6 +182,7 @@ cr_row() {
   _last=$(cat "$_cf" 2>/dev/null) || _last=
   [ "$done_runs" -lt "$per_run" ] || return 0
   if [ ! -d "$OP_DIR" ]; then
+    cr_due_week || return 0
     [ "$(cat "$_wf" 2>/dev/null)" = "$AO_T_WEEK" ] && return 0
     [ -n "$dry_run" ] && { printf 'would skip %s: home not found\n' "$OP_KEY"; return 0; }
     role='' family=''
