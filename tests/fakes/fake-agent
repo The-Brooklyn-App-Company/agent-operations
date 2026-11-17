@@ -1,0 +1,49 @@
+#!/bin/sh
+# fake-agent - stands in for the claude, codex and custom agent CLIs in
+# tests. Installed under each of those names; never calls a model.
+#
+# Appends one record per call to $FAKE_LOG: the name it was called as, the
+# working directory, whether stdin was at EOF, the token env var if set,
+# and every argument on its own `arg:` line.
+#
+# FAKE_MODE selects the behaviour:
+#   ok (default)  answer $FAKE_OUTPUT (default "fake answer")
+#   nothing       answer NOTHING
+#   empty         answer nothing at all
+#   sent          print SENT (claude delivery succeeded)
+#   failed        print FAILED (claude delivery failed), exit 0
+#   fail          print an error to stderr, exit 7
+#   hang          sleep 30 (for timeout tests)
+# The answer goes to the file after -o (codex), to the third argument of
+# `run` (custom), or to stdout (claude).
+name=${0##*/}
+if IFS= read -r _line; then stdin=data; else stdin=eof; fi
+{
+  printf '== %s\ncwd: %s\nstdin: %s\n' "$name" "$PWD" "$stdin"
+  [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || printf 'token: %s\n' "$CLAUDE_CODE_OAUTH_TOKEN"
+  [ -z "${AO_ROLE:-}" ] || printf 'env: AO_ROLE=%s AO_MODEL=%s\n' "$AO_ROLE" "${AO_MODEL:-}"
+  for a in "$@"; do printf 'arg: %s\n' "$a"; done
+} >>"${FAKE_LOG:-/dev/null}"
+
+out=
+prev=
+for a in "$@"; do
+  [ "$prev" = -o ] && out=$a
+  prev=$a
+done
+[ "$name" = agent ] && [ "${1-}" = run ] && out=$4
+
+answer() {
+  if [ -n "$out" ]; then printf '%s\n' "$1" >"$out"; else printf '%s\n' "$1"; fi
+}
+
+case ${FAKE_MODE:-ok} in
+  ok) answer "${FAKE_OUTPUT:-fake answer}" ;;
+  nothing) answer NOTHING ;;
+  empty) [ -z "$out" ] || : >"$out" ;;
+  sent) echo "Message delivered."; echo SENT ;;
+  failed) echo "FAILED: no session with that name" ;;
+  fail) echo "fake failure: model unavailable" >&2; exit 7 ;;
+  hang) sleep 30 ;;
+esac
+exit 0

@@ -1,0 +1,177 @@
+#!/bin/sh
+# shellcheck disable=SC2016,SC2034
+# (SC2016: single-quoted code is passed to other shells on purpose;
+#  SC2034: rc and friends are read by the harness in lib.sh.)
+# t_runners.sh - worker-run.sh and review-run.sh: invocation safety, routing,
+# failure handling, missing roles.
+. "$(dirname -- "$0")/lib.sh"
+
+prompt() { printf '%s\n' "${1:-Check things. Print NOTHING if fine.}" >"$T/prompt.md"; }
+
+test_worker_codex_invocation_is_locked_down() {
+  prompt
+  run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 0
+  for a in exec --ephemeral --skip-git-repo-check read-only "$T/home" small-model \
+    mcp_servers.trade.enabled=false mcp_servers.ui.enabled=false "Check things. Print NOTHING if fine."; do
+    assert_has "$FAKE_LOG" "arg: $a"
+  done
+  assert_has "$FAKE_LOG" "stdin: eof"
+  assert_lacks "$FAKE_LOG" "model_reasoning_effort"
+}
+
+test_worker_result_goes_to_recipient() {
+  prompt
+  FAKE_OUTPUT="finding one" run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 0
+  assert_count "$T/home/inbox/alpha" 1
+  f=$(ls "$T/home/inbox/alpha"/*-audit.md)
+  assert_has "$f" 'From worker job `audit` at'
+  assert_has "$f" "finding one"
+  assert_has "$T/state/worker-runs.log" "job=audit role=worker client=codex rc=0"
+}
+
+test_worker_nothing_writes_nothing() {
+  prompt
+  FAKE_MODE=nothing run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 0
+  assert_no_file "$T/home/inbox/alpha"
+  FAKE_MODE=empty run worker-run.sh audit alpha "$T/prompt.md"
+  assert_no_file "$T/home/inbox/alpha"
+}
+
+test_worker_nothing_must_be_exact() {
+  prompt
+  FAKE_OUTPUT="NOTHING
+but also one finding" run worker-run.sh audit alpha "$T/prompt.md"
+  assert_count "$T/home/inbox/alpha" 1
+}
+
+test_worker_failure_goes_to_oracle() {
+  prompt
+  FAKE_MODE=fail run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 7
+  assert_no_file "$T/home/inbox/alpha"
+  f=$(ls "$T/home/inbox/oracle"/*-worker-fail-audit.md)
+  assert_has "$f" 'Worker job `audit` failed (exit 7)'
+  assert_has "$f" "fake failure: model unavailable"
+}
+
+test_worker_timeout() {
+  prompt
+  profile_set worker_timeout 1
+  AO_TIMEOUT_BIN=none FAKE_MODE=hang run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 124
+  assert_has "$(ls "$T/home/inbox/oracle"/*-worker-fail-audit.md)" "timed out after 1s"
+}
+
+test_worker_role_missing_degrades_loudly() {
+  prompt
+  profile_set worker_client none
+  run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 4
+  assert_has "$(ls "$T/home/inbox/oracle"/*-role-missing-worker.md)" "Role 'worker' is not configured"
+  assert_no_file "$FAKE_LOG"
+}
+
+test_worker_rejects_unknown_recipient_and_bad_job() {
+  prompt
+  run worker-run.sh audit nobody "$T/prompt.md"
+  assert_rc 2
+  run worker-run.sh "../evil" alpha "$T/prompt.md"
+  assert_rc 2
+  run worker-run.sh audit alpha "$T/missing.md"
+  assert_rc 2
+  assert_no_file "$FAKE_LOG"
+}
+
+test_worker_claude_invocation() {
+  profile_set worker_client claude
+  profile_set worker_model haiku
+  prompt "-starts with a dash"
+  run worker-run.sh audit alpha "$T/prompt.md" "$T/proj/alpha"
+  assert_rc 0
+  assert_has "$FAKE_LOG" "== claude"
+  assert_has "$FAKE_LOG" "cwd: $T/proj/alpha"
+  assert_has "$FAKE_LOG" "arg:  -starts with a dash"
+  for a in -p --no-session-persistence --strict-mcp-config --tools Read,Grep,Glob haiku; do
+    assert_has "$FAKE_LOG" "arg: $a"
+  done
+  # The prompt is the first argument after -p, ahead of variadic options.
+  assert_eq "$(sed -n '/^arg: -p$/{n;p;}' "$FAKE_LOG")" "arg:  -starts with a dash"
+}
+
+test_worker_custom_contract() {
+  profile_set worker_client custom
+  profile_set worker_cmd "$T/bin/agent"
+  prompt
+  FAKE_OUTPUT="custom finding" run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 0
+  assert_has "$FAKE_LOG" "arg: run"
+  assert_has "$FAKE_LOG" "env: AO_ROLE=worker AO_MODEL=small-model"
+  assert_has "$(ls "$T/home/inbox/alpha"/*-audit.md)" "custom finding"
+}
+
+test_worker_alternate_role() {
+  prompt
+  run worker-run.sh --role reviewer audit alpha "$T/prompt.md"
+  assert_rc 0
+  assert_has "$FAKE_LOG" "arg: big-model"
+}
+
+test_worker_rejects_bad_profile_values() {
+  profile_set worker_model 'bad model;rm'
+  prompt
+  run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 2
+  assert_has "$T/err" "invalid model id"
+  assert_no_file "$FAKE_LOG"
+}
+
+test_review_writes_output() {
+  prompt "Review this diff."
+  FAKE_OUTPUT="verdict: clean" run review-run.sh "$T/prompt.md" "$T/review.md" "$T/proj/alpha"
+  assert_rc 0
+  assert_has "$T/review.md" "verdict: clean"
+  assert_has "$FAKE_LOG" 'arg: model_reasoning_effort="high"'
+  assert_has "$FAKE_LOG" "arg: big-model"
+  assert_has "$FAKE_LOG" "arg: $T/proj/alpha"
+  assert_has "$T/err" "review_family=cross"
+}
+
+test_review_overrides_effort_and_timeout() {
+  prompt
+  run review-run.sh "$T/prompt.md" "$T/review.md" "$T/proj/alpha" xhigh 30
+  assert_rc 0
+  assert_has "$FAKE_LOG" 'arg: model_reasoning_effort="xhigh"'
+  run review-run.sh "$T/prompt.md" "$T/review.md" "$T/proj/alpha" 'x"y' 30
+  assert_rc 2
+}
+
+test_review_failure_leaves_old_output() {
+  prompt
+  echo "old verdict" >"$T/review.md"
+  FAKE_MODE=fail run review-run.sh "$T/prompt.md" "$T/review.md"
+  assert_rc 7
+  assert_eq "$(cat "$T/review.md")" "old verdict"
+  FAKE_MODE=empty run review-run.sh "$T/prompt.md" "$T/review.md"
+  assert_rc 1
+  assert_eq "$(cat "$T/review.md")" "old verdict"
+}
+
+test_review_timeout() {
+  prompt
+  FAKE_MODE=hang run review-run.sh "$T/prompt.md" "$T/review.md" "$T" high 1
+  assert_rc 124
+  assert_has "$T/err" "timed out after 1s"
+  assert_no_file "$T/review.md"
+}
+
+test_review_role_missing() {
+  profile_set reviewer_client none
+  prompt
+  run review-run.sh "$T/prompt.md" "$T/review.md"
+  assert_rc 4
+}
+
+ao_test_main "$0"
