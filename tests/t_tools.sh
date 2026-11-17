@@ -83,7 +83,7 @@ EOF
 
 test_check_privacy_tracked_odd_names() {
   mkdir -p "$T/repo"
-  (cd "$T/repo" && git init -q . && printf 'x %s\n' "dev@""corp.io" >'odd"name.md' && git add .) || return 0
+  (cd "$T/repo" && git init -q . && printf 'x %s\n' "dev@""fictional.zz" >'odd"name.md' && git add .) || return 0
   (cd "$T/repo" && "$AO_TEST_SHELL" "$SCRIPTS/check.sh" privacy >"$T/out" 2>"$T/err")
   rc=$?
   assert_rc 1
@@ -122,10 +122,10 @@ test_check_privacy() {
   mkdir -p "$T/repo"
   home_path="/Us""ers/someone/project"
   printf 'path %s here\n' "$home_path" >"$T/repo/a.md"
-  printf 'mail %s and dev@example.com\n' "ops@""acme-corp.io" >"$T/repo/b.md"
+  printf 'mail %s and dev@example.com\n' "ops@""fictional-co.zz" >"$T/repo/b.md"
   printf 'Codename Bluebird ships\nclean line\n' >"$T/repo/c.md"
   printf "cd '%s'\n" "/ho""me/bob" >"$T/repo/odd | name=x.md"
-  printf 'x %s\n' "dev@""corp.io" >"$T/repo/-dash\"quote.md"
+  printf 'x %s\n' "dev@""fictional.zz" >"$T/repo/-dash\"quote.md"
   printf '# local denylist\n\nbluebird\n' >"$T/deny"
   run check.sh privacy --denylist "$T/deny" "$T/repo"
   assert_rc 1

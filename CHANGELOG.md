@@ -5,7 +5,7 @@ with 0.2.0; 0.1.x guidance had none.
 
 ## Unreleased
 
-## 0.2.0-rc1 (2026-11-17)
+## 0.2.0 (2026-11-17)
 
 A clean break from 0.1.x: the kit becomes rules with stable IDs, six
 guides, templates for a fixed home layout, and scripts that run the

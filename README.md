@@ -6,7 +6,7 @@ templates, thin skills, and POSIX sh scripts run by the OS scheduler. It
 works with Claude Code and Codex in any seat. It is not a framework, a
 daemon or an agent runtime.
 
-Version 0.2.0-rc1. [Changelog](CHANGELOG.md).
+Version 0.2.0. [Changelog](CHANGELOG.md).
 
 ## Who it is for
 
@@ -57,7 +57,7 @@ and/or Codex signed in.
 
 ```sh
 git clone <kit-url> ~/src/agent-operations
-cd ~/src/agent-operations && git checkout v0.2.0-rc1
+cd ~/src/agent-operations && git checkout v0.2.0
 scripts/install.sh --dry-run oracle ~/ops/oracle    # lists every file
 scripts/install.sh oracle ~/ops/oracle              # creates and commits
 $EDITOR ~/.config/agent-operations/profile          # replace every CHANGE-ME
@@ -99,7 +99,7 @@ Highest stage reached for each piece, with the client, version and date.
 | Claude `--restricted` delivery run with only `ListAgents`, `SendMessage` | Proven, Claude Code 2.1.322 | 2026-11-17 |
 | `worker-run.sh` and `review-run.sh` on Claude | Fakes only | |
 | `cross-review.sh` | Fakes only | |
-| `install.sh` | Fakes and sandbox only; no clean-machine run yet | |
+| `install.sh` | Sandbox: fresh empty home, oracle + operator + check + status + timers render | 2026-11-17; not yet a separate clean machine |
 | launchd unit | Rendered by `install.sh`; loading it is your step | |
 | systemd units, Linux hosts | **Untested** | |
 | Codex relay delivery | **Not supported** in 0.2.0: Codex sessions read their inbox | |
