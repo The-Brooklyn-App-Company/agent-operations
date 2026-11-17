@@ -18,7 +18,7 @@ Add a read-only stuck-queue watchdog that flags, with the blocked concurrency gr
 - a run that references a workflow SHA outside the allowlist, after a few minutes;
 - any self-hosted job queued well past your normal p90 while a runner is idle.
 
-Cancelling the stale run stays an approved action for the owner; the watchdog only reports.
+Cancelling the stale run stays an approved action for the owner; the watchdog only reports. A plain cancel may not take on a job no runner ever picked up; the platform's force-cancel (on GitHub, `POST /repos/{owner}/{repo}/actions/runs/{run_id}/force-cancel`) clears it.
 
 ## Throughput
 
