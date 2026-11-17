@@ -74,7 +74,7 @@ relay_claim() {
 # leaves the claimed copy for the next run (at worst archived twice), so a
 # note is never lost unannounced.
 relay_archive() {
-  _n=${1##*/}
+  _n=$(printf '%s\n' "${1##*/}" | sed 's/^[0-9][0-9]*\.[0-9][0-9]*\.//')
   _slug=$(ao_slug "${_n%.md}")
   _base=$AO_SENT/$AO_T_STAMP-$OP_KEY-${_slug:-note}
   if ! _dest=$(_ao_link_noclobber "$1" "$_base" .md); then
@@ -91,7 +91,7 @@ relay_archive() {
   fi
   printf '%s\n' "${_dest##*/}" >>"$pending" || ao_die "$AO_E_FAIL" "cannot write $pending"
   rm -f "$1" || ao_warn "cannot remove claimed copy $1"
-  rmdir "${1%/*}" 2>/dev/null
+  [ "${1%/*}" = "$claimdir" ] || rmdir "${1%/*}" 2>/dev/null
 }
 
 # relay_message  Write the fixed-shape pointer message for the pending list.
@@ -175,7 +175,7 @@ relay_row() {
   claimdir=$AO_INBOX/$OP_KEY/.claimed
   failf=$AO_STATE/relay/$OP_KEY.fail
   relay_new_notes >"$new"
-  set -- "$claimdir"/c.*/*
+  set -- "$claimdir"/*
   [ -s "$new" ] || [ -s "$pending" ] || [ -e "$1" ] || return 0
   if ! ao_gate relay; then
     ao_log "$log" "to=$OP_KEY held by gate"
@@ -189,8 +189,9 @@ relay_row() {
   relay_backoff_due || { ao_log "$log" "to=$OP_KEY backing off after repeated failures"; return 0; }
   mkdir -p "$AO_SENT" || { ao_log "$log" "to=$OP_KEY FAILED: cannot create $AO_SENT"; failures=$((failures + 1)); return 0; }
   while IFS= read -r _note; do relay_claim "$_note"; done <"$new"
-  # Claimed notes, including any left by an interrupted run.
-  for _c in "$claimdir"/c.*/*; do
+  # Claimed notes, including any left by an interrupted run, in the claim
+  # folders or loose in .claimed/ (as earlier development builds left them).
+  for _c in "$claimdir"/c.*/* "$claimdir"/*; do
     [ -f "$_c" ] || continue
     relay_archive "$_c"
   done

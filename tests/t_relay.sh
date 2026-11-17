@@ -51,6 +51,15 @@ test_interrupted_claims_are_finished() {
   assert_rc 0
   assert_has "$FAKE_LOG" "-alpha-old.md"
   assert_no_file "$T/home/inbox/alpha/.claimed"
+  # Loose claims from earlier builds are finished too.
+  mkdir -p "$T/home/inbox/alpha/.claimed"
+  printf 'older\n' >"$T/home/inbox/alpha/.claimed/77.2.legacy.md"
+  printf 'oldest\n' >"$T/home/inbox/alpha/.claimed/plain.md"
+  FAKE_MODE=sent run relay.sh
+  assert_rc 0
+  assert_has "$FAKE_LOG" "-alpha-legacy.md"
+  assert_has "$FAKE_LOG" "-alpha-plain.md"
+  assert_no_file "$T/home/inbox/alpha/.claimed"
 }
 
 test_a_note_written_during_delivery_waits_for_the_next_run() {
@@ -85,10 +94,11 @@ test_a_failed_oracle_note_is_tried_again() {
 test_archive_on_another_filesystem_is_copied() {
   # An ln that cannot link out of the claim folder stands in for an archive
   # on another filesystem.
+  _ln=$(command -v ln)
   {
     printf '#!/bin/sh\n'
     printf 'case $1 in */.claimed/*) exit 1 ;; esac\n'
-    printf 'exec %s "$@"\n' "$(command -v ln)"
+    printf 'exec %s "$@"\n' "$_ln"
   } >"$T/bin/ln"
   chmod +x "$T/bin/ln"
   note alpha a.md "copied"
