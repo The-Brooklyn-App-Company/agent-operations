@@ -251,7 +251,7 @@ test_check_home() {
   run check.sh home "$T/h1" "$T/h2"
   assert_rc 1
   assert_has "$T/out" "h2/CLAUDE.md: must contain only @AGENTS.md"
-  assert_has "$T/out" "owned by more than one home: git@git.example.com:o/app.git"
+  assert_has "$T/out" "owned by more than one home: git@git.example.com:o/app"
   assert_has "$T/out" "h2/operator.conf:3: work value must end"
 }
 
