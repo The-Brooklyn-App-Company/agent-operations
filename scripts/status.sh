@@ -15,6 +15,9 @@
 #
 # Environment: AO_PROFILE.
 #
+# Warnings about the profile (such as single-family cross-review) go to
+# stderr.
+#
 # Exit codes: 0 printed; 2 usage or configuration error.
 set -u
 AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -44,6 +47,15 @@ main() {
   ao_load --no-state
   [ -n "$tsv" ] || printf '%-14s %-24s %-9s %-16s %-11s %s\n' KEY NAME CLIENT STATE QUIET INBOX
   ao_registry_each status_row
+  status_warnings
+}
+
+# status_warnings  Profile problems worth seeing every time (stderr).
+status_warnings() {
+  [ "$(ao_cfg cross_review on)" != off ] || return 0
+  if [ -z "$(ao_cfg reviewer_claude_model '')" ] || [ -z "$(ao_cfg reviewer_codex_model '')" ]; then
+    ao_warn "cross-review is single-family: set reviewer_claude_model and reviewer_codex_model for cross-family review (kit rule K-22); same-family reviews are marked as such"
+  fi
 }
 
 main "$@"

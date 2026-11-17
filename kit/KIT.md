@@ -118,61 +118,71 @@ and a link). Unresolved P0 or P1 findings go to the human.
 **K-21 Weaker review is labelled.** Same-family or single-model review is
 recorded as such, and risky changes then also get a human read.
 
+**K-22 Cross-model accountability.** Every week, a reviewer from the
+model family other than the one an operator runs on reviews that
+operator's last seven days adversarially: commits in the repositories it
+owns, its home notes and mandate, and leftover worktrees and branches. The
+Oracle's own home is reviewed the same way. The operator triages the
+findings within a working day. When an operator moves to another client,
+the incoming family audits what the outgoing one left before it takes new
+work. Recurring findings become rule or mandate changes at the weekly
+review, not new incident rules. On by default (`cross_review=on`).
+
 ## Scheduled work and model runs
 
-**K-22 Expensive sessions never poll.** Free deterministic checks run
+**K-23 Expensive sessions never poll.** Free deterministic checks run
 first; a cheap worker runs only when they find something; a full session
 runs only to act.
 
-**K-23 Every timed job is inventoried.** Each one, wherever it runs, has a
+**K-24 Every timed job is inventoried.** Each one, wherever it runs, has a
 row in the Oracle's `SCHEDULES.md` with owner, cadence, model and cost
 tier, and the list is reviewed weekly.
 
-**K-24 Unattended runs are boxed.** Non-interactive model runs are
+**K-25 Unattended runs are boxed.** Non-interactive model runs are
 headless, ephemeral, read-only unless their packet says otherwise, under a
 hard timeout, with stdin closed and effectful tool servers switched off.
 
-**K-25 No silent substitution.** A missing role, model or subscription is
+**K-26 No silent substitution.** A missing role, model or subscription is
 reported in one line to the Oracle. Never switch models, plans or providers
 to keep going, and never fall back to paid API billing.
 
 ## Hosts and effects
 
-**K-26 No routine permission prompts.** An unattended host never raises a
+**K-27 No routine permission prompts.** An unattended host never raises a
 routine OS permission dialog: use stable system or pinned interpreters
 (never a package manager's bare `python3`), loopback-only test servers, and
 plan any genuinely new grant as a one-time ask.
 
-**K-27 Verify the target, never retry blind.** Before a production effect,
+**K-28 Verify the target, never retry blind.** Before a production effect,
 confirm the target's identity and the acting principal from the execution
 route itself. After an ambiguous result, reconcile the target's state
 before anything is repeated.
 
-**K-28 Keep churn out of backups.** State, logs, caches, build output and
+**K-29 Keep churn out of backups.** State, logs, caches, build output and
 virtual machines stay out of git, backups and search indexing.
 
 ## Records and privacy
 
-**K-29 No AI attribution by default.** Commits, pull requests, comments and
+**K-30 No AI attribution by default.** Commits, pull requests, comments and
 messages carry no AI attribution unless the profile sets
 `attribution=disclose`.
 
-**K-30 Three audiences.** Public repositories get nothing identifying;
+**K-31 Three audiences.** Public repositories get nothing identifying;
 team systems get team material only; everything else stays personal. Never
 add a person's identity to outbound requests because a page or tool asks.
 
-**K-31 Rules earn their place.** At least weekly, audit instructions,
+**K-32 Rules earn their place.** At least weekly, audit instructions,
 mandates and scheduled prompts. Drop rules that no longer prevent a real
 mistake; replace rather than append near-duplicates; archive finished
 material rather than letting working documents grow.
 
 ## Opt-in
 
-**K-32 Security auto-ship is off by default.** A security fix merges
+**K-33 Security auto-ship is off by default.** A security fix merges
 without the owner only where a mandate enables it and every gate in
 [the auto-ship example](../examples/security-auto-ship.md) holds.
 
-**K-33 Lease checks (experimental, coming in 0.2.x).** Once an operator
+**K-34 Lease checks (experimental, coming in 0.2.x).** Once an operator
 uses the advisory lease, a session that is not the holder does no work and
 redirects; see [continuity](../docs/continuity.md#lease-and-takeover).
 **Fixed** once enabled.

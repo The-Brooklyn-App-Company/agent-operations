@@ -1,9 +1,10 @@
 #!/bin/sh
 # review-run.sh - one independent review pass by the profile's reviewer role.
 #
-# Usage: review-run.sh PROMPT_FILE OUT_FILE [WORKDIR] [EFFORT] [TIMEOUT]
+# Usage: review-run.sh [--role PREFIX] PROMPT_FILE OUT_FILE [WORKDIR] [EFFORT] [TIMEOUT]
 #
-# Runs the reviewer role once with the same safety as worker-run.sh:
+# Runs the reviewer role (or --role PREFIX; reviewer_claude and
+# reviewer_codex fix their client by name) once with the same safety as worker-run.sh:
 # headless, read-only, ephemeral, stdin closed, hard timeout, tool servers
 # per reviewer_mcp_disable. The prompt file is the neutral review packet:
 # the brief plus the diff or the paths to read, never the implementer's
@@ -32,17 +33,24 @@ AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$AO_SCRIPTS/lib/vendor.sh"
 
 main() {
-  case ${1-} in -h | --help) ao_usage; exit 0 ;; esac
-  [ $# -ge 2 ] && [ $# -le 5 ] || ao_die "$AO_E_USAGE" "usage: review-run.sh PROMPT_FILE OUT_FILE [WORKDIR] [EFFORT] [TIMEOUT]"
+  role=reviewer
+  case ${1-} in
+    -h | --help) ao_usage; exit 0 ;;
+    --role) [ $# -ge 2 ] || ao_die "$AO_E_USAGE" "--role needs a value"; role=$2; shift 2 ;;
+  esac
+  [ $# -ge 2 ] && [ $# -le 5 ] || ao_die "$AO_E_USAGE" "usage: review-run.sh [--role PREFIX] PROMPT_FILE OUT_FILE [WORKDIR] [EFFORT] [TIMEOUT]"
+  ao_is_name "$role" || ao_die "$AO_E_USAGE" "invalid role '$role'"
   prompt=$1 dest=$2 workdir=${3:-$PWD}
   ao_load --no-state
-  ao_role_load reviewer || ao_die "$AO_E_ROLE" "reviewer role is not configured in $AO_PROFILE"
+  fixed=
+  case $role in *_claude) fixed=claude ;; *_codex) fixed=codex ;; esac
+  ao_role_load "$role" ${fixed:+"$fixed"} || ao_die "$AO_E_ROLE" "role $role is not configured in $AO_PROFILE"
   [ -z "${4-}" ] || R_EFFORT=$4
   [ -z "${5-}" ] || R_TIMEOUT=$5
   case $R_EFFORT in *[!a-z]*) ao_die "$AO_E_USAGE" "effort must be a lowercase word, got '$R_EFFORT'" ;; esac
   ao_is_uint "$R_TIMEOUT" || ao_die "$AO_E_USAGE" "timeout must be an integer, got '$R_TIMEOUT'"
   family=$(ao_cfg review_family cross)
-  ao_msg "reviewer client=$R_CLIENT model=${R_MODEL:-default} effort=${R_EFFORT:-default} review_family=$family"
+  ao_msg "reviewer role=$role client=$R_CLIENT model=${R_MODEL:-default} effort=${R_EFFORT:-default} review_family=$family"
   out=$(ao_tmp out)
   err=$(ao_tmp err)
   ao_role_run "$workdir" "$prompt" "$out" "$err"
