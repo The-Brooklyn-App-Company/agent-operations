@@ -11,6 +11,7 @@
 # Exit codes: 0 success; 2 unavailable; 3 misconfigured.
 set -u
 KIT=${AO_SCRIPTS:?run from a tick hook, or set AO_SCRIPTS to the kit scripts dir}
+# shellcheck source=../../scripts/lib/core.sh
 . "$KIT/lib/core.sh"
 ao_load
 for t in curl jq; do command -v "$t" >/dev/null 2>&1 || { echo "linear.sh: needs $t" >&2; exit 3; }; done

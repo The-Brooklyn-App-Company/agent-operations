@@ -5,8 +5,8 @@ description: Use when choosing or changing the model for a role or a recurring j
 
 # Model bake-off
 
-The kit root is this skill's real directory, two levels up. If it does not
-resolve, stop and say so.
+`<kit>`: two levels above this skill's real path.
+Stop if it does not resolve.
 
 1. Read `<kit>/docs/profiles-and-integrations.md#choosing-models`.
 2. Name the role or job, its current model, and what "good" means for it.

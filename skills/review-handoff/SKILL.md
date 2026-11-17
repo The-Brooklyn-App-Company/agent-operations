@@ -5,8 +5,8 @@ description: Use when preparing a delegation packet, implementing from one, revi
 
 # Review handoff
 
-The kit root is this skill's real directory, two levels up. If it does not
-resolve, stop and say so.
+`<kit>`: two levels above this skill's real path.
+Stop if it does not resolve.
 
 1. Read `<kit>/docs/review-and-release.md#delegation` and `#review`.
 2. Build the packet from `<kit>/templates/packets/delegation.md`: goal,

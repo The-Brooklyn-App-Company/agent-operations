@@ -5,8 +5,8 @@ description: Use when the human comes back after time away ("I'm back", "what di
 
 # Return to desk
 
-The kit root is this skill's real directory, two levels up. If it does not
-resolve, stop and say so.
+`<kit>`: two levels above this skill's real path.
+Stop if it does not resolve.
 
 1. Read `<kit>/docs/continuity.md#records`.
 2. Read the backlog, the journal since the human left, the return list and

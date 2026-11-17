@@ -5,8 +5,8 @@ description: Use when setting up Agent Operations (an Oracle home or a new opera
 
 # Operator setup
 
-The kit root is this skill's real directory, two levels up (`install.sh
-skills` links it there). If it does not resolve, stop and say so.
+`<kit>`: two levels above this skill's real path
+(`install.sh skills` links it there). Stop if it does not resolve.
 
 1. Read `<kit>/README.md` and `<kit>/docs/operators-and-repos.md#install-and-bootstrap`.
 2. Inventory first, read-only: existing homes, the registry, the profile,

@@ -5,8 +5,8 @@ description: Use when declaring activation needs in a pull request, promoting a 
 
 # Release closeout
 
-The kit root is this skill's real directory, two levels up. If it does not
-resolve, stop and say so.
+`<kit>`: two levels above this skill's real path.
+Stop if it does not resolve.
 
 1. Read `<kit>/docs/review-and-release.md#release`.
 2. Fill the activation section of `<kit>/templates/packets/release-record.md`

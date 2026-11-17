@@ -57,6 +57,8 @@ A solo user skips the team step.
 | Inboxes and relay | Notes for a session are files in `inbox/<key>/`; `relay.sh` delivers them through the session's client, or leaves them for the session to read | [scripts/README.md](../scripts/README.md#the-oracle-home) |
 | Worker runner | `worker-run.sh` runs one cheap read-only job and routes its answer to an inbox unless it is exactly `NOTHING` | [Scheduled work](hosts-and-ci.md#scheduled-work) |
 | Review runner | `review-run.sh` runs one boxed review pass on a neutral packet | [Review](review-and-release.md#review) |
+| Cross-review | `cross-review.sh`, from an hourly hook, has the other model family review each operator weekly, and audits a switch of client | [Cross-model accountability](review-and-release.md#cross-model-accountability) |
+| Installer | `install.sh` creates homes, registry rows, worktrees, skill links and the tick unit | [Install](operators-and-repos.md#install-and-bootstrap) |
 | Checks | `check.sh` (links, duplicate rule text, skill shape, privacy) and a weekly drift audit | [Drift](#drift-and-precedence) |
 | Adapters | One small script per integration slot, so the free tick can poll and notify | [adapters/CONTRACT.md](../adapters/CONTRACT.md) |
 
@@ -72,9 +74,11 @@ process running as that user.
 
 ## Drift and precedence
 
-Kit rules beat mandates; mandates beat repository mechanics. `check.sh`
-fails on dead links and reports rule-length text duplicated across files
-and skills without a pointer into the docs. An optional weekly cheap-worker
+Kit rules beat mandates; mandates beat repository mechanics. `check.sh
+kit` fails on dead links and on skills without a pointer into the docs,
+and warns on rule-length text duplicated across the rules, docs and
+skills; `check.sh home` fails a home whose `CLAUDE.md` does more than
+import `AGENTS.md`, or a repository with two owners. An optional weekly cheap-worker
 pass (`drift-check.sh`) reports contradictions between the rules,
 mandates, repository instructions and schedules ([K-32](../kit/KIT.md)).
 

@@ -1,7 +1,12 @@
 # Maintaining Agent Operations
 
-Read README.md and the relevant owning guide; load only what the task needs. Keep this repository public-safe: synthetic examples only, no actual product/person/host/account identities, private paths or internal URLs. The package owner/vendor sources are permitted; unrelated repositories are never named.
+This repository is public. Read [README.md](README.md) and
+[CONTRIBUTING.md](CONTRIBUTING.md) first; load other files only when a task
+needs them.
 
-Docs own reusable practice; skills are thin routes. Preserve actual human scope and standing authorization, owner-controlled UI/auth consent and local exceptions. Do not add per-command permission ceremonies, background daemons or duplicate trackers.
-
-Use scoped changes, `python3 scripts/check_docs.py`, relevant offline example/installer checks and independent review for meaningful behavioral changes. Source, installed skills, scheduled configuration/execution, delivery and real product acceptance are distinct. Package only committed tracked source; never include local profiles or runtime state.
+- Rules live only in `kit/KIT.md`, by stable ID; docs point to IDs; skills
+  point to docs.
+- Fictional examples only: no real people, companies, hosts, accounts,
+  paths or incidents, and no AI attribution.
+- Run `scripts/check.sh kit`, `shellcheck` and `tests/run.sh` before every
+  pull request.

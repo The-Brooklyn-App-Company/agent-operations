@@ -32,9 +32,9 @@ scripts/install.sh timers
 
 ```
 # key	name	home	session	client
-oracle	Oracle	/Users/juniper/ops/oracle	pending	claude
-web	[OPS] Web	/Users/juniper/ops/web	pending	claude
-infra	[OPS] Infra	/Users/juniper/ops/oracle/operators/infra	pending	codex
+oracle	Oracle	~/ops/oracle	pending	claude
+web	[OPS] Web	~/ops/web	pending	claude
+infra	[OPS] Infra	~/ops/oracle/operators/infra	pending	codex
 ```
 
 Juniper replaces `pending` with each session's id once the sessions are

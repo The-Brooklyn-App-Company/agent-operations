@@ -29,16 +29,19 @@
 #          operator.conf, if present, has only key, session.<client> and
 #          work.<name>=<url>|owner|contributor lines. Across all DIRs, a
 #          repository URL may have only one owner.
-# privacy  Reports home-directory paths (/Users/x, /home/x, ~x/,
-#          C:\Users\x), e-mail addresses (other than the reserved
-#          example.com/.org/.net, .example, .test, .invalid and .localhost
-#          domains) and every case-insensitive match of the lines in the
-#          denylist (default: $AO_PRIVACY_DENYLIST), in file contents and in
-#          file names. Binary files are listed as not scanned. Keep the
-#          denylist local and untracked. PATHs default to the files git
-#          tracks in the current directory. Matching lines are printed as
-#          file:line only, never with their text, so the report itself leaks
-#          nothing. Git history and author metadata are out of scope.
+# privacy  Reports home-directory paths (a macOS user folder anywhere; a
+#          Linux home folder, a ~user path or a Windows user folder at the
+#          start of a path), e-mail addresses
+#          (other than the reserved example.com/.org/.net and their
+#          subdomains, .example, .test, .invalid and .localhost) and every
+#          case-insensitive match of the lines in the denylist (default:
+#          $AO_PRIVACY_DENYLIST), in file contents and in file names. A
+#          denylist line starting with `=` matches whole words only (`=ann`
+#          finds "Ann" but not "planned"). Binary files are listed as not
+#          scanned. Keep the denylist local and untracked. PATHs default to
+#          the files git tracks in the current directory. Matching lines are
+#          printed as file:line only, never with their text, so the report
+#          itself leaks nothing. Git history and author metadata are out of scope.
 #
 # Exit codes: 0 clean; 1 findings, or a scan that could not complete (the
 # message says which); 2 usage error.
@@ -286,9 +289,29 @@ check_privacy_each() {
 check_privacy_name() {
   AO_F=$1 AO_P=$2 awk 'BEGIN {
     f = ENVIRON["AO_F"]; low = tolower(f)
-    while ((getline p < ENVIRON["AO_P"]) > 0) if (p != "" && index(low, tolower(p))) { print f ": denylist match in the file name"; exit }
-  }'
+    while ((getline p < ENVIRON["AO_P"]) > 0) {
+      p = tolower(p); w = 0
+      if (substr(p, 1, 1) == "=") { p = substr(p, 2); w = 1 }
+      if (p == "") continue
+      if (w ? wordin(low, p) : index(low, p)) { print f ": denylist match in the file name"; exit }
+    }
+  }
+  '"$CHECK_AWK_WORDIN"
 }
+
+# Shared awk: wordin(text, word) is true when word occurs in text with no
+# letter or digit on either side.
+CHECK_AWK_WORDIN='
+  function wordin(t, w,   i, b, a) {
+    while ((i = index(t, w)) > 0) {
+      b = i > 1 ? substr(t, i - 1, 1) : ""
+      a = substr(t, i + length(w), 1)
+      if (b !~ /[a-z0-9]/ && a !~ /[a-z0-9]/) return 1
+      t = substr(t, i + 1)
+    }
+    return 0
+  }'
+
 
 # check_privacy_scan FILE PATTERNS  Print `FILE:LINE: kind` for each finding.
 # File names travel through the environment, never through program text.
@@ -297,22 +320,27 @@ check_privacy_scan() {
   AO_F=$1 AO_P=$2 awk '
     BEGIN {
       f = ENVIRON["AO_F"]
-      while ((getline p < ENVIRON["AO_P"]) > 0) if (p != "") deny[++nd] = tolower(p)
+      while ((getline p < ENVIRON["AO_P"]) > 0) {
+        p = tolower(p); w = 0
+        if (substr(p, 1, 1) == "=") { p = substr(p, 2); w = 1 }
+        if (p != "") { deny[++nd] = p; word[nd] = w }
+      }
     }
     {
-      if ($0 ~ /\/(Users|home)\/[A-Za-z0-9._-]+/ || $0 ~ /(^|[^A-Za-z0-9])~[a-z][a-z0-9_-]*\// || $0 ~ /[A-Za-z]:(\\)+Users(\\)+/) print f ":" FNR ": home path"
+      if ($0 ~ /\/Users\/[A-Za-z0-9._-]+/ || $0 ~ /(^|[^A-Za-z0-9_}.$-])\/home\/[A-Za-z0-9._-]+/ || $0 ~ /(^|[^A-Za-z0-9])~[a-z][a-z0-9_-]*\// || $0 ~ /[A-Za-z]:(\\)+Users(\\)+/) print f ":" FNR ": home path"
       rest = $0
       while (match(rest, /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]+/)) {
         addr = tolower(substr(rest, RSTART, RLENGTH))
         rest = substr(rest, RSTART + RLENGTH)
-        if (addr !~ /@(example\.(com|org|net)|[a-z0-9.-]*\.(example|test|invalid|localhost))$/) {
+        if (addr !~ /@([a-z0-9-]+\.)*(example\.(com|org|net)|example|test|invalid|localhost)$/) {
           print f ":" FNR ": e-mail address"
           break
         }
       }
       low = tolower($0)
-      for (i = 1; i <= nd; i++) if (index(low, deny[i])) { print f ":" FNR ": denylist match"; break }
-    }' "$_op"
+      for (i = 1; i <= nd; i++) if (word[i] ? wordin(low, deny[i]) : index(low, deny[i])) { print f ":" FNR ": denylist match"; break }
+    }
+    '"$CHECK_AWK_WORDIN" "$_op"
 }
 
 check_privacy() {

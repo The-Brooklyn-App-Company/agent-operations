@@ -207,9 +207,13 @@ test_check_privacy_more_forms() {
   printf 'C:%sUsers%salice\n' "$bs" "$bs" >"$T/repo/d.md"
   printf 'fine\n' >"$T/repo/bluebird-notes.md"
   printf '\000\001binary' >"$T/repo/e.bin"
-  printf 'bluebird\n' >"$T/deny"
+  printf 'it was planned\n' >"$T/repo/f.md"
+  printf 'ask Ann first\n' >"$T/repo/g.md"
+  printf 'bluebird\n=ann\n' >"$T/deny"
   run check.sh privacy --denylist "$T/deny" "$T/repo"
   assert_rc 1
+  assert_lacks "$T/out" "f.md"
+  assert_has "$T/out" "$T/repo/g.md:1: denylist match"
   for f in a b c d; do assert_has "$T/out" "$T/repo/$f.md:1: home path"; done
   assert_has "$T/out" "bluebird-notes.md: denylist match in the file name"
   assert_has "$T/out" "$T/repo/e.bin: binary, not scanned"

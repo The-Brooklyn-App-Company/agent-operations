@@ -85,6 +85,30 @@ The sandbox governs the model's own commands, not configured tool servers:
 switch effectful servers off. Check `--help` and model access on your
 installation before relying on either.
 
+## Cross-model accountability
+
+On by default ([K-22](../kit/KIT.md)). Each model family has blind spots
+the other is better at catching, so every operator's work is also read,
+every week, by the family it does not run on: Claude Code operators by a
+Codex reviewer and Codex operators by a Claude Code reviewer, and the
+Oracle's home along with them.
+
+| Piece | How |
+| --- | --- |
+| Who reviews | The profile's per-family reviewer roles, `reviewer_codex_*` and `reviewer_claude_*`, chosen from the operator's `client` column in the registry. Each team sets its own models per seat |
+| What is reviewed | The last seven days of commits (with patches) in the home and in each repository the operator owns, its `MANDATE.md`, `NOTES.md` and `AGENTS.md`, its worktrees, unmerged branches and uncommitted files |
+| What it looks for | Cruft and dead code, drift from the mandate, unfinished or abandoned work, contradictions, risky untested changes, and mistakes the implementing family tends to make |
+| Where findings go | The operator's inbox, unless the answer is `NOTHING`; the Oracle gets one digest when the week's reviews are done |
+| Triage | The operator settles each finding within a working day, as in [Review](#review): fixed, rejected with a reason, or deferred with an owner |
+| Switch-in audit | When an operator's `client` changes, the incoming family audits the last 30 days before the operator takes new work. The weekly direction flips with the registry |
+| One family only | A different model of the same family reviews, the result is marked `same-family`, and `status.sh` warns until both families are configured |
+| Cost and bounds | `scripts/cross-review.sh` runs from an hourly tick hook and reviews at most `cross_review_per_run` operators per run, each under `cross_review_timeout`, so the week's reviews spread out and never hold the tick for long. `cross_review=off` turns it off |
+
+**Learning loop.** At the weekly rule review ([K-32](../kit/KIT.md)), look
+across the digests: a finding that recurs becomes a change to a kit rule, a
+team rule or a mandate, recorded by ID, never a pile of one-off incident
+rules.
+
 ## Integration
 
 The operator shepherds approved work to the repository's integration branch
