@@ -213,9 +213,11 @@ inst_oracle() {
   inst_render "$TPL/home/gitignore.template" "$home/.gitignore"
   inst_render "$KIT/examples/hooks/hourly/60-cross-review" "$home/hooks/hourly/60-cross-review" 755
   reg=$home/operators/REGISTRY.tsv
-  if [ ! -e "$reg" ]; then
+  if ! inst_exists "$reg"; then
+    _before=$failures
     inst_render "$TPL/oracle/REGISTRY.tsv" "$reg"
-    inst_append "$reg" "oracle$AO_TAB$v_name$AO_TAB$(inst_tilde "$home")${AO_TAB}pending$AO_TAB$v_client"
+    [ "$failures" -ne "$_before" ] ||
+      inst_append "$reg" "oracle$AO_TAB$v_name$AO_TAB$(inst_tilde "$home")${AO_TAB}pending$AO_TAB$v_client"
   else
     printf 'keep    %s (exists)\n' "$reg"
   fi
@@ -298,10 +300,14 @@ inst_operator() {
   inst_client "$v_client"
   case $v_name in *"$AO_TAB"* | *"$AO_NL"*) ao_die "$AO_E_USAGE" "--name must be one line without tabs" ;; esac
   [ -z "$embedded" ] || [ -z "$home" ] || ao_die "$AO_E_USAGE" "use --embedded or --home, not both"
-  ao_load
+  ao_load --no-state
   # One installer at a time: the ownership check and the registry row must
-  # not interleave with another run's.
-  ao_lock install || ao_die "$AO_E_USAGE" "another install.sh is running; try again"
+  # not interleave with another run's. A dry run writes nothing, not even
+  # the lock.
+  if [ -z "$dry_run" ]; then
+    mkdir -p "$AO_STATE" || ao_die "$AO_E_FAIL" "cannot create $AO_STATE"
+    ao_lock install || ao_die "$AO_E_USAGE" "another install.sh is running; try again"
+  fi
   [ "$v_key" != "$AO_ORACLE_KEY" ] || ao_die "$AO_E_USAGE" "'$v_key' is the Oracle's key"
   [ "$v_key" != "$(basename -- "$AO_SENT")" ] || ao_die "$AO_E_USAGE" "'$v_key' collides with the sent archive folder"
   [ -r "$AO_REGISTRY" ] || ao_die "$AO_E_USAGE" "registry not found: $AO_REGISTRY (run install.sh oracle first)"
@@ -420,7 +426,7 @@ inst_timers() {
     '') if [ "$(uname -s)" = Darwin ]; then kind=launchd; else kind=systemd; fi ;;
     *) ao_die "$AO_E_USAGE" "usage: install.sh timers [--launchd | --systemd]" ;;
   esac
-  ao_load
+  ao_load --no-state
   logs=$AO_STATE/logs
   inst_dir "$logs"
   label=local.agent-operations.tick

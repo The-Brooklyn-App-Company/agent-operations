@@ -55,11 +55,15 @@ case ${1-} in
     case $2 in *[!0-9a-f]*) echo "git-gh.sh: not a commit sha: $2" >&2; exit 3 ;; esac
     repo=${3-}
     [ -n "$repo" ] || repo=$(gh_run repo view --json nameWithOwner -q .nameWithOwner) || exit
+    # The combined status already folds every commit status into .state;
+    # check runs come in pages, all of them read.
     st=$(gh_run api "repos/$repo/commits/$2/status") || exit
-    cr=$(gh_run api "repos/$repo/commits/$2/check-runs?per_page=100") || exit
+    cr=$(gh_run api --paginate "repos/$repo/commits/$2/check-runs?per_page=100") || exit
     printf '%s\n%s\n' "$st" "$cr" | jq -rs --arg sha "$2" '
-      (.[0].statuses // []) as $s | (.[1].check_runs // []) as $c
-      | ([$s[] | .state | if . == "success" then "success" elif . == "pending" then "pending" else "failure" end]
+      .[0] as $st | (.[0].statuses // []) as $s | [.[1:][] | .check_runs[]?] as $c
+      | ((if ($st.total_count // ($s | length)) > 0 then
+            [$st.state | if . == "success" then "success" elif . == "pending" then "pending" else "failure" end]
+          else [] end)
          + [$c[] | if .status != "completed" then "pending"
                    elif (.conclusion | IN("success", "neutral", "skipped")) then "success"
                    else "failure" end]) as $all

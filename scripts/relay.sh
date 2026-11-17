@@ -44,7 +44,6 @@ AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 dry_run=
 only_key=
 failures=0
-claim_n=0
 # File names listed in one message; the rest are counted.
 MAX_LISTED=20
 
@@ -59,14 +58,14 @@ relay_new_notes() {
   done
 }
 
-# relay_claim NOTE  Rename one note into the inbox's .claimed/ folder under
-# a fresh name. The rename is atomic, so a note written later under the same
-# name stays in the inbox, untouched, for the next run.
+# relay_claim NOTE  Rename one note into a fresh, uniquely named folder
+# under the inbox's .claimed/ (mktemp -d), so no claim can ever land on
+# another. The rename is atomic: a note written later under the same name
+# stays in the inbox, untouched, for the next run.
 relay_claim() {
-  claim_n=$((claim_n + 1))
   mkdir -p "$claimdir" || { ao_log "$log" "to=$OP_KEY FAILED: cannot create $claimdir"; failures=$((failures + 1)); return 0; }
-  mv "$1" "$claimdir/$$.$claim_n.${1##*/}" 2>/dev/null ||
-    ao_warn "could not claim $1; it stays for the next run"
+  _cd=$(mktemp -d "$claimdir/c.XXXXXX") || { ao_log "$log" "to=$OP_KEY FAILED: cannot claim in $claimdir"; failures=$((failures + 1)); return 0; }
+  mv "$1" "$_cd/" 2>/dev/null || { rmdir "$_cd"; ao_warn "could not claim $1; it stays for the next run"; }
 }
 
 # relay_archive CLAIMED  Archive one claimed note: hard-link it into the
@@ -76,15 +75,23 @@ relay_claim() {
 # note is never lost unannounced.
 relay_archive() {
   _n=${1##*/}
-  _n=$(printf '%s\n' "$_n" | sed 's/^[0-9]*\.[0-9]*\.//')
   _slug=$(ao_slug "${_n%.md}")
-  if ! _dest=$(_ao_link_noclobber "$1" "$AO_SENT/$AO_T_STAMP-$OP_KEY-${_slug:-note}" .md); then
-    ao_log "$log" "to=$OP_KEY FAILED: cannot archive $_n in $AO_SENT (it must allow hard links); left claimed"
-    failures=$((failures + 1))
-    return 0
+  _base=$AO_SENT/$AO_T_STAMP-$OP_KEY-${_slug:-note}
+  if ! _dest=$(_ao_link_noclobber "$1" "$_base" .md); then
+    # An archive on another filesystem: copy beside it, then link that.
+    _stage=
+    if [ "$_dest" != nolink ] || ! _stage=$(mktemp "$AO_SENT/.tmp.XXXXXX") ||
+      ! cp "$1" "$_stage" || ! _dest=$(_ao_link_noclobber "$_stage" "$_base" .md); then
+      [ -z "$_stage" ] || rm -f "$_stage"
+      ao_log "$log" "to=$OP_KEY FAILED: cannot archive $_n in $AO_SENT; left claimed"
+      failures=$((failures + 1))
+      return 0
+    fi
+    rm -f "$_stage"
   fi
   printf '%s\n' "${_dest##*/}" >>"$pending" || ao_die "$AO_E_FAIL" "cannot write $pending"
   rm -f "$1" || ao_warn "cannot remove claimed copy $1"
+  rmdir "${1%/*}" 2>/dev/null
 }
 
 # relay_message  Write the fixed-shape pointer message for the pending list.
@@ -168,7 +175,7 @@ relay_row() {
   claimdir=$AO_INBOX/$OP_KEY/.claimed
   failf=$AO_STATE/relay/$OP_KEY.fail
   relay_new_notes >"$new"
-  set -- "$claimdir"/*
+  set -- "$claimdir"/c.*/*
   [ -s "$new" ] || [ -s "$pending" ] || [ -e "$1" ] || return 0
   if ! ao_gate relay; then
     ao_log "$log" "to=$OP_KEY held by gate"
@@ -183,11 +190,11 @@ relay_row() {
   mkdir -p "$AO_SENT" || { ao_log "$log" "to=$OP_KEY FAILED: cannot create $AO_SENT"; failures=$((failures + 1)); return 0; }
   while IFS= read -r _note; do relay_claim "$_note"; done <"$new"
   # Claimed notes, including any left by an interrupted run.
-  for _c in "$claimdir"/*; do
+  for _c in "$claimdir"/c.*/*; do
     [ -f "$_c" ] || continue
     relay_archive "$_c"
   done
-  rmdir "$claimdir" 2>/dev/null
+  rmdir "$claimdir"/c.* "$claimdir" 2>/dev/null
   [ -s "$pending" ] || return 0
   relay_message
   : >"$out"

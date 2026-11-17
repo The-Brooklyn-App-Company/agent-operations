@@ -143,6 +143,13 @@ test_switch_audit_needs_the_incoming_family() {
   run cross-review.sh --key alpha
   assert_has "$T/state/cross-review/2026-W47/results.tsv" "alpha${TAB}switch${TAB}-${TAB}-${TAB}skipped: no reviewer role configured"
   assert_eq "$(calls claude)" 0 "no audit by the outgoing family"
+  assert_eq "$(cat "$T/state/cross-review/alpha.client")" claude "switch still pending"
+  # Once a reviewer of the incoming family exists, the audit runs.
+  profile_set reviewer_codex_model strong-codex
+  AO_NOW=$(epoch_of "2026-11-27 09:00")
+  FAKE_MODE=nothing run cross-review.sh --key alpha
+  assert_has "$FAKE_LOG" "arg: strong-codex"
+  assert_eq "$(cat "$T/state/cross-review/alpha.client")" codex "switch done"
 }
 
 test_off_and_dry_run() {

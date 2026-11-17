@@ -45,8 +45,8 @@ test_note_text_and_names_never_reach_the_delivery_model() {
 }
 
 test_interrupted_claims_are_finished() {
-  mkdir -p "$T/home/inbox/alpha/.claimed"
-  printf 'left behind\n' >"$T/home/inbox/alpha/.claimed/123.1.old.md"
+  mkdir -p "$T/home/inbox/alpha/.claimed/c.abc123"
+  printf 'left behind\n' >"$T/home/inbox/alpha/.claimed/c.abc123/old.md"
   FAKE_MODE=sent run relay.sh
   assert_rc 0
   assert_has "$FAKE_LOG" "-alpha-old.md"
@@ -80,6 +80,24 @@ test_a_failed_oracle_note_is_tried_again() {
   AO_NOW=$((AO_NOW + 3601))
   FAKE_MODE=failed run relay.sh --key alpha
   assert_count "$T/home/inbox/oracle" 1
+}
+
+test_archive_on_another_filesystem_is_copied() {
+  # An ln that cannot link out of the claim folder stands in for an archive
+  # on another filesystem.
+  {
+    printf '#!/bin/sh\n'
+    printf 'case $1 in */.claimed/*) exit 1 ;; esac\n'
+    printf 'exec %s "$@"\n' "$(command -v ln)"
+  } >"$T/bin/ln"
+  chmod +x "$T/bin/ln"
+  note alpha a.md "copied"
+  FAKE_MODE=sent run relay.sh --key alpha
+  assert_rc 0
+  assert_has "$(ls "$T/home/inbox/sent"/*-alpha-a.md)" copied
+  assert_no_file "$T/home/inbox/alpha/.claimed"
+  set -- "$T/home/inbox/sent"/.tmp.*
+  assert_no_file "$1"
 }
 
 test_receipt_is_required() {

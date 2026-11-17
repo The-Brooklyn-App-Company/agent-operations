@@ -120,6 +120,20 @@ test_operator_dry_run_writes_nothing() {
   assert_no_file "$T/ops/web"
   assert_no_file "$T/src/.worktrees"
   assert_lacks "$T/ops/oracle/operators/REGISTRY.tsv" "web"
+  run install.sh --dry-run timers --launchd
+  assert_rc 0
+  assert_no_file "$T/user/.local/state/agent-operations"
+  assert_no_file "$T/user/Library"
+}
+
+test_a_dangling_registry_link_is_left_alone() {
+  fresh
+  mkdir -p "$T/ops/oracle/operators"
+  ln -s "$T/elsewhere/REGISTRY.tsv" "$T/ops/oracle/operators/REGISTRY.tsv"
+  mkdir -p "$T/elsewhere"
+  run install.sh oracle "$T/ops/oracle"
+  assert_has "$T/out" "keep    $T/ops/oracle/operators/REGISTRY.tsv (exists)"
+  assert_no_file "$T/elsewhere/REGISTRY.tsv"
 }
 
 test_one_owner_per_repository() {
@@ -233,8 +247,10 @@ case ${FAKE_GH:-ok} in
 esac
 case $1 in
   pr) [ "$2" = list ] && echo '[{"number":7,"headRefOid":"abc123","state":"OPEN","reviewDecision":null,"url":"https://git.example.com/o/r/pull/7"}]' ;;
-  api) case $2 in
+  api) case $* in
          *check-runs*) case ${FAKE_RUNS:-ok} in
+             paged) echo '{"check_runs":[{"status":"completed","conclusion":"success"}]}'
+                    echo '{"check_runs":[{"status":"completed","conclusion":"failure"}]}' ;;
              ok) echo '{"check_runs":[{"status":"completed","conclusion":"success","html_url":"https://ci.example.com/2"}]}' ;;
              running) echo '{"check_runs":[{"status":"in_progress","conclusion":null}]}' ;;
              failed) echo '{"check_runs":[{"status":"completed","conclusion":"failure"}]}' ;;
@@ -255,6 +271,11 @@ EOF
   assert_eq "$(cut -f 2 "$T/out")" pending "a running check"
   FAKE_RUNS=failed "$KIT_DIR/adapters/git-gh.sh" status abc123 o/r </dev/null >"$T/out" 2>"$T/err"
   assert_eq "$(cut -f 2 "$T/out")" failure "a failed check"
+  FAKE_RUNS=paged "$KIT_DIR/adapters/git-gh.sh" status abc123 o/r </dev/null >"$T/out" 2>"$T/err"
+  assert_eq "$(cut -f 2 "$T/out")" failure "a failure on a later page"
+  FAKE_STATUS='{"state":"failure","total_count":120,"statuses":[{"state":"success"}]}' \
+    "$KIT_DIR/adapters/git-gh.sh" status abc123 o/r </dev/null >"$T/out" 2>"$T/err"
+  assert_eq "$(cut -f 2 "$T/out")" failure "the combined status counts"
   FAKE_STATUS='{"state":"pending","statuses":[]}' "$KIT_DIR/adapters/git-gh.sh" status abc123 o/r </dev/null >"$T/out" 2>"$T/err"
   assert_eq "$(cut -f 2,3 "$T/out")" "success${TAB}https://ci.example.com/2" "actions-only commit"
   "$KIT_DIR/adapters/git-gh.sh" review-request 7 sam o/r </dev/null
