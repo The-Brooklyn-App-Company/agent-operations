@@ -67,6 +67,13 @@ guides and the templates.
 - `cross-review.sh`, Claude-side runs, `install.sh` on a clean machine,
   systemd units and Linux are not yet proven outside the test suite (see
   the README).
+- Whether `codex mcp list` reflects a project's own Codex configuration is
+  unverified; runs list servers from the run's directory to cover it.
+- Not yet built: the advisory pre-push guard for contributors (K-16 is
+  convention plus review), `install.sh restore` (rerunning `oracle` and
+  `operator` restores what is missing), and the lease, mailbox and
+  takeover layer. The registry's session column gives way to the lease in
+  0.2.x.
 
 ### How the kit evolved
 
