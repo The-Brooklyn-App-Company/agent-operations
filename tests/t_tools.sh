@@ -255,4 +255,13 @@ test_check_home() {
   assert_has "$T/out" "h2/operator.conf:3: work value must end"
 }
 
+test_scripts_and_hooks_are_executable() {
+  # Hooks and scripts call each other directly, so each must carry its
+  # executable bit (and the tests otherwise run them through a shell).
+  for f in "$SCRIPTS"/*.sh "$SCRIPTS"/../adapters/*.sh "$SCRIPTS"/../examples/hooks/*/* \
+    "$SCRIPTS"/../examples/tracker-linear/*.sh; do
+    [ -x "$f" ] || _fail "not executable: ${f#"$SCRIPTS"/}"
+  done
+}
+
 ao_test_main "$0"
