@@ -23,7 +23,9 @@ AO_E_TIMEOUT=124
 
 AO_PROG=${AO_PROG:-${0##*/}}
 AO_TAB=$(printf '\t')
-AO_LOCKS=
+AO_NL='
+'
+AO_LOCK=
 # One private (0700) temp dir per process, removed on exit; see ao_tmp.
 AO_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/ao.XXXXXX") || {
   printf '%s: cannot create a temp dir\n' "$AO_PROG" >&2
@@ -35,11 +37,19 @@ AO_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/ao.XXXXXX") || {
 ao_msg() { printf '%s: %s\n' "$AO_PROG" "$*" >&2; }
 ao_warn() { ao_msg "warning: $*"; }
 
-# ao_die CODE MESSAGE...
+# ao_die CODE MESSAGE...  Print MESSAGE and exit. If AO_ON_DIE names a
+# function, it is called once first as `<fn> CODE MESSAGE`, so a scheduled
+# job can route its own configuration or preflight failure somewhere a human
+# will see it.
 ao_die() {
   _ao_rc=$1
   shift
   ao_msg "$*"
+  if [ -n "${AO_ON_DIE:-}" ]; then
+    _ao_hook=$AO_ON_DIE
+    AO_ON_DIE=
+    "$_ao_hook" "$_ao_rc" "$*"
+  fi
   exit "$_ao_rc"
 }
 
@@ -59,9 +69,12 @@ ao_log() {
 # ---------------------------------------------------------------- cleanup
 
 ao_cleanup() {
-  for _ao_l in $AO_LOCKS; do rm -rf "$_ao_l"; done
+  # Release the lock only if this process still owns it.
+  if [ -n "$AO_LOCK" ] && [ "$(cat "$AO_LOCK/pid" 2>/dev/null)" = "$$" ]; then
+    rm -rf "$AO_LOCK"
+  fi
+  AO_LOCK=
   rm -rf "$AO_TMPDIR"
-  AO_LOCKS=
 }
 trap ao_cleanup EXIT
 trap 'exit 129' HUP
@@ -102,7 +115,7 @@ AO_KNOWN_KEYS='oracle_home oracle_key registry quiet_list inbox_dir sent_dir
 state_dir hooks_dir path
 watchdog_days watchdog_hours watchdog_idle_min watchdog_realert_min
 daily_hour weekly_day weekly_hour hook_timeout
-relay_default relay_label relay_max_bytes relay_workdir
+relay_default relay_label relay_max_bytes relay_max_message_bytes relay_workdir
 drift_rules drift_files drift_repo_files drift_min_words drift_prompt
 drift_prompt_extra drift_workdir drift_to
 review_family tracker chat githost ci secrets attribution'
@@ -255,36 +268,86 @@ ao_write_atomic() {
   return 1
 }
 
+# ao_place SRC BASE EXT  Move SRC to BASE.EXT, or BASE-2.EXT, BASE-3.EXT...
+# without ever replacing an existing file: link(2) refuses an existing name,
+# so concurrent writers cannot overwrite each other. Falls back to mv when
+# SRC and the destination are on different filesystems. Prints the path.
+ao_place() {
+  _ao_dest=$2$3
+  _ao_i=1
+  while ! ln "$1" "$_ao_dest" 2>/dev/null; do
+    if [ ! -e "$_ao_dest" ]; then
+      mv "$1" "$_ao_dest" || return 1
+      printf '%s\n' "$_ao_dest"
+      return 0
+    fi
+    _ao_i=$((_ao_i + 1))
+    [ "$_ao_i" -le 999 ] || return 1
+    _ao_dest=$2-$_ao_i$3
+  done
+  rm -f "$1"
+  printf '%s\n' "$_ao_dest"
+}
+
 # ---------------------------------------------------------------- locking
 
-# ao_lock NAME  Take an exclusive, self-releasing lock (mkdir is atomic).
-# Returns 3 when a live process holds it. A lock whose holder is gone is
-# reclaimed; one with no pid yet is treated as live for 60 s.
+# ao_lock NAME  Take this process's one exclusive lock (mkdir is atomic);
+# released on exit, and only by its owner. Returns 3 while a live process
+# holds it. A lock whose holder is gone is reclaimed under a second lock, so
+# two contenders can never both reclaim it.
 ao_lock() {
+  [ -z "$AO_LOCK" ] || ao_die "$AO_E_FAIL" "ao_lock: already holding $AO_LOCK"
   _ao_ld=$AO_STATE/locks/$1.lock
   mkdir -p "$AO_STATE/locks" || return "$AO_E_FAIL"
-  if ! mkdir "$_ao_ld" 2>/dev/null; then
-    _ao_pid=$(cat "$_ao_ld/pid" 2>/dev/null) || _ao_pid=
-    if [ -n "$_ao_pid" ]; then
-      kill -0 "$_ao_pid" 2>/dev/null && return "$AO_E_BUSY"
-    elif [ $(($(date +%s) - $(ao_mtime "$_ao_ld"))) -lt 60 ]; then
+  if ! _ao_lock_take "$_ao_ld"; then
+    _ao_lock_live "$_ao_ld" && return "$AO_E_BUSY"
+    if ! mkdir "$_ao_ld.reclaim" 2>/dev/null; then
+      # A reclaimer that died mid-way leaves this behind; clear it for next time.
+      _ao_young "$_ao_ld.reclaim" || rm -rf "$_ao_ld.reclaim"
       return "$AO_E_BUSY"
     fi
-    ao_warn "reclaiming stale lock $_ao_ld (holder ${_ao_pid:-unknown} is gone)"
-    rm -rf "$_ao_ld"
-    mkdir "$_ao_ld" 2>/dev/null || return "$AO_E_BUSY"
+    _ao_got=$AO_E_BUSY
+    if ! _ao_lock_live "$_ao_ld"; then
+      ao_warn "reclaiming stale lock $_ao_ld"
+      rm -rf "$_ao_ld"
+      _ao_lock_take "$_ao_ld" && _ao_got=0
+    fi
+    rmdir "$_ao_ld.reclaim"
+    [ "$_ao_got" -eq 0 ] || return "$AO_E_BUSY"
   fi
-  printf '%s\n' "$$" >"$_ao_ld/pid"
-  AO_LOCKS="$AO_LOCKS $_ao_ld"
+  AO_LOCK=$_ao_ld
+}
+
+_ao_lock_take() {
+  mkdir "$1" 2>/dev/null && printf '%s\n' "$$" >"$1/pid"
+}
+
+# _ao_lock_live DIR  True while DIR's holder is alive, or DIR is too young
+# to judge (created but its pid not written yet).
+_ao_lock_live() {
+  _ao_pid=$(cat "$1/pid" 2>/dev/null) || _ao_pid=
+  if [ -n "$_ao_pid" ]; then
+    kill -0 "$_ao_pid" 2>/dev/null
+    return
+  fi
+  [ -d "$1" ] && _ao_young "$1"
+}
+
+_ao_young() {
+  _ao_m=$(ao_mtime "$1" 2>/dev/null) || return 1
+  [ $(($(date +%s) - _ao_m)) -lt 60 ]
 }
 
 # ---------------------------------------------------------------- timeouts
 
 # ao_timeout SECONDS CMD [ARG...]  Run an external command with a hard time
 # limit; 0 means none. Returns the command's status, or 124 on timeout.
-# Uses coreutils timeout/gtimeout when present (kills the whole process
-# group); otherwise a portable watcher that signals the direct child only.
-# AO_TIMEOUT_BIN=none forces the portable path.
+# Uses coreutils timeout/gtimeout when present; otherwise a portable watcher.
+# Both send TERM, then KILL after 10 s, to the command's process group, so
+# its descendants do not outlive the limit (the portable watcher can do that
+# only in shells that allow job control without a terminal, such as bash's
+# sh; under dash it signals the direct child). AO_TIMEOUT_BIN=none forces
+# the portable path.
 ao_timeout() {
   _ao_secs=$1
   shift
@@ -297,26 +360,18 @@ ao_timeout() {
   if [ -n "$_AO_TBIN" ]; then
     "$_AO_TBIN" -k 10 "$_ao_secs" "$@"
     _ao_rc=$?
-    [ "$_ao_rc" -eq 137 ] && _ao_rc=$AO_E_TIMEOUT
+    [ "$_ao_rc" -ne 137 ] || _ao_rc=$AO_E_TIMEOUT
     return "$_ao_rc"
   fi
-  _ao_mark=$(mktemp "${TMPDIR:-/tmp}/ao.to.XXXXXX") && rm -f "$_ao_mark"
+  _ao_mark=$AO_TMPDIR/timeout.$$.$_ao_secs
+  rm -f "$_ao_mark"
+  # Job control gives the background command its own process group. Shells
+  # that refuse it without a terminal (dash) signal the direct child only.
+  set -m 2>/dev/null
   "$@" &
   _ao_cpid=$!
-  (
-    _n=0
-    while kill -0 "$_ao_cpid" 2>/dev/null; do
-      if [ "$_n" -ge "$_ao_secs" ]; then
-        : >"$_ao_mark"
-        kill -TERM "$_ao_cpid" 2>/dev/null
-        sleep 5
-        kill -KILL "$_ao_cpid" 2>/dev/null
-        exit 0
-      fi
-      sleep 1
-      _n=$((_n + 1))
-    done
-  ) &
+  set +m 2>/dev/null
+  _ao_watch "$_ao_cpid" "$_ao_secs" "$_ao_mark" &
   _ao_wpid=$!
   wait "$_ao_cpid"
   _ao_rc=$?
@@ -327,6 +382,28 @@ ao_timeout() {
     _ao_rc=$AO_E_TIMEOUT
   fi
   return "$_ao_rc"
+}
+
+# _ao_watch PID SECONDS MARK  Portable watchdog for ao_timeout: after
+# SECONDS, mark the timeout and signal PID's process group. Polls once a
+# second so it exits on its own soon after PID does.
+_ao_watch() {
+  _n=0
+  while kill -0 "$1" 2>/dev/null; do
+    if [ "$_n" -ge "$2" ]; then
+      : >"$3"
+      kill -s TERM -- "-$1" 2>/dev/null || kill -s TERM "$1" 2>/dev/null
+      _n=0
+      while [ "$_n" -lt 10 ] && kill -0 "$1" 2>/dev/null; do
+        sleep 1
+        _n=$((_n + 1))
+      done
+      kill -s KILL -- "-$1" 2>/dev/null || kill -s KILL "$1" 2>/dev/null
+      exit 0
+    fi
+    sleep 1
+    _n=$((_n + 1))
+  done
 }
 
 # ---------------------------------------------------------------- secrets

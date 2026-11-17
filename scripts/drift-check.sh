@@ -51,11 +51,10 @@ drift_collect() {
   repo_files=$(ao_cfg drift_repo_files 'AGENTS.md CLAUDE.md')
   (
     cd "$AO_HOME" || exit
-    # Word splitting and globbing of the configured patterns is the point.
+    # One expansion: split the configured patterns on whitespace and glob
+    # each; matched names (even with spaces) are not split again.
     # shellcheck disable=SC2086
-    for _p in $globs; do
-      for _f in $_p; do drift_add "$AO_HOME/$_f"; done
-    done
+    for _f in $globs; do drift_add "$AO_HOME/$_f"; done
   )
   ao_registry_each drift_repo_row
   sort -u "$files" -o "$files"

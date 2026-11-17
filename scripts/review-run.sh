@@ -12,7 +12,7 @@
 # from an earlier round is never mistaken for a new verdict.
 #
 # Arguments:
-#   PROMPT_FILE  the review packet (max 512 KiB)
+#   PROMPT_FILE  the review packet (max 120000 bytes)
 #   OUT_FILE     where the review is written
 #   WORKDIR      repository or worktree to review (default: current dir)
 #   EFFORT       overrides reviewer_effort for this run (e.g. high)

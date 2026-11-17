@@ -6,7 +6,7 @@
 # with stdin from /dev/null and AO_ROLE, AO_MODEL, AO_EFFORT in its env:
 #   <cmd> run <workdir> <prompt-file> <out-file>
 #       write the final answer to <out-file>; diagnostics to stderr
-#   <cmd> deliver <name> <session|-> <message-file>
+#   <cmd> deliver <name> <session|-> <message-file> <relay-id>
 #       exit 0 only once the message reached the session
 #   <cmd> activity <dir> <session|->
 #       print the last-activity epoch, or nothing; optional (exit 1 = unknown)
@@ -24,7 +24,7 @@ vendor_custom_run() {
 }
 
 vendor_custom_deliver() {
-  (_vendor_custom deliver "$1" "${2:--}" "$3" >"$4" 2>&1)
+  (_vendor_custom deliver "$1" "${2:--}" "$3" "$5" >"$4" 2>&1)
 }
 
 vendor_custom_activity() {
@@ -32,6 +32,6 @@ vendor_custom_activity() {
   [ -n "$_vu_cmd" ] || return 0
   _vu_cmd=$(ao_expand_path "$_vu_cmd" "$PWD")
   [ -x "$_vu_cmd" ] || return 0
-  _vu_t=$("$_vu_cmd" activity "$1" "${2:--}" </dev/null 2>/dev/null) || return 0
+  _vu_t=$(ao_timeout 30 "$_vu_cmd" activity "$1" "${2:--}" </dev/null 2>/dev/null) || return 0
   ao_is_uint "$_vu_t" && printf '%s\n' "$_vu_t"
 }

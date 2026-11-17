@@ -12,7 +12,7 @@ test_claude_delivery_archives_notes() {
   assert_rc 0
   assert_count "$T/home/inbox/alpha" 0
   assert_count "$T/home/inbox/sent" 2
-  assert_has "$T/state/relay.log" "to=alpha via=claude files=2 ok"
+  assert_has "$T/state/relay.log" "files=2 ok"
   assert_has "$FAKE_LOG" '== claude'
   assert_has "$FAKE_LOG" 'to "Alpha Op"'
   assert_has "$FAKE_LOG" 'Relay (automated inbox, not from the human):'
@@ -22,6 +22,67 @@ test_claude_delivery_archives_notes() {
   assert_has "$FAKE_LOG" 'arg: --max-turns'
   assert_has "$FAKE_LOG" 'stdin: eof'
   assert_has "$FAKE_LOG" "cwd: $T/home"
+  for a in stream-json --verbose --strict-mcp-config '{"disableAllHooks":true}' \
+    Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Task,Skill; do
+    assert_has "$FAKE_LOG" "arg: $a"
+  done
+  assert_has "$FAKE_LOG" "relay-id: "
+}
+
+test_receipt_is_required() {
+  for mode in failed wrongto noid twice liar; do
+    note alpha 001-a.md "first note"
+    FAKE_MODE=$mode run relay.sh
+    assert_rc 1
+    assert_count "$T/home/inbox/alpha" 1
+    assert_has "$T/state/relay.log" "receipt:"
+  done
+  assert_no_file "$T/home/inbox/sent"
+}
+
+test_large_backlog_goes_in_batches() {
+  profile_set relay_max_bytes 1000
+  profile_set relay_max_message_bytes 4000
+  i=0
+  while [ "$i" -lt 9 ]; do
+    i=$((i + 1))
+    note alpha "n$i.md" "$(printf '%0900d' 0)"
+  done
+  FAKE_MODE=sent run relay.sh
+  assert_rc 0
+  assert_count "$T/home/inbox/alpha" 0
+  assert_count "$T/home/inbox/sent" 9
+  assert_eq "$(grep -c '^== claude' "$FAKE_LOG")" 3 "deliveries"
+  assert_eq "$(grep -c ' ok$' "$T/state/relay.log")" 3 "logged batches"
+}
+
+test_failed_batch_stops_the_row() {
+  profile_set relay_max_bytes 1000
+  profile_set relay_max_message_bytes 2500
+  for n in 1 2 3 4; do note alpha "n$n.md" "$(printf '%0900d' 0)"; done
+  FAKE_MODE=failed run relay.sh
+  assert_rc 1
+  assert_eq "$(grep -c '^== claude' "$FAKE_LOG")" 1 "attempts"
+  assert_count "$T/home/inbox/alpha" 4
+}
+
+test_message_budget_is_validated() {
+  profile_set relay_max_message_bytes 999999
+  note alpha a.md x
+  run relay.sh
+  assert_rc 2
+}
+
+test_archive_never_overwrites() {
+  mkdir -p "$T/home/inbox/sent"
+  AO_NOW=$(epoch_of "2026-11-17 12:00")
+  export AO_NOW
+  echo "older copy" >"$T/home/inbox/sent/20261117T120000-alpha-a.md"
+  note alpha a.md "new"
+  FAKE_MODE=sent run relay.sh
+  assert_rc 0
+  assert_eq "$(cat "$T/home/inbox/sent/20261117T120000-alpha-a.md")" "older copy"
+  assert_has "$T/home/inbox/sent/20261117T120000-alpha-a-2.md" "new"
 }
 
 test_failed_delivery_keeps_notes() {
@@ -29,7 +90,8 @@ test_failed_delivery_keeps_notes() {
   FAKE_MODE=failed run relay.sh
   assert_rc 1
   assert_count "$T/home/inbox/alpha" 1
-  assert_has "$T/state/relay.log" "to=alpha via=claude FAILED"
+  assert_has "$T/state/relay.log" "to=alpha via=claude id="
+  assert_has "$T/state/relay.log" "FAILED"
 }
 
 test_client_error_keeps_notes() {
@@ -135,6 +197,12 @@ test_codex_transport_resumes_session() {
   assert_has "$FAKE_LOG" "arg: resume"
   assert_has "$FAKE_LOG" "arg: sid-g"
   assert_has "$FAKE_LOG" 'arg: sandbox_mode="read-only"'
+  assert_lacks "$FAKE_LOG" "mcp_servers"
+  profile_set relay_codex_mcp_disable trade,ui
+  note gamma g2.md "again"
+  run relay.sh
+  assert_has "$FAKE_LOG" "arg: mcp_servers.trade.enabled=false"
+  assert_has "$FAKE_LOG" "arg: mcp_servers.ui.enabled=false"
 }
 
 test_codex_transport_needs_session() {
@@ -154,7 +222,9 @@ test_custom_transport() {
   assert_rc 0
   assert_has "$FAKE_LOG" "arg: deliver"
   assert_has "$FAKE_LOG" "arg: Gamma Op"
+  assert_has "$FAKE_LOG" "arg: sid-g"
   assert_has "$FAKE_LOG" "env: AO_ROLE=relay_custom"
+  assert_eq "$(grep -c '^arg: ' "$FAKE_LOG")" 5 "custom deliver argc"
 }
 
 test_broken_transport_does_not_block_others() {

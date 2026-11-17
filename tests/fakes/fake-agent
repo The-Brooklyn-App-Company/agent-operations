@@ -10,8 +10,13 @@
 #   ok (default)  answer $FAKE_OUTPUT (default "fake answer")
 #   nothing       answer NOTHING
 #   empty         answer nothing at all
-#   sent          print SENT (claude delivery succeeded)
-#   failed        print FAILED (claude delivery failed), exit 0
+#   sent          claude delivery: stream-json events for one successful
+#                 SendMessage call to the prompt's recipient with its relay id
+#   failed        same call, but the tool result reports failure
+#   wrongto       one successful call, to a different session
+#   noid          one successful call without the relay id
+#   twice         two successful calls
+#   liar          no tool call at all, just the text SENT
 #   fail          print an error to stderr, exit 7
 #   hang          sleep 30 (for timeout tests)
 # The answer goes to the file after -o (codex), to the third argument of
@@ -33,6 +38,23 @@ for a in "$@"; do
 done
 [ "$name" = agent ] && [ "${1-}" = run ] && out=$4
 
+# The recipient and relay id the relay asked for, from the -p prompt.
+prompt=
+prev=
+for a in "$@"; do
+  [ "$prev" = -p ] && prompt=$a
+  prev=$a
+done
+to=$(printf '%s\n' "$prompt" | sed -n 's/^Use the SendMessage tool exactly once, to "\([^"]*\)".*/\1/p')
+rid=$(printf '%s\n' "$prompt" | sed -n 's/^relay-id: //p')
+
+# send TO ID OK  Emit the stream-json events of one SendMessage call.
+send() {
+  n=$((${n:-0} + 1))
+  printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_%s","name":"SendMessage","input":{"to":"%s","message":"Relay ... %s"}}]}}\n' "$n" "$1" "$2"
+  printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_%s","content":[{"type":"text","text":"{\\"success\\":%s}"}]}]}}\n' "$n" "$3"
+}
+
 answer() {
   if [ -n "$out" ]; then printf '%s\n' "$1" >"$out"; else printf '%s\n' "$1"; fi
 }
@@ -41,8 +63,12 @@ case ${FAKE_MODE:-ok} in
   ok) answer "${FAKE_OUTPUT:-fake answer}" ;;
   nothing) answer NOTHING ;;
   empty) [ -z "$out" ] || : >"$out" ;;
-  sent) echo "Message delivered."; echo SENT ;;
-  failed) echo "FAILED: no session with that name" ;;
+  sent) send "$to" "$rid" true; echo '{"type":"result","result":"SENT"}' ;;
+  failed) send "$to" "$rid" false; echo '{"type":"result","result":"FAILED"}' ;;
+  wrongto) send "Someone Else" "$rid" true ;;
+  noid) send "$to" "" true ;;
+  twice) send "$to" "$rid" true; send "$to" "$rid" true ;;
+  liar) echo SENT ;;
   fail) echo "fake failure: model unavailable" >&2; exit 7 ;;
   hang) sleep 30 ;;
 esac

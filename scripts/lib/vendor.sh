@@ -23,15 +23,18 @@
 #   vendor_<client>_run WORKDIR PROMPT_FILE OUT_FILE ERR_FILE
 #       one headless, read-only, ephemeral run with stdin closed; the final
 #       answer goes to OUT_FILE, diagnostics to ERR_FILE; returns the status
-#   vendor_<client>_deliver NAME SESSION MESSAGE_FILE OUT_FILE
-#       put MESSAGE_FILE in front of a live session; 0 only when delivered
+#   vendor_<client>_deliver NAME SESSION MESSAGE_FILE OUT_FILE RELAY_ID
+#       put MESSAGE_FILE (which contains RELAY_ID) in front of a live
+#       session; 0 only when delivery is confirmed, never on a model's word
 #   vendor_<client>_activity DIR SESSION
 #       print the epoch time of the session's last activity, or nothing
 # Callers use ao_role_run, ao_role_deliver and ao_activity, never the vendor
 # functions directly, so a new harness is one new file.
 
 AO_VENDORS='claude codex custom'
-AO_PROMPT_MAX_BYTES=524288
+# One argv string: Linux caps a single argument at 128 KiB (MAX_ARG_STRLEN),
+# so prompts and relay messages stay below that with room for wrappers.
+AO_ARG_MAX_BYTES=120000
 
 # ao_vendor_use CLIENT  Source lib/vendor-CLIENT.sh once.
 ao_vendor_use() {
@@ -105,12 +108,12 @@ ao_prompt_text() {
 ao_role_run() {
   [ -d "$1" ] || ao_die "$AO_E_USAGE" "working directory not found: $1"
   [ -r "$2" ] || ao_die "$AO_E_USAGE" "prompt file not readable: $2"
-  [ "$(wc -c <"$2")" -le "$AO_PROMPT_MAX_BYTES" ] ||
-    ao_die "$AO_E_USAGE" "prompt file over $AO_PROMPT_MAX_BYTES bytes (argv limit): $2"
+  [ "$(wc -c <"$2")" -le "$AO_ARG_MAX_BYTES" ] ||
+    ao_die "$AO_E_USAGE" "prompt file over $AO_ARG_MAX_BYTES bytes (one-argument limit): $2"
   (_ao_role_token && "vendor_${R_CLIENT}_run" "$@")
 }
 
-# ao_role_deliver NAME SESSION MESSAGE OUT  Deliver through the loaded role.
+# ao_role_deliver NAME SESSION MESSAGE OUT ID  Deliver through the loaded role.
 ao_role_deliver() {
   (_ao_role_token && "vendor_${R_CLIENT}_deliver" "$@")
 }

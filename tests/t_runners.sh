@@ -36,8 +36,32 @@ test_worker_nothing_writes_nothing() {
   FAKE_MODE=nothing run worker-run.sh audit alpha "$T/prompt.md"
   assert_rc 0
   assert_no_file "$T/home/inbox/alpha"
+}
+
+test_worker_empty_answer_is_a_failure() {
+  prompt
   FAKE_MODE=empty run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 1
   assert_no_file "$T/home/inbox/alpha"
+  assert_has "$(ls "$T/home/inbox/oracle"/*-worker-fail-audit.md)" "exit 0 but no answer"
+}
+
+test_worker_preflight_failures_reach_oracle() {
+  prompt
+  profile_set worker_cmd /nonexistent/codex
+  run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 2
+  assert_has "$(ls "$T/home/inbox/oracle"/*-worker-fail-audit.md)" "not executable"
+  rm -f "$T/home/inbox/oracle"/*
+  profile_set worker_cmd codex
+  run worker-run.sh audit alpha "$T/missing.md"
+  assert_rc 2
+  assert_has "$(ls "$T/home/inbox/oracle"/*-worker-fail-audit.md)" "prompt file not readable"
+  rm -f "$T/home/inbox/oracle"/*
+  profile_set worker_timeout soon
+  run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 2
+  assert_count "$T/home/inbox/oracle" 1
 }
 
 test_worker_nothing_must_be_exact() {
@@ -80,8 +104,6 @@ test_worker_rejects_unknown_recipient_and_bad_job() {
   assert_rc 2
   run worker-run.sh "../evil" alpha "$T/prompt.md"
   assert_rc 2
-  run worker-run.sh audit alpha "$T/missing.md"
-  assert_rc 2
   assert_no_file "$FAKE_LOG"
 }
 
@@ -94,7 +116,8 @@ test_worker_claude_invocation() {
   assert_has "$FAKE_LOG" "== claude"
   assert_has "$FAKE_LOG" "cwd: $T/proj/alpha"
   assert_has "$FAKE_LOG" "arg:  -starts with a dash"
-  for a in -p --no-session-persistence --strict-mcp-config --tools Read,Grep,Glob haiku; do
+  for a in -p --no-session-persistence --strict-mcp-config --tools Read,Grep,Glob haiku \
+    '{"disableAllHooks":true}'; do
     assert_has "$FAKE_LOG" "arg: $a"
   done
   # The prompt is the first argument after -p, ahead of variadic options.

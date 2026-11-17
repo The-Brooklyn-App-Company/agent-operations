@@ -5,7 +5,8 @@
 # run:      `codex exec --ephemeral -s read-only`, each server in
 #           <role>_mcp_disable switched off, final message via -o.
 # deliver:  EXPERIMENTAL, unverified. `codex exec resume <session>` runs one
-#           read-only turn in the target session carrying the message. Unlike
+#           read-only turn in the target session carrying the message, with
+#           the same tool servers switched off as for runs. Unlike
 #           Claude's SendMessage this is an agent turn, not a notification.
 #           Prefer `file-only` for Codex sessions until this is proven.
 # activity: newest $CODEX_HOME/sessions/**/*<session>*.jsonl.
@@ -14,16 +15,22 @@ _vendor_codex_mcp_off() {
   _vx_args="$_vx_args mcp_servers.$1.enabled=false"
 }
 
+# _vendor_codex_mcp_args  Print `-c mcp_servers.<name>.enabled=false` words
+# for every server in <role>_mcp_disable (names are [A-Za-z0-9_-] only).
+_vendor_codex_mcp_args() {
+  _vx_args=
+  ao_mcp_each _vendor_codex_mcp_off
+  for _vx_a in $_vx_args; do printf -- '-c %s ' "$_vx_a"; done
+}
+
 vendor_codex_run() {
   _vx_dir=$1 _vx_out=$3 _vx_err=$4 _vx_prompt=$2
   set -- "$R_CMD" exec --ephemeral --skip-git-repo-check -s read-only -C "$_vx_dir" -o "$_vx_out"
   [ -z "$R_MODEL" ] || set -- "$@" -m "$R_MODEL"
   [ -z "$R_EFFORT" ] || set -- "$@" -c "model_reasoning_effort=\"$R_EFFORT\""
-  _vx_args=
-  ao_mcp_each _vendor_codex_mcp_off
   # Server names are validated to [A-Za-z0-9_-], so splitting is safe.
-  for _vx_a in $_vx_args; do set -- "$@" -c "$_vx_a"; done
-  set -- "$@" "$(ao_prompt_text "$_vx_prompt")"
+  # shellcheck disable=SC2046
+  set -- "$@" $(_vendor_codex_mcp_args) "$(ao_prompt_text "$_vx_prompt")"
   ao_timeout "$R_TIMEOUT" "$@" </dev/null >/dev/null 2>"$_vx_err"
 }
 
@@ -35,9 +42,10 @@ vendor_codex_deliver() {
   fi
   set -- "$R_CMD" exec resume --skip-git-repo-check -c 'sandbox_mode="read-only"'
   [ -z "$R_MODEL" ] || set -- "$@" -m "$R_MODEL"
-  set -- "$@" "$_vx_sid" "$(ao_prompt_text "$_vx_msg")"
-  _vx_wd=$(ao_cfg relay_workdir "$AO_HOME")
-  (cd "$(ao_expand_path "$_vx_wd")" && ao_timeout "$R_TIMEOUT" "$@" </dev/null >"$_vx_out" 2>&1)
+  # shellcheck disable=SC2046 # validated server names, see above
+  set -- "$@" $(_vendor_codex_mcp_args) "$_vx_sid" "$(ao_prompt_text "$_vx_msg")"
+  _vx_wd=$(ao_cfg_path relay_workdir "$AO_HOME")
+  (cd "$_vx_wd" && ao_timeout "$R_TIMEOUT" "$@" </dev/null >"$_vx_out" 2>&1)
 }
 
 vendor_codex_activity() {

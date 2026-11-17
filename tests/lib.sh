@@ -18,12 +18,15 @@ AO_TEST_SHELL=${AO_TEST_SHELL:-sh}
 TAB=$(printf '\t')
 
 ao_test_setup() {
-  T=$(mktemp -d "${TMPDIR:-/tmp}/aotest.XXXXXX") && T=$(cd "$T" && pwd -P)
+  T=$(mktemp -d "${TMPDIR:-/tmp}/aotest.XXXXXX") && T=$(cd "$T" && pwd -P) || T=
+  case $T in /*/aotest.*) ;; *) echo "test setup: no sandbox dir; aborting" >&2; exit 2 ;; esac
   mkdir -p "$T/bin" "$T/home/operators" "$T/home/inbox" "$T/state" \
-    "$T/claude/projects" "$T/codex/sessions" "$T/proj/alpha" "$T/proj/beta" "$T/user"
+    "$T/claude/projects" "$T/codex/sessions" "$T/proj/alpha" "$T/proj/beta" "$T/user" || exit 2
   for _n in claude codex agent; do
-    cp "$TESTS_DIR/fakes/fake-agent" "$T/bin/$_n"
-    chmod +x "$T/bin/$_n"
+    if ! cp "$TESTS_DIR/fakes/fake-agent" "$T/bin/$_n" || ! chmod +x "$T/bin/$_n"; then
+      echo "test setup: cannot install fake $_n; aborting" >&2
+      exit 2
+    fi
   done
   PATH="$T/bin:$PATH" HOME=$T/user CLAUDE_CONFIG_DIR=$T/claude CODEX_HOME=$T/codex
   AO_PROFILE=$T/profile FAKE_LOG=$T/fake.log

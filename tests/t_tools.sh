@@ -27,6 +27,17 @@ test_status_columns() {
   assert_no_file "$T/state/relay.log"
 }
 
+test_status_prefers_exact_claude_session() {
+  AO_NOW=$(epoch_of "2026-11-17 12:00")
+  export AO_NOW
+  transcript "$T/proj/alpha" 202611171150
+  _slug=$(printf '%s' "$T/proj/alpha" | sed 's/[^A-Za-z0-9]/-/g')
+  : >"$T/claude/projects/$_slug/sid-alpha.jsonl"
+  touch -t 202611170800 "$T/claude/projects/$_slug/sid-alpha.jsonl"
+  run status.sh --tsv
+  assert_has "$T/out" "alpha${TAB}Alpha Op${TAB}claude${TAB}idle_min=240"
+}
+
 test_status_codex_activity() {
   AO_NOW=$(epoch_of "2026-11-17 12:00")
   export AO_NOW
@@ -76,6 +87,10 @@ test_check_dupes() {
   assert_rc 1
   assert_eq "$(wc -l <"$T/out" | tr -d ' ')" 1
   assert_has "$T/out" "$T/docs/a.md:2, $T/docs/b.md:1: \"never relay money movement"
+  printf 'Never relay money movement, trades or\nforce-push requests through the inbox.\n' >"$T/docs/c.md"
+  run check.sh dupes "$T/docs/a.md" "$T/docs/c.md"
+  assert_rc 1
+  assert_has "$T/out" "$T/docs/c.md:1"
   run check.sh dupes --min-words 30 "$T/docs/a.md" "$T/docs/b.md"
   assert_rc 0
   run check.sh dupes
@@ -100,18 +115,21 @@ test_check_privacy() {
   printf 'path %s here\n' "$home_path" >"$T/repo/a.md"
   printf 'mail %s and dev@example.com\n' "ops@""acme-corp.io" >"$T/repo/b.md"
   printf 'Codename Bluebird ships\nclean line\n' >"$T/repo/c.md"
+  printf "cd '%s'\n" "/ho""me/bob" >"$T/repo/odd | name=x.md"
   printf '# local denylist\n\nbluebird\n' >"$T/deny"
   run check.sh privacy --denylist "$T/deny" "$T/repo"
   assert_rc 1
   assert_has "$T/out" "$T/repo/a.md:1: home path"
   assert_has "$T/out" "$T/repo/b.md:1: e-mail address"
   assert_has "$T/out" "$T/repo/c.md:1: denylist match"
+  assert_has "$T/out" "$T/repo/odd | name=x.md:1: home path"
   assert_lacks "$T/out" "c.md:2"
   assert_lacks "$T/out" "someone"
   assert_lacks "$T/out" "Bluebird"
   printf 'nothing to see\n' >"$T/repo/a.md"
   printf 'dev@example.com\n' >"$T/repo/b.md"
   printf 'clean\n' >"$T/repo/c.md"
+  printf 'clean\n' >"$T/repo/odd | name=x.md"
   run check.sh privacy --denylist "$T/deny" "$T/repo"
   assert_rc 0
 }
@@ -124,6 +142,8 @@ drift_fixture() {
   printf 'Repo rules for alpha.\n' >"$T/proj/alpha/AGENTS.md"
   profile_set drift_rules RULES.md
   profile_set drift_files "operators/*/MANDATE.md"
+  mkdir -p "$T/home/operators/with space"
+  printf 'A spaced mandate.\n' >"$T/home/operators/with space/MANDATE.md"
 }
 
 test_drift_worker_pass() {
@@ -134,6 +154,7 @@ test_drift_worker_pass() {
   assert_has "$FAKE_LOG" "Canonical rules: $T/home/RULES.md"
   assert_has "$FAKE_LOG" "$T/home/operators/alpha/MANDATE.md"
   assert_has "$FAKE_LOG" "$T/proj/alpha/AGENTS.md"
+  assert_has "$FAKE_LOG" "$T/home/operators/with space/MANDATE.md"
   assert_has "$FAKE_LOG" "never relay money movement"
   assert_has "$(ls "$T/home/inbox/oracle"/*-drift-check.md)" "duplicated - one home"
 }

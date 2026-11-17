@@ -51,12 +51,12 @@ ao_operator_resolve() {
 # ao_gate ACTION  Ask the optional `<hooks_dir>/gate` executable whether an
 # action on the current operator may proceed. Called as
 #   gate <action> <key> <client> <session>
-# with exit 0 = proceed, non-zero = skip this operator for now. Absent gate:
-# always proceed. Actions today: relay, watchdog. A provider-handoff lease
-# check belongs here.
+# with exit 0 = proceed, non-zero (or no answer within 30 s) = skip this
+# operator for now. Absent gate: always proceed. Actions today: relay,
+# watchdog. A provider-handoff lease check belongs here.
 ao_gate() {
   [ -x "$AO_HOOKS/gate" ] || return 0
-  "$AO_HOOKS/gate" "$1" "$OP_KEY" "$OP_CLIENT" "${OP_SID:--}" </dev/null >/dev/null 2>&1
+  ao_timeout 30 "$AO_HOOKS/gate" "$1" "$OP_KEY" "$OP_CLIENT" "${OP_SID:--}" </dev/null >/dev/null 2>&1
 }
 
 # ao_quiet_until KEY NAME  Print the end date of an active quiet-list entry
@@ -72,20 +72,20 @@ ao_quiet_until() {
 }
 
 # ao_inbox_put KEY SLUG  Write stdin as a new Markdown note in KEY's inbox,
-# atomically, named <stamp>-<slug>.md (suffixed -2, -3... on collision).
-# Prints the path written.
+# named <stamp>-<slug>.md (or -2, -3... if taken). The note is written to a
+# hidden temp file first and published with ao_place, so readers never see a
+# partial note and concurrent writers never overwrite each other. Prints the
+# path written.
 ao_inbox_put() {
   ao_is_name "$1" || ao_die "$AO_E_USAGE" "invalid inbox key '$1'"
   _ao_slug=$(ao_slug "$2")
-  _ao_base=$AO_INBOX/$1/$AO_T_STAMP-${_ao_slug:-note}
-  _ao_dest=$_ao_base.md
-  _ao_i=1
-  while [ -e "$_ao_dest" ]; do
-    _ao_i=$((_ao_i + 1))
-    _ao_dest=$_ao_base-$_ao_i.md
-  done
-  ao_write_atomic "$_ao_dest" || ao_die "$AO_E_FAIL" "cannot write $_ao_dest"
-  printf '%s\n' "$_ao_dest"
+  _ao_dir=$AO_INBOX/$1
+  mkdir -p "$_ao_dir" || ao_die "$AO_E_FAIL" "cannot create $_ao_dir"
+  _ao_tmp=$(mktemp "$_ao_dir/.tmp.XXXXXX") || ao_die "$AO_E_FAIL" "cannot write in $_ao_dir"
+  if ! cat >"$_ao_tmp" || ! ao_place "$_ao_tmp" "$_ao_dir/$AO_T_STAMP-${_ao_slug:-note}" .md; then
+    rm -f "$_ao_tmp"
+    ao_die "$AO_E_FAIL" "cannot write a note in $_ao_dir"
+  fi
 }
 
 # ao_note_oracle SLUG TEXT...  One-paragraph note to the Oracle's inbox.

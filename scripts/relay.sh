@@ -4,12 +4,14 @@
 # Usage: relay.sh [--dry-run] [--key KEY]
 #
 # For every registry row whose inbox (<inbox_dir>/<key>/*.md) has notes, the
-# notes are bundled into one message, labelled as automated (relay_label),
-# and handed to the row's client transport: claude, codex (experimental) or
-# custom. Rows whose client is `file-only` are left alone: that session reads
-# its inbox at turn start. Delivered notes move to <sent_dir> as
-# <stamp>-<key>-<name>; failed deliveries stay put and retry next run. The
-# relay is transport only: it never interprets, filters or acts on notes.
+# notes are bundled into messages of at most relay_max_message_bytes,
+# labelled as automated (relay_label), tagged with a unique relay id, and
+# handed to the row's client transport: claude, codex (experimental) or
+# custom. Rows whose client is `file-only` are left alone: that session
+# reads its inbox at turn start. Each confirmed batch moves to <sent_dir> as
+# <stamp>-<key>-<name> (never overwriting); a failed batch stays put and is
+# retried on the next run, and later batches for that row wait. The relay is
+# transport only: it never interprets, filters or acts on notes.
 #
 # Options:
 #   --dry-run   show what would be delivered; deliver and move nothing
@@ -22,8 +24,8 @@
 #
 # Environment: AO_PROFILE (profile path). Log: <state_dir>/relay.log.
 #
-# Exit codes: 0 delivered or nothing to do; 1 a delivery failed; 2 usage or
-# configuration error; 3 another relay is running.
+# Exit codes: 0 delivered or nothing to do; 1 a delivery or archive failed;
+# 2 usage or configuration error; 3 another relay is running.
 set -u
 AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$AO_SCRIPTS/lib/core.sh"
@@ -33,35 +35,64 @@ AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 dry_run=
 only_key=
 failures=0
+batch_no=0
+# Room for a note's header and cut pointer on top of relay_max_bytes.
+NOTE_OVERHEAD=512
 
-# relay_compose MSG_FILE NOTE...  Write the bundled message for one inbox.
-relay_compose() {
-  _msg=$1
-  shift
-  {
-    printf '%s\n' "$label"
-    for _f in "$@"; do
-      _size=$(wc -c <"$_f" | tr -d ' ')
-      printf -- '--- %s\n' "${_f##*/}"
-      head -c "$max_bytes" "$_f"
-      if [ "$_size" -gt "$max_bytes" ]; then
-        printf '\n[cut at %s of %s bytes; full note: %s]' "$max_bytes" "$_size" "$(relay_sent_path "$_f")"
-      fi
-      printf '\n'
-    done
-  } >"$_msg"
-}
-
-relay_sent_path() {
+relay_sent_base() {
   printf '%s/%s-%s-%s\n' "$AO_SENT" "$AO_T_STAMP" "$OP_KEY" "${1##*/}"
 }
 
-# relay_archive NOTE...  Move delivered notes to the sent archive.
+# relay_append NOTE  Add one note to the message being built.
+relay_append() {
+  _size=$(wc -c <"$1" | tr -d ' ')
+  {
+    printf -- '--- %s\n' "${1##*/}"
+    head -c "$max_bytes" "$1"
+    if [ "$_size" -gt "$max_bytes" ]; then
+      printf '\n[cut at %s of %s bytes; full note: %s]' "$max_bytes" "$_size" "$(relay_sent_base "$1")"
+    fi
+    printf '\n'
+  } >>"$msg"
+  printf '%s\n' "$1" >>"$batch"
+}
+
+relay_start() {
+  printf '%s\n' "$label" >"$msg"
+  : >"$batch"
+}
+
+# relay_archive  Move the delivered batch to the sent archive.
 relay_archive() {
   mkdir -p "$AO_SENT" || return 1
-  for _f in "$@"; do
-    mv -f "$_f" "$(relay_sent_path "$_f")" || ao_warn "delivered but could not archive $_f"
-  done
+  _ok=0
+  while IFS= read -r _f; do
+    _base=$(relay_sent_base "$_f")
+    ao_place "$_f" "${_base%.md}" .md >/dev/null || { ao_warn "delivered but not archived: $_f"; _ok=1; }
+  done <"$batch"
+  return "$_ok"
+}
+
+# relay_flush  Deliver the message built so far; archive it on success.
+relay_flush() {
+  batch_no=$((batch_no + 1))
+  _id=$AO_T_STAMP-$OP_KEY-$$-$batch_no
+  _count=$(wc -l <"$batch" | tr -d ' ')
+  printf 'relay-id: %s\n' "$_id" >>"$msg"
+  : >"$out"
+  # The subshell keeps one transport's configuration error from stopping
+  # delivery to the other rows.
+  if ! (ao_role_load "relay_$OP_CLIENT" "$OP_CLIENT" && ao_role_deliver "$OP_NAME" "$OP_SID" "$msg" "$out" "$_id"); then
+    ao_log "$log" "to=$OP_KEY via=$OP_CLIENT id=$_id FAILED: $(tail -c 300 "$out" | tr '\n' ' ')"
+    failures=$((failures + 1))
+    return 1
+  fi
+  if relay_archive; then
+    ao_log "$log" "to=$OP_KEY via=$OP_CLIENT id=$_id files=$_count ok"
+  else
+    ao_log "$log" "to=$OP_KEY via=$OP_CLIENT id=$_id files=$_count delivered, ARCHIVE FAILED (will be re-sent)"
+    failures=$((failures + 1))
+  fi
 }
 
 # relay_row  Registry callback: deliver one operator's inbox, if non-empty.
@@ -82,17 +113,17 @@ relay_row() {
     printf 'would relay %s note(s) to %s via %s\n' "$#" "$OP_KEY" "$OP_CLIENT"
     return 0
   fi
-  relay_compose "$msg" "$@"
-  : >"$out"
-  # The subshell keeps one transport's configuration error from stopping
-  # delivery to the other rows.
-  if (ao_role_load "relay_$OP_CLIENT" "$OP_CLIENT" && ao_role_deliver "$OP_NAME" "$OP_SID" "$msg" "$out"); then
-    relay_archive "$@"
-    ao_log "$log" "to=$OP_KEY via=$OP_CLIENT files=$# ok"
-  else
-    ao_log "$log" "to=$OP_KEY via=$OP_CLIENT FAILED: $(tail -c 300 "$out" | tr '\n' ' ')"
-    failures=$((failures + 1))
-  fi
+  relay_start
+  for _note in "$@"; do
+    [ -f "$_note" ] || continue
+    case $_note in *"$AO_NL"*) ao_warn "skipping note with a newline in its name: $_note"; continue ;; esac
+    if [ -s "$batch" ] && [ $(($(wc -c <"$msg") + max_bytes + NOTE_OVERHEAD)) -gt "$budget" ]; then
+      relay_flush || return 0
+      relay_start
+    fi
+    relay_append "$_note"
+  done
+  [ ! -s "$batch" ] || relay_flush
 }
 
 main() {
@@ -109,9 +140,13 @@ main() {
   ao_lock relay || { ao_msg "another relay is running; skipping"; exit "$AO_E_BUSY"; }
   label=$(ao_cfg relay_label 'Relay (automated inbox, not from the human):')
   max_bytes=$(ao_cfg_uint relay_max_bytes 4000) || exit
+  budget=$(ao_cfg_uint relay_max_message_bytes 100000) || exit
+  [ "$budget" -le "$AO_ARG_MAX_BYTES" ] ||
+    ao_die "$AO_E_USAGE" "relay_max_message_bytes must be at most $AO_ARG_MAX_BYTES (one argument)"
+  [ $((max_bytes + NOTE_OVERHEAD + ${#label} + 100)) -le "$budget" ] ||
+    ao_die "$AO_E_USAGE" "relay_max_bytes is too large for relay_max_message_bytes"
   log=$AO_STATE/relay.log
-  msg=$(ao_tmp msg)
-  out=$(ao_tmp out)
+  msg=$(ao_tmp msg) out=$(ao_tmp out) batch=$(ao_tmp batch)
   ao_registry_each relay_row
   [ "$failures" -eq 0 ] || exit "$AO_E_FAIL"
 }

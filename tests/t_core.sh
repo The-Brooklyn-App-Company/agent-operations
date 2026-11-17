@@ -97,10 +97,31 @@ test_clock_can_be_pinned() {
 }
 
 test_lock_is_exclusive_and_released() {
-  lib 'ao_lock demo && echo first; ( ao_lock demo; echo "inner=$?" )'
+  lib 'ao_lock demo && echo first; ( AO_LOCK=; ao_lock demo; echo "inner=$?" )'
   assert_has "$T/out" first
   assert_has "$T/out" "inner=3"
   assert_no_file "$T/state/locks/demo.lock"
+}
+
+test_cleanup_only_releases_own_lock() {
+  lib 'ao_lock demo; echo 1 >"$AO_STATE/locks/demo.lock/pid"'
+  assert_file "$T/state/locks/demo.lock"
+}
+
+test_stale_reclaim_marker_is_cleared() {
+  mkdir -p "$T/state/locks/demo.lock" "$T/state/locks/demo.lock.reclaim"
+  echo 999999999 >"$T/state/locks/demo.lock/pid"
+  touch -t 202001010000 "$T/state/locks/demo.lock.reclaim"
+  lib 'ao_lock demo; echo "first=$?"; ao_lock demo && echo second'
+  assert_has "$T/out" "first=3"
+  assert_has "$T/out" "second"
+}
+
+test_inbox_put_never_overwrites() {
+  AO_NOW=$(epoch_of "2026-11-17 12:00")
+  export AO_NOW
+  lib 'i=0; while [ $i -lt 5 ]; do echo "n$i" | ao_inbox_put alpha same & i=$((i + 1)); done; wait'
+  assert_count "$T/home/inbox/alpha" 5
 }
 
 test_stale_lock_is_reclaimed() {
@@ -124,6 +145,23 @@ test_timeout_portable_fallback() {
   assert_has "$T/out" "slow=124"
   assert_has "$T/out" "fast=6"
   assert_has "$T/out" "none=0"
+}
+
+test_timeout_kills_descendants() {
+  _bins=$(command -v timeout || command -v gtimeout || true)
+  # The portable path can only reach descendants where job control works.
+  if "$AO_TEST_SHELL" -c 'set -m 2>/dev/null; case $- in *m*) exit 0 ;; esac; exit 1' </dev/null; then
+    _bins="$_bins none"
+  fi
+  for _bin in $_bins; do
+    AO_TIMEOUT_BIN=$_bin
+    export AO_TIMEOUT_BIN
+    lib 'ao_timeout 1 sh -c "(sleep 3; : >\"$AO_HOME/survivor\") & sleep 20"; echo "rc=$?"'
+    assert_has "$T/out" "rc=124"
+    assert_eq "$(wc -c <"$T/err" | tr -d ' ')" 0 "stderr bytes ($_bin)"
+  done
+  sleep 3
+  assert_no_file "$T/home/survivor"
 }
 
 test_timeout_coreutils() {

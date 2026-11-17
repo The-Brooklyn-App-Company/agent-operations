@@ -12,7 +12,6 @@ relay_default=claude
 relay_claude_model=haiku
 relay_claude_max_turns=4
 relay_claude_timeout=300
-relay_claude_disallowed_tools=Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch
 # relay_claude_token_secret=claude-oauth-token
 
 # Cheap worker: read-only tools, no tool servers.

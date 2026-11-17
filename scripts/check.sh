@@ -42,28 +42,45 @@ check_dupes() {
   fi
   [ $# -gt 0 ] || ao_die "$AO_E_USAGE" "dupes needs at least one file"
   for _f in "$@"; do [ -r "$_f" ] || ao_die "$AO_E_USAGE" "not readable: $_f"; done
+  # awk would read an operand like `a=b` as an assignment; ./ prevents it.
+  for _f in "$@"; do
+    case $_f in /*) set -- "$@" "$_f" ;; *) set -- "$@" "./$_f" ;; esac
+    shift
+  done
+  # Sentences are taken from whole paragraphs (consecutive non-blank lines;
+  # each heading, list item, quote or table row starts a new one), so a rule
+  # wrapped differently in two files still matches. Locations are the
+  # paragraph's first line.
   _found=$(awk -v minw="$min_words" '
-    FNR == 1 { fence = 0 }
-    /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
-    fence { next }
-    /^[[:space:]|:-]*$/ { next }
-    {
-      t = tolower($0)
+    function flush(   t, n, i, s, parts, words) {
+      if (buf == "") return
+      t = tolower(buf)
+      buf = ""
       gsub(/<!--[^>]*-->/, " ", t)
       gsub(/\]\([^)]*\)/, "]", t)
-      n = split(t, parts, /[.!?;][[:space:]]+|[|]/)
+      n = split(t, parts, /[.!?;]([[:space:]]+|$)|[|]/)
       for (i = 1; i <= n; i++) {
         s = parts[i]
         gsub(/[^a-z0-9]+/, " ", s)
         gsub(/^ +| +$/, "", s)
         if (split(s, words, " ") < minw) continue
-        if ((s, FILENAME) in seen) continue
-        seen[s, FILENAME] = 1
+        if ((s, file) in seen) continue
+        seen[s, file] = 1
         count[s]++
-        where[s] = where[s] (where[s] == "" ? "" : ", ") FILENAME ":" FNR
+        where[s] = where[s] (where[s] == "" ? "" : ", ") file ":" start
       }
     }
+    FNR == 1 { flush(); fence = 0; file = FILENAME }
+    /^[[:space:]]*(```|~~~)/ { flush(); fence = !fence; next }
+    fence { next }
+    /^[[:space:]|:-]*$/ { flush(); next }
+    /^[[:space:]]*([#>|]|[-*+][[:space:]]|[0-9]+[.)][[:space:]])/ { flush() }
+    {
+      if (buf == "") start = FNR
+      buf = buf " " $0
+    }
     END {
+      flush()
       for (s in count) if (count[s] > 1) printf "%s: \"%s\"\n", where[s], substr(s, 1, 90)
     }' "$@" | sort)
   [ -z "$_found" ] && return 0
@@ -109,6 +126,31 @@ check_privacy_files() {
   done
 }
 
+# check_privacy_scan FILE PATTERNS  Print `FILE:LINE: kind` for each finding.
+# File names travel through the environment, never through program text.
+check_privacy_scan() {
+  case $1 in /*) _op=$1 ;; *) _op=./$1 ;; esac
+  AO_F=$1 AO_P=$2 awk '
+    BEGIN {
+      f = ENVIRON["AO_F"]
+      while ((getline p < ENVIRON["AO_P"]) > 0) if (p != "") deny[++nd] = tolower(p)
+    }
+    {
+      if ($0 ~ /(^|[[:space:]"\047=:(`])(\/Users|\/home)\/[A-Za-z0-9._-]+/) print f ":" FNR ": home path"
+      rest = $0
+      while (match(rest, /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]+/)) {
+        addr = tolower(substr(rest, RSTART, RLENGTH))
+        rest = substr(rest, RSTART + RLENGTH)
+        if (addr !~ /@(example\.(com|org|net)|[a-z0-9.-]*\.(example|test|invalid|localhost))$/) {
+          print f ":" FNR ": e-mail address"
+          break
+        }
+      }
+      low = tolower($0)
+      for (i = 1; i <= nd; i++) if (index(low, deny[i])) { print f ":" FNR ": denylist match"; break }
+    }' "$_op"
+}
+
 check_privacy() {
   denylist=${AO_PRIVACY_DENYLIST:-}
   if [ "${1-}" = --denylist ]; then
@@ -122,19 +164,16 @@ check_privacy() {
     # Blank lines would match everything; # lines are comments.
     grep -v -e '^[[:space:]]*$' -e '^#' "$denylist" >"$patterns"
   fi
-  files=$(ao_tmp files)
+  files=$(ao_tmp files) hits=$(ao_tmp hits)
   check_privacy_files "$@" >"$files" || exit "$AO_E_USAGE"
-  _hits=$(
-    while IFS= read -r _f; do
-      [ -f "$_f" ] || continue
-      grep -EnI "(^|[[:space:]\"'=:(\`])(/Users|/home)/[A-Za-z0-9._-]+" "$_f" | cut -d: -f1 | sed "s|^|$_f:|; s|\$|: home path|"
-      grep -EnoI '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$_f" |
-        grep -Eiv '@(example\.(com|org|net)|[a-z0-9.-]*\.(example|test|invalid|localhost))$' | cut -d: -f1 | sed "s|^|$_f:|; s|\$|: e-mail address|"
-      if [ -s "$patterns" ]; then
-        grep -FinI -f "$patterns" "$_f" | cut -d: -f1 | sed "s|^|$_f:|; s|\$|: denylist match|"
-      fi
-    done <"$files" | sort -u
-  )
+  _err=0
+  while IFS= read -r _f; do
+    [ -f "$_f" ] || continue
+    grep -qI . "$_f" 2>/dev/null || continue
+    check_privacy_scan "$_f" "$patterns" >>"$hits" || { ao_warn "could not scan $_f"; _err=1; }
+  done <"$files"
+  _hits=$(sort -u "$hits")
+  [ "$_err" -eq 0 ] || { [ -n "$_hits" ] && printf '%s\n' "$_hits"; return "$AO_E_FAIL"; }
   [ -z "$_hits" ] && return 0
   printf '%s\n' "$_hits"
   return "$AO_E_FAIL"

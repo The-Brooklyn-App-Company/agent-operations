@@ -92,6 +92,7 @@ keys warn; keys starting with `x_` are free for local hooks.
 | `relay_default` | `claude` | Client for registry rows without one |
 | `relay_label` | `Relay (automated inbox, not from the human):` | First line of every relayed message |
 | `relay_max_bytes` | `4000` | Per-note cut in a message (the full note stays in `sent_dir`) |
+| `relay_max_message_bytes` | `100000` | Size of one delivery; a larger backlog goes in several batches (max 120000: one argument) |
 | `relay_workdir` | `oracle_home` | Working directory for delivery runs |
 | `review_family` | `cross` | `cross`, `same-family` or `single-model`; printed by `review-run.sh` for the release record |
 | `drift_rules`, `drift_files`, `drift_repo_files`, `drift_min_words`, `drift_prompt`, `drift_prompt_extra`, `drift_workdir`, `drift_to` | see `drift-check.sh --help` | Drift audit inputs |
@@ -113,7 +114,7 @@ role takes the same fields:
 | `<role>_mcp_disable` | none | Comma list of tool servers to switch off (codex). Claude runs load no tool servers at all |
 | `<role>_tools` | `Read,Grep,Glob` | Claude tool allow-list for runs; `default` = the client's full set |
 | `<role>_max_turns` | client default | Claude turn cap |
-| `<role>_disallowed_tools` | none | Claude deny-list, for relay hardening |
+| `<role>_disallowed_tools` | relay: `Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Task,Skill` | Claude deny-list for delivery runs; `none` drops it |
 | `<role>_token_secret` | none | Secret name, fetched through `secrets` for this role only |
 | `<role>_token_env` | `CLAUDE_CODE_OAUTH_TOKEN` for claude | Variable that receives it |
 
@@ -129,14 +130,26 @@ role interface, so adding a harness touches nothing else.
 
 | Client | run | deliver | activity |
 | --- | --- | --- | --- |
-| `claude` | `claude -p`, no session persistence, no tool servers, read-only tools | Headless run calls `SendMessage` once; success needs a `SENT` line | Newest transcript under `$CLAUDE_CONFIG_DIR/projects/<dir-slug>/` |
+| `claude` | `claude -p`, no session persistence, read-only tools | Headless run calls the built-in `SendMessage` once; confirmed from the event stream (below) | `<session>.jsonl` under `$CLAUDE_CONFIG_DIR/projects/<dir-slug>/`, else the newest transcript there |
 | `codex` | `codex exec --ephemeral -s read-only`, listed servers off | **Experimental:** one read-only `codex exec resume <session>` turn | Newest `$CODEX_HOME/sessions/**/*<session>*.jsonl` |
-| `custom` | `<cmd> run <workdir> <prompt> <out>` | `<cmd> deliver <name> <session> <message>` | `<cmd> activity <dir> <session>` (optional) |
+| `custom` | `<cmd> run <workdir> <prompt> <out>` | `<cmd> deliver <name> <session> <message> <relay-id>` | `<cmd> activity <dir> <session>` (optional) |
 | `file-only` | n/a | Nothing: the session reads its inbox at turn start | n/a |
 
 All runs close stdin, run under a hard timeout, and pass the prompt as one
-argument (512 KiB cap). Delivered is not read: report a relayed message as
-delivered, not as acted on.
+argument (120000-byte cap, under Linux's 128 KiB per-argument limit). Every
+Claude invocation loads no tool servers and runs no hooks. Delivered is not
+read: report a relayed message as delivered, not as acted on.
+
+**Relay trust boundary.** Whatever can write to an inbox can put text in
+front of a model twice: the delivery run, and the receiving session, which
+sees the note labelled as automated. Only local automation you control
+should write inboxes. The Claude delivery run is constrained (no tool
+servers, no hooks, effectful built-in tools denied), and success is never
+taken from the model's words: the stream must show exactly one `SendMessage`
+call, to the registered name, carrying the batch's `relay-id`, with a
+successful result. A mismatch is logged, the notes stay, and the batch is
+retried. The deny-list is a deny-list, so review it against your client's
+tool set.
 
 ## Hooks and the gate
 
@@ -193,6 +206,9 @@ status.
 ## Portability and tests
 
 POSIX sh (checked under bash's POSIX mode and dash), BSD and GNU userlands.
+The portable timeout reaches a command's descendants only where the shell
+allows job control without a terminal (bash's `sh`, as on macOS); dash
+signals the direct child, so Linux hosts should keep coreutils `timeout`.
 Used tools beyond POSIX: `head -c`, `mktemp`, and `timeout`/`gtimeout` when
 present. `shellcheck -x scripts/*.sh scripts/lib/*.sh tests/*.sh` is clean.
 `tests/run.sh` runs the suite under every installed shell with fake agent
