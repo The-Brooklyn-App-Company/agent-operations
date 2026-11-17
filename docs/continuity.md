@@ -55,9 +55,13 @@ epoch; a display-name match never counts.
 fail closed (exit 3) and tells the Oracle once; the human runs `lease.sh
 unlock --timers-off --sessions-stopped` after checking that nothing runs.
 
-**Dispatch markers.** Before any effect, a kit wrapper runs
-`dispatch-begin`, which validates the holder and creates the marker in one
-step under the lock; `dispatch-end` removes it. A marker whose process died
+**Dispatch markers.** Before any effect, `dispatch-begin` validates the
+holder and creates the marker in one step under the lock; `dispatch-end`
+removes it. Prefer the wrapper `lease.sh dispatch-run ... -- CMD`, which
+keeps a live process on the marker for the whole effect and ends it only on
+exit 0. With separate begin and end calls (and with `ask.sh reserve`), pass
+`--pid` of the process doing the effect; otherwise the marker shows `dead` at
+once, which still blocks handoff but tells the human less. A marker whose process died
 stays as an **unresolved effect** until the human settles it (`lease.sh
 settle --marker ID --outcome landed|not-landed|unknown`). Markers block
 `release` and `takeover`.

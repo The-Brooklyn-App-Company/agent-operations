@@ -18,6 +18,10 @@
 #           marker, before any effect. Prints `marker: ID`. PID (default:
 #           the caller) is the process doing the effect.
 #   dispatch-end --instance T --epoch N --marker ID   Remove the marker.
+#   dispatch-run --instance T --epoch N --what TEXT [--ask ID] -- CMD [ARG...]
+#           The kit wrapper: begin (this process is the marker's pid), run
+#           CMD, end on exit 0. A failed or interrupted CMD leaves the marker:
+#           its effect is unknown until the human settles it.
 #   note    --instance T --epoch N   Print a warm HANDOFF.md template.
 #   release --instance T --epoch N   Needs a committed-or-committable warm
 #           HANDOFF.md for this epoch and no markers; commits it, then
@@ -459,6 +463,31 @@ do_dispatch_begin() {
   echo "marker: $_mk"
 }
 
+do_dispatch_run() {
+  need_token
+  check_text --what "$o_what"
+  [ $# -gt 0 ] || ao_die "$AO_E_USAGE" "dispatch-run needs -- CMD [ARG...]"
+  [ -z "$o_ask" ] || ao_is_name "$o_ask" || ao_die "$AO_E_USAGE" "--ask must be an ask id"
+  lock
+  ao_lease_load
+  ao_lease_is_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
+  pid_guard
+  audit_gate
+  _mk=$(ao_marker_create dispatch "$o_what" "$o_ask" $$) || ao_die "$AO_E_FAIL" "cannot create a dispatch marker"
+  ao_lease_unlock
+  ao_msg "marker: $_mk"
+  "$@"
+  _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    ao_msg "the command failed (exit $_rc): its effect is unknown. Marker $_mk stays until the human checks the target and settles it"
+    exit "$_rc"
+  fi
+  lock
+  rm -f "$H_OP/markers/$_mk" || ao_die "$AO_E_FAIL" "cannot remove marker $_mk"
+  ao_lease_unlock
+  ao_msg "ended: $_mk"
+}
+
 do_dispatch_end() {
   need_token
   ao_is_name "$o_marker" || ao_die "$AO_E_USAGE" "dispatch-end needs --marker ID"
@@ -601,16 +630,23 @@ do_takeover() {
     done
   fi
   build_note cold "$L_epoch" "$_from" | ao_write_atomic "$H_HOME/HANDOFF.md" || ao_die "$AO_E_FAIL" "cannot write HANDOFF.md"
-  ao_lease_unlock
+  # The lock is held through the commit, so no marker or holder change can
+  # slip in between the note and the lease write (a slow commit makes other
+  # verbs fail closed meanwhile, which is the safe direction).
   set -- HANDOFF.md
   [ ! -f "$H_HOME/ASKS.md" ] || set -- "$@" ASKS.md
-  ao_git_commit "$H_HOME" "handoff: $H_KEY epoch $o_expect_epoch (cold, takeover)" "$@" ||
-    ao_die "$AO_E_FAIL" "cannot commit the cold note; lease unchanged"
+  if ! ao_git_commit "$H_HOME" "handoff: $H_KEY epoch $o_expect_epoch (cold, takeover)" "$@"; then
+    for _f in "$@"; do
+      if git -C "$H_HOME" cat-file -e "HEAD:./$_f" 2>/dev/null; then
+        git -C "$H_HOME" checkout -q HEAD -- "$_f"
+      else
+        rm -f "$H_HOME/$_f"
+      fi
+    done
+    ao_die "$AO_E_FAIL" "cannot commit the cold note; HANDOFF.md and ASKS.md restored, lease unchanged"
+  fi
   _sha=$(git -C "$H_HOME" log -1 --format=%h -- HANDOFF.md)
   _ao_crash takeover-after-commit
-  lock
-  ao_lease_load
-  takeover_ok
   L_prev_epoch=$L_epoch L_epoch=$((L_epoch + 1)) L_prev_note=$_sha
   L_audit=$(switch_audit "$L_provider" "$o_provider") L_prev_provider=$L_provider
   L_state=assigned L_provider=$o_provider L_session=$o_session L_session_id=${o_session_id:--}
@@ -696,6 +732,7 @@ main() {
         _var=o_$(printf '%s' "${1#--}" | tr - _)
         eval "$_var=\$2"
         shift ;;
+      --) shift; break ;;
       -h | --help) ao_usage; exit 0 ;;
       *) ao_die "$AO_E_USAGE" "unknown argument '$1' (see --help)" ;;
     esac
@@ -712,6 +749,7 @@ main() {
     check) do_check ;;
     dispatch-begin) do_dispatch_begin ;;
     dispatch-end) do_dispatch_end ;;
+    dispatch-run) do_dispatch_run "$@" ;;
     note) do_note ;;
     release) do_release ;;
     redirect) do_redirect ;;

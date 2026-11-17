@@ -371,6 +371,39 @@ test_routing_follows_the_lease() {
   assert_count "$T/home/inbox/ws" 0
 }
 
+test_dispatch_run_wraps_the_effect() {
+  lsetup
+  acq claude Workshop
+  lease dispatch-run --instance "$TOK" --epoch "$EP" --what "touch file" -- touch "$T/effect"
+  assert_rc 0
+  assert_file "$T/effect"
+  assert_count "$T/ops/ws/.operator/markers" 1
+  assert_has "$T/err" "ended: "
+  # A failed effect leaves the marker: its outcome is unknown.
+  lease dispatch-run --instance "$TOK" --epoch "$EP" --what "flaky publish" -- sh -c "exit 3"
+  assert_rc 3
+  assert_count "$T/ops/ws/.operator/markers" 2
+  lease status
+  assert_has "$T/out" "flaky publish"
+  lease dispatch-run --instance other --epoch "$EP" --what x -- touch "$T/never"
+  assert_rc 5
+  assert_no_file "$T/never"
+}
+
+test_takeover_commit_failure_changes_nothing() {
+  lsetup
+  acq claude Workshop
+  printf '#!/bin/sh\nexit 1\n' >"$T/ops/ws/.git/hooks/pre-commit"
+  chmod +x "$T/ops/ws/.git/hooks/pre-commit"
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_eq "$rc" 1 "rc"
+  assert_has "$T/out" "lease unchanged"
+  assert_no_file "$T/ops/ws/HANDOFF.md"
+  assert_no_file "$T/ops/ws/.operator/lease.lock"
+  assert_eq "$(lget state)" held
+  assert_eq "$(lget epoch)" 1
+}
+
 # resolve KEY  Print what ao_operator_resolve reports for KEY.
 resolve() {
   cat >"$T/resolve.sh" <<EOF
