@@ -1,0 +1,11 @@
+# systemd user timer for tick.sh (Linux). UNTESTED; see tick.service.in.
+[Unit]
+Description=Run the agent-operations tick every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
