@@ -26,6 +26,24 @@ AO_TAB=$(printf '\t')
 AO_NL='
 '
 AO_LOCK=
+AO_LOCK_FD=
+# Grace period (seconds) between TERM and KILL for timed-out or interrupted
+# children. Tests lower it.
+AO_GRACE=${AO_GRACE:-10}
+case $AO_GRACE in '' | *[!0-9]*) AO_GRACE=10 ;; esac
+# Byte-wise collation, so globs, sort and [A-Za-z] ranges behave the same
+# under launchd's C locale and an interactive UTF-8 shell.
+if [ -n "${LC_ALL:-}" ]; then
+  LC_CTYPE=$LC_ALL
+  export LC_CTYPE
+  unset LC_ALL
+fi
+LC_COLLATE=C
+export LC_COLLATE
+# Child setup for ao_timeout: working directory and one secret variable,
+# applied only inside the child. Callers set them and clear them after.
+AO_RUN_DIR=
+_AO_TOK_ENV='' _AO_TOK_VAL=''
 # One private (0700) temp dir per process, removed on exit; see ao_tmp.
 AO_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/ao.XXXXXX") || {
   printf '%s: cannot create a temp dir\n' "$AO_PROG" >&2
@@ -69,8 +87,9 @@ ao_log() {
 # ---------------------------------------------------------------- cleanup
 
 ao_cleanup() {
-  # Release the lock only if this process still owns it.
-  if [ -n "$AO_LOCK" ] && [ "$(cat "$AO_LOCK/pid" 2>/dev/null)" = "$$" ]; then
+  # A directory lock is released only if this process still owns it; a
+  # kernel lock goes with the descriptor when the process exits.
+  if [ -n "$AO_LOCK" ] && [ -z "$AO_LOCK_FD" ] && [ "$(cat "$AO_LOCK/pid" 2>/dev/null)" = "$$" ]; then
     rm -rf "$AO_LOCK"
   fi
   AO_LOCK=
@@ -82,8 +101,9 @@ ao_cleanup() {
 ao_on_signal() {
   if [ -n "${AO_CHILD:-}" ]; then
     kill -s TERM -- "-$AO_CHILD" 2>/dev/null || kill -s TERM "$AO_CHILD" 2>/dev/null
+    # Twice the grace: the child may itself be supervising a timed client.
     _n=0
-    while [ "$_n" -lt 10 ] && kill -0 "$AO_CHILD" 2>/dev/null; do
+    while [ "$_n" -lt $((AO_GRACE * 2 + 1)) ] && kill -0 "$AO_CHILD" 2>/dev/null; do
       sleep 1
       _n=$((_n + 1))
     done
@@ -125,6 +145,13 @@ ao_slug() {
   printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^[.-]*//' | cut -c1-60
 }
 
+# ao_is_nothing FILE  True when a model's whole answer is NOTHING, ignoring
+# surrounding blank space, backticks, quotes, asterisks and a final period.
+ao_is_nothing() {
+  _ao_a=$(tr -d ' \t\r\n`"*' <"$1")
+  [ "${_ao_a%.}" = NOTHING ]
+}
+
 # ---------------------------------------------------------------- profile
 
 # Every key the kit reads. Unknown keys warn (typo guard); `x_*` keys are
@@ -133,12 +160,14 @@ AO_KNOWN_KEYS='oracle_home oracle_key registry quiet_list inbox_dir sent_dir
 state_dir hooks_dir path
 watchdog_days watchdog_hours watchdog_idle_min watchdog_realert_min
 daily_hour weekly_day weekly_hour hook_timeout
-relay_default relay_label relay_max_bytes relay_max_message_bytes relay_workdir
+relay_default relay_label relay_max_attempts relay_workdir work_root
 drift_rules drift_files drift_repo_files drift_min_words drift_prompt
 drift_prompt_extra drift_workdir drift_to
-review_family tracker chat githost ci secrets attribution'
+review_family cross_review cross_review_timeout cross_review_per_run
+cross_review_days tracker chat githost ci secrets attribution'
 # Role keys: <prefix>_<field> for these prefixes and fields.
-AO_ROLE_PREFIXES='worker reviewer relay_claude relay_codex relay_custom'
+AO_ROLE_PREFIXES='worker reviewer reviewer_claude reviewer_codex implementer_claude
+implementer_codex relay_claude relay_custom'
 AO_ROLE_FIELDS='client cmd model effort timeout mcp_disable tools max_turns
 disallowed_tools token_secret token_env'
 
@@ -165,6 +194,11 @@ ao_profile_path() {
 # assigned verbatim (one surrounding pair of quotes is stripped).
 ao_profile_parse() {
   [ -r "$1" ] || ao_die "$AO_E_USAGE" "profile not readable: $1 (set AO_PROFILE; examples in profiles/)"
+  # Only the file may set profile values: drop any AO_C_* from the
+  # environment first.
+  for _ao_v in $(env | sed -n 's/^\(AO_C_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$_ao_v"
+  done
   _ao_n=0
   while IFS= read -r _ao_line || [ -n "$_ao_line" ]; do
     _ao_n=$((_ao_n + 1))
@@ -330,21 +364,45 @@ _ao_link_noclobber() {
 
 # ---------------------------------------------------------------- locking
 
-# ao_lock NAME  Take this process's one exclusive lock (mkdir is atomic);
-# released on exit, and only by its owner. Returns 3 while a live process
-# holds it, or while another process is reclaiming it.
+# ao_lock NAME  Take this process's one exclusive lock; returns 3 while
+# another process holds it. The lock is a kernel lock on
+# <state_dir>/locks/NAME.lock held through file descriptor 9: flock(1) on
+# Linux, lockf(1) on macOS and the BSDs. The kernel drops it when the
+# process exits, however it exits, so a crash, a reboot or a recycled pid
+# can never leave it stuck. Children never inherit descriptor 9 (see
+# ao_timeout). AO_LOCK_TOOL (flock, lockf or mkdir) forces a mechanism.
 #
-# A lock whose holder is gone is reclaimed under a marker named after that
-# dead holder (<lock>.reclaim-<pid>), and only after re-reading, under the
-# marker, that the lock still belongs to it. Contenders that saw the same
-# dead holder exclude each other through the marker; a contender acting on
-# an older observation finds a different owner and backs off. So two
-# processes can never both hold the lock. A marker left by a reclaimer that
-# died mid-way blocks only that generation; the warning names it.
+# Without either tool the fallback is a directory lock: mkdir is atomic, and
+# a lock whose holder is gone is reclaimed under a marker named after that
+# dead holder (<lock>.reclaim-<pid>), re-checked under the marker, so two
+# processes never both hold it. Its known limit: liveness is `kill -0`, so a
+# recycled pid keeps a stale lock until that process exits.
 ao_lock() {
   [ -z "$AO_LOCK" ] || ao_die "$AO_E_FAIL" "ao_lock: already holding $AO_LOCK"
-  _ao_ld=$AO_STATE/locks/$1.lock
   mkdir -p "$AO_STATE/locks" || return "$AO_E_FAIL"
+  _ao_tool=${AO_LOCK_TOOL:-}
+  if [ -z "$_ao_tool" ]; then
+    if command -v flock >/dev/null 2>&1; then _ao_tool=flock
+    elif command -v lockf >/dev/null 2>&1; then _ao_tool=lockf
+    else _ao_tool='mkdir'; fi
+  fi
+  case $_ao_tool in
+    flock | lockf)
+      _ao_lf=$AO_STATE/locks/$1.lk
+      exec 9>>"$_ao_lf" || return "$AO_E_FAIL"
+      if [ "$_ao_tool" = flock ]; then flock -n 9 2>/dev/null; else lockf -s -t 0 9 2>/dev/null; fi || {
+        exec 9>&-
+        return "$AO_E_BUSY"
+      }
+      AO_LOCK=$_ao_lf AO_LOCK_FD=9
+      return 0 ;;
+    mkdir) _ao_lock_dir "$AO_STATE/locks/$1.lock" ;;
+    *) ao_die "$AO_E_USAGE" "AO_LOCK_TOOL must be flock, lockf or mkdir" ;;
+  esac
+}
+
+_ao_lock_dir() {
+  _ao_ld=$1
   if ! _ao_lock_take "$_ao_ld"; then
     _ao_gen=$(_ao_lock_owner "$_ao_ld")
     _ao_lock_live "$_ao_ld" "$_ao_gen" && return "$AO_E_BUSY"
@@ -406,8 +464,13 @@ _ao_young() {
 # command's process group, so descendants do not outlive the limit (the
 # portable watcher has a process group only in shells that allow job control
 # without a terminal, such as bash's sh; dash signals the direct child). A
-# HUP, INT or TERM to the caller is forwarded to the child the same way.
-# AO_TIMEOUT_BIN=none forces the portable path.
+# HUP, INT or TERM to the caller is forwarded to the child the same way,
+# provided the caller runs ao_timeout in its own shell (not inside a
+# foreground subshell, whose wait would defer the trap): see ao_bg.
+# The child starts in AO_RUN_DIR when set, gets _AO_TOK_ENV=_AO_TOK_VAL in
+# its environment when set (so a token never enters the caller's), and never
+# inherits the lock descriptor 9. AO_TIMEOUT_BIN=none forces the portable
+# path; AO_GRACE sets the TERM-to-KILL grace (default 10 s).
 ao_timeout() {
   _ao_secs=$1
   shift
@@ -418,7 +481,7 @@ ao_timeout() {
   fi
   _ao_core=
   if [ "$_ao_secs" -gt 0 ] && [ -n "$_AO_TBIN" ]; then
-    set -- "$_AO_TBIN" -k 10 "$_ao_secs" "$@"
+    set -- "$_AO_TBIN" -k "$AO_GRACE" "$_ao_secs" "$@"
     _ao_core=1
   fi
   _ao_mark=$AO_TMPDIR/timeout.$$
@@ -429,7 +492,7 @@ ao_timeout() {
   trap 'ao_on_signal 143' TERM
   # Job control gives the background command its own process group.
   set -m 2>/dev/null
-  "$@" </dev/null &
+  _ao_child "$@" </dev/null 9>&- &
   AO_CHILD=$!
   set +m 2>/dev/null
   _ao_pg=$AO_CHILD _ao_wpid=
@@ -454,6 +517,30 @@ ao_timeout() {
   return "$_ao_rc"
 }
 
+# _ao_child CMD [ARG...]  Body of ao_timeout's child: apply AO_RUN_DIR and
+# the token variable, then become CMD.
+_ao_child() {
+  if [ -n "$AO_RUN_DIR" ]; then cd "$AO_RUN_DIR" || exit "$AO_E_USAGE"; fi
+  if [ -n "$_AO_TOK_ENV" ]; then
+    eval "$_AO_TOK_ENV=\$_AO_TOK_VAL"
+    eval "export $_AO_TOK_ENV"
+  fi
+  exec "$@"
+}
+
+# ao_bg CMD [ARG...]  Run CMD (often a shell function, which then runs in a
+# subshell) in the background and wait for it, so a signal to this shell is
+# handled at once and forwarded to it rather than deferred until it ends.
+# Returns CMD's status.
+ao_bg() {
+  "$@" 9>&- &
+  AO_CHILD=$!
+  wait "$AO_CHILD"
+  _ao_bgrc=$?
+  AO_CHILD=
+  return "$_ao_bgrc"
+}
+
 # _ao_watch PID SECONDS MARK  Portable watchdog for ao_timeout: after
 # SECONDS, mark the timeout, TERM PID (its group where it has one) and KILL
 # it 10 s later if it is still there. Polls once a second, so it ends on its
@@ -465,7 +552,7 @@ _ao_watch() {
       : >"$3"
       kill -s TERM -- "-$1" 2>/dev/null || kill -s TERM "$1" 2>/dev/null
       _n=0
-      while [ "$_n" -lt 10 ] && kill -0 "$1" 2>/dev/null; do
+      while [ "$_n" -lt "$AO_GRACE" ] && kill -0 "$1" 2>/dev/null; do
         sleep 1
         _n=$((_n + 1))
       done
@@ -482,7 +569,7 @@ _ao_watch() {
 _ao_reap() {
   kill -s TERM -- "-$1" 2>/dev/null || return 0
   _n=0
-  while [ "$_n" -lt 10 ] && kill -0 -- "-$1" 2>/dev/null; do
+  while [ "$_n" -lt "$AO_GRACE" ] && kill -0 -- "-$1" 2>/dev/null; do
     sleep 1
     _n=$((_n + 1))
   done

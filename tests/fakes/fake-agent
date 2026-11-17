@@ -12,6 +12,7 @@
 #   empty         answer nothing at all
 #   sent          claude delivery: stream-json events (built with jq) for one
 #                 successful SendMessage call carrying the requested message
+#   sentfail      the same events, then exit 1 (as after a turn limit)
 #   failed        same call, but the tool result reports success:false
 #   error         same call, but the tool result is an error
 #   wrongto       one successful call, to a different session
@@ -22,6 +23,16 @@
 # The answer goes to the file after -o (codex), to the third argument of
 # `run` (custom), or to stdout (claude).
 name=${0##*/}
+# `codex mcp list --json`: the configured tool servers ($FAKE_MCP, JSON; the
+# word `fail` makes the listing fail). Not logged: it is plumbing.
+if [ "$name" = codex ] && [ "${1-}" = mcp ]; then
+  case ${FAKE_MCP:-} in
+    fail) echo "fake: cannot read config" >&2; exit 1 ;;
+    '') echo '[{"name":"trade","enabled":true},{"name":"ui","enabled":false}]' ;;
+    *) printf '%s\n' "$FAKE_MCP" ;;
+  esac
+  exit 0
+fi
 if IFS= read -r _line; then stdin=data; else stdin=eof; fi
 {
   printf '== %s\ncwd: %s\nstdin: %s\n' "$name" "$PWD" "$stdin"
@@ -56,7 +67,7 @@ body=${body%"$nl$nl"After sending*}
 # an init event, an assistant event (with a message-level id) holding CALLS
 # SendMessage blocks, and a tool result per block.
 events() {
-  jq -cn '{type:"system",subtype:"init",tools:["ToolSearch","ListAgents","SendMessage"]}'
+  jq -cn '{type:"system",subtype:"init",tools:["ListAgents","SendMessage"]}'
   jq -cn --arg to "$1" --arg msg "$2" --argjson n "${5:-1}" '{type:"assistant",
     message:{id:"msg_01",role:"assistant",content:[range($n) as $i |
       {type:"tool_use",id:"toolu_\($i)",name:"SendMessage",
@@ -77,6 +88,7 @@ case ${FAKE_MODE:-ok} in
   nothing) answer NOTHING ;;
   empty) [ -z "$out" ] || : >"$out" ;;
   sent) events "$to" "$body" '{"success":true,"message":"delivered"}' ;;
+  sentfail) events "$to" "$body" '{"success":true}'; echo "Error: reached max turns" >&2; exit 1 ;;
   failed) events "$to" "$body" '{"success":false}' ;;
   error) events "$to" "$body" 'no such session' true ;;
   wrongto) events "Someone Else" "$body" '{"success":true}' ;;

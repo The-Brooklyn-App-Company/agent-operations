@@ -20,6 +20,27 @@ test_worker_codex_invocation_is_locked_down() {
   assert_lacks "$FAKE_LOG" "model_reasoning_effort"
 }
 
+test_worker_codex_switches_off_every_configured_server() {
+  prompt
+  FAKE_MCP='[{"name":"mail-sender","enabled":true},{"name":"broker_x","enabled":false}]' \
+    run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 0
+  for n in mail-sender broker_x trade ui; do
+    assert_has "$FAKE_LOG" "arg: mcp_servers.$n.enabled=false"
+  done
+}
+
+test_worker_codex_fails_closed_without_a_server_list() {
+  prompt
+  FAKE_MCP=fail run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 2
+  assert_no_file "$FAKE_LOG"
+  assert_has "$(ls "$T/home/inbox/oracle"/*-worker-fail-audit.md)" "cannot list Codex tool servers"
+  FAKE_MCP='[{"name":"bad name;x"}]' run worker-run.sh audit alpha "$T/prompt.md"
+  assert_rc 2
+  assert_no_file "$FAKE_LOG"
+}
+
 test_worker_result_goes_to_recipient() {
   prompt
   FAKE_OUTPUT="finding one" run worker-run.sh audit alpha "$T/prompt.md"
@@ -64,13 +85,13 @@ test_worker_preflight_failures_reach_oracle() {
   assert_count "$T/home/inbox/oracle" 1
 }
 
-test_worker_nothing_must_be_exact() {
+test_worker_nothing_tolerates_decoration_only() {
   prompt
   FAKE_OUTPUT="NOTHING
 but also one finding" run worker-run.sh audit alpha "$T/prompt.md"
   assert_count "$T/home/inbox/alpha" 1
-  FAKE_OUTPUT="  NOTHING" run worker-run.sh audit2 alpha "$T/prompt.md"
-  assert_count "$T/home/inbox/alpha" 2
+  FAKE_OUTPUT="  \`NOTHING.\`" run worker-run.sh audit2 alpha "$T/prompt.md"
+  assert_count "$T/home/inbox/alpha" 1
 }
 
 test_worker_unknown_recipient_reaches_oracle() {
@@ -123,7 +144,7 @@ test_worker_claude_invocation() {
   assert_has "$FAKE_LOG" "== claude"
   assert_has "$FAKE_LOG" "cwd: $T/proj/alpha"
   assert_has "$FAKE_LOG" "arg:  -starts with a dash"
-  for a in -p --no-session-persistence --strict-mcp-config --tools Read,Grep,Glob haiku \
+  for a in -p --no-session-persistence --restricted --strict-mcp-config --tools Read,Grep,Glob haiku \
     '{"disableAllHooks":true}'; do
     assert_has "$FAKE_LOG" "arg: $a"
   done
@@ -195,6 +216,17 @@ test_review_timeout() {
   assert_rc 124
   assert_has "$T/err" "timed out after 1s"
   assert_no_file "$T/review.md"
+}
+
+test_review_per_family_role() {
+  profile_set reviewer_claude_model strong-claude
+  printf 'Review this.\n' >"$T/packet.md"
+  run review-run.sh --role reviewer_claude "$T/packet.md" "$T/review.md" "$T/proj/alpha"
+  assert_rc 0
+  assert_has "$FAKE_LOG" "== claude"
+  assert_has "$FAKE_LOG" "arg: strong-claude"
+  assert_has "$FAKE_LOG" "arg: --restricted"
+  assert_has "$T/err" "role=reviewer_claude client=claude"
 }
 
 test_review_role_missing() {

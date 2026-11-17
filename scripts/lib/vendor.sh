@@ -10,10 +10,11 @@
 #   <prefix>_model        model id; empty = the client's own default
 #   <prefix>_effort       reasoning effort, where the client supports it
 #   <prefix>_timeout      hard limit in seconds (0 = none)
-#   <prefix>_mcp_disable  comma list of tool servers to switch off (codex);
+#   <prefix>_mcp_disable  extra tool servers to switch off (codex); every
+#                         configured server is switched off anyway, and
 #                         claude runs load no tool servers at all
 #   <prefix>_tools        claude tool allow-list; default Read,Grep,Glob for
-#                         runs, ToolSearch,ListAgents,SendMessage for delivery
+#                         runs, ListAgents,SendMessage for delivery
 #   <prefix>_max_turns    claude turn cap
 #   <prefix>_disallowed_tools  claude deny-list, added on top
 #   <prefix>_token_secret secret name fetched via the `secrets` slot
@@ -26,13 +27,17 @@
 #       answer goes to OUT_FILE, diagnostics to ERR_FILE; returns the status
 #   vendor_<client>_deliver NAME SESSION MESSAGE_FILE OUT_FILE RELAY_ID
 #       put MESSAGE_FILE (which contains RELAY_ID) in front of a live
-#       session; 0 only when delivery is confirmed, never on a model's word
+#       session; 0 only when delivery is confirmed, never on a model's word.
+#       A confirmed delivery with a caveat writes `warning: ...` as the first
+#       line of OUT_FILE. Optional: codex has none in 0.2.0
 #   vendor_<client>_activity DIR SESSION
 #       print the epoch time of the session's last activity, or nothing
 # Callers use ao_role_run, ao_role_deliver and ao_activity, never the vendor
 # functions directly, so a new harness is one new file.
 
 AO_VENDORS='claude codex custom'
+# Clients that can deliver a relay message; other rows read their inbox.
+AO_RELAY_VENDORS='claude custom'
 # One argv string: Linux caps a single argument at 128 KiB (MAX_ARG_STRLEN),
 # so prompts and relay messages stay below that with room for wrappers.
 AO_ARG_MAX_BYTES=120000
@@ -86,14 +91,22 @@ ao_role_load() {
   return 0
 }
 
-# _ao_role_token  Export the role's token into the current (sub)shell only.
-# A missing secret falls back to the client's normal sign-in.
+# _ao_role_token  Stage the role's token for the next client child only
+# (ao_timeout exports it inside that child). A secret that cannot be read
+# falls back to the client's normal sign-in, with a warning.
 _ao_role_token() {
+  _AO_TOK_ENV='' _AO_TOK_VAL=''
   [ -n "$R_TOKEN_SECRET" ] || return 0
-  if _ao_tok=$(ao_secret "$R_TOKEN_SECRET") && [ -n "$_ao_tok" ]; then
-    eval "export $R_TOKEN_ENV=\$_ao_tok"
+  if _AO_TOK_VAL=$(ao_secret "$R_TOKEN_SECRET") && [ -n "$_AO_TOK_VAL" ]; then
+    _AO_TOK_ENV=$R_TOKEN_ENV
+  else
+    _AO_TOK_VAL=
+    ao_warn "$R_PREFIX: secret '$R_TOKEN_SECRET' not readable; using the client's own sign-in"
   fi
-  unset _ao_tok
+}
+
+_ao_role_token_clear() {
+  _AO_TOK_ENV='' _AO_TOK_VAL=''
 }
 
 # ao_prompt_text FILE  Print a prompt file for use as one argv word. A leading
@@ -104,29 +117,28 @@ ao_prompt_text() {
   printf '%s' "$_ao_pt"
 }
 
-# ao_role_run WORKDIR PROMPT OUT ERR  Run the loaded role once. The token,
-# if any, is exported only inside the subshell that runs the client.
+# ao_role_run WORKDIR PROMPT OUT ERR  Run the loaded role once, in this
+# shell (so signals reach it at once); the token, if any, is visible only to
+# the client process.
 ao_role_run() {
   [ -d "$1" ] || ao_die "$AO_E_USAGE" "working directory not found: $1"
   [ -r "$2" ] || ao_die "$AO_E_USAGE" "prompt file not readable: $2"
   [ "$(wc -c <"$2")" -le "$AO_ARG_MAX_BYTES" ] ||
     ao_die "$AO_E_USAGE" "prompt file over $AO_ARG_MAX_BYTES bytes (one-argument limit): $2"
-  (_ao_role_token && "vendor_${R_CLIENT}_run" "$@")
+  _ao_role_token
+  "vendor_${R_CLIENT}_run" "$@"
+  _ao_rr=$?
+  _ao_role_token_clear
+  return "$_ao_rr"
 }
 
 # ao_role_deliver NAME SESSION MESSAGE OUT ID  Deliver through the loaded role.
 ao_role_deliver() {
-  (_ao_role_token && "vendor_${R_CLIENT}_deliver" "$@")
-}
-
-# ao_mcp_each CALLBACK  Call CALLBACK once per name in R_MCP.
-ao_mcp_each() {
-  _ao_rest=$R_MCP,
-  while [ -n "$_ao_rest" ]; do
-    _ao_one=${_ao_rest%%,*}
-    _ao_rest=${_ao_rest#*,}
-    [ -z "$_ao_one" ] || "$1" "$_ao_one"
-  done
+  _ao_role_token
+  "vendor_${R_CLIENT}_deliver" "$@"
+  _ao_rr=$?
+  _ao_role_token_clear
+  return "$_ao_rr"
 }
 
 # ao_activity CLIENT DIR SESSION  Print the session's last-activity epoch,

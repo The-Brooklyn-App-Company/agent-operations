@@ -1,11 +1,22 @@
 #!/bin/sh
-# check.sh - deterministic repository checks: duplicate rule text, skill
-# shape, privacy. Needs no profile; safe to run in CI.
+# check.sh - deterministic repository checks: links, duplicate rule text,
+# skill shape, home layout, privacy. Needs no profile; safe to run in CI.
 #
-# Usage: check.sh dupes [--min-words N] FILE...
+# Usage: check.sh kit
+#        check.sh links [FILE...]
+#        check.sh dupes [--min-words N] FILE...
 #        check.sh skills [--max-lines N] DIR...
+#        check.sh home DIR...
 #        check.sh privacy [--denylist FILE] [PATH...]
 #
+# kit      Run in a kit checkout (CI does): links over every tracked
+#          Markdown file and skills over skills/ must pass; duplicate rule
+#          text across kit/, docs/ and skills/ is reported as a warning.
+# links    Every relative Markdown link [text](target) in the given files
+#          (default: the Markdown files git tracks here) must name an
+#          existing file or directory, and a #fragment must match a heading
+#          in the target (GitHub's anchor rules, ASCII). Web, mail and
+#          absolute links are not checked. Output: `file:line: target`.
 # dupes    One home per rule: reports any sentence of at least N words
 #          (default 10) that appears in more than one of the given Markdown
 #          files, after normalising case, punctuation and Markdown markup.
@@ -13,13 +24,21 @@
 #          finding per line: `file:line, file:line: "sentence..."`.
 # skills   Thin skills: reports every SKILL.md under DIR longer than N lines
 #          (default 60) or with no pointer into docs/ or templates/.
-# privacy  Reports home-directory paths, e-mail addresses (other than the
-#          reserved example.com/.org/.net, .example, .test, .invalid and
-#          .localhost domains) and every case-insensitive match of the lines
-#          in the denylist (default: $AO_PRIVACY_DENYLIST). Keep the denylist
-#          local and untracked. PATHs default to the files git tracks in the
-#          current directory. Matching lines are printed as file:line only,
-#          never with their text, so the report itself leaks nothing.
+# home     A kit-managed operator home: AGENTS.md and MANDATE.md exist;
+#          CLAUDE.md, if present, only imports AGENTS.md (`@AGENTS.md`);
+#          operator.conf, if present, has only key, session.<client> and
+#          work.<name>=<url>|owner|contributor lines. Across all DIRs, a
+#          repository URL may have only one owner.
+# privacy  Reports home-directory paths (/Users/x, /home/x, ~x/,
+#          C:\Users\x), e-mail addresses (other than the reserved
+#          example.com/.org/.net, .example, .test, .invalid and .localhost
+#          domains) and every case-insensitive match of the lines in the
+#          denylist (default: $AO_PRIVACY_DENYLIST), in file contents and in
+#          file names. Binary files are listed as not scanned. Keep the
+#          denylist local and untracked. PATHs default to the files git
+#          tracks in the current directory. Matching lines are printed as
+#          file:line only, never with their text, so the report itself leaks
+#          nothing. Git history and author metadata are out of scope.
 #
 # Exit codes: 0 clean; 1 findings, or a scan that could not complete (the
 # message says which); 2 usage error.
@@ -117,6 +136,129 @@ check_skills() {
   [ "$_bad" -eq 0 ] || return "$AO_E_FAIL"
 }
 
+# check_links [FILE...]  Report dead relative links and fragments.
+check_links() {
+  if [ $# -eq 0 ]; then
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+      ao_die "$AO_E_USAGE" "not a git checkout; pass files explicitly"
+    _list=$(ao_tmp mdlist)
+    git ls-files -z -- '*.md' >"$_list" || ao_die "$AO_E_USAGE" "git ls-files failed"
+    [ -s "$_list" ] || return 0
+    xargs -0 "$AO_SCRIPTS/check.sh" links <"$_list"
+    return
+  fi
+  _bad=0
+  for _f in "$@"; do
+    [ -r "$_f" ] || ao_die "$AO_E_USAGE" "not readable: $_f"
+    _dir=$(dirname -- "$_f")
+    # One line per link: LINE<TAB>TARGET (code blocks and spans skipped).
+    check_link_targets "$_f" >"$AO_TMPDIR/links" || ao_die "$AO_E_FAIL" "cannot read links in $_f"
+    while IFS="$AO_TAB" read -r _ln _t; do
+      case $_t in
+        '' | http:* | https:* | mailto:* | /*) continue ;;
+        '#'*) _path=$_f _frag=${_t#\#} ;;
+        *'#'*) _path=$_dir/${_t%%#*} _frag=${_t#*#} ;;
+        *) _path=$_dir/$_t _frag= ;;
+      esac
+      if [ ! -e "$_path" ]; then
+        printf '%s:%s: %s\n' "$_f" "$_ln" "$_t"
+        _bad=1
+      elif [ -n "$_frag" ] && [ -f "$_path" ] && ! check_link_anchors "$_path" | grep -Fxq -- "$_frag"; then
+        printf '%s:%s: %s (no such heading)\n' "$_f" "$_ln" "$_t"
+        _bad=1
+      fi
+    done <"$AO_TMPDIR/links"
+  done
+  [ "$_bad" -eq 0 ] || return "$AO_E_FAIL"
+}
+
+check_link_targets() {
+  case $1 in /*) _op=$1 ;; *) _op=./$1 ;; esac
+  awk '
+    /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
+    fence { next }
+    {
+      line = $0
+      gsub(/`[^`]*`/, "", line)
+      while (match(line, /\]\([^)[:space:]]+\)/)) {
+        t = substr(line, RSTART + 2, RLENGTH - 3)
+        line = substr(line, RSTART + RLENGTH)
+        print FNR "\t" t
+      }
+    }' "$_op"
+}
+
+# check_link_anchors FILE  Print the GitHub anchor of every heading.
+check_link_anchors() {
+  case $1 in /*) _op=$1 ;; *) _op=./$1 ;; esac
+  awk '
+    /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
+    fence { next }
+    /^#+[[:space:]]/ {
+      h = $0
+      sub(/^#+[[:space:]]+/, "", h)
+      sub(/[[:space:]]+#+[[:space:]]*$/, "", h)
+      h = tolower(h)
+      gsub(/[^a-z0-9 _-]/, "", h)
+      gsub(/ /, "-", h)
+      if (h in seen) { n = seen[h]++; print h "-" n } else { seen[h] = 1; print h }
+    }' "$_op"
+}
+
+# check_home DIR...  Kit-managed home layout and single ownership.
+check_home() {
+  [ $# -gt 0 ] || ao_die "$AO_E_USAGE" "home needs at least one directory"
+  _bad=0
+  _owners=$(ao_tmp owners)
+  for _h in "$@"; do
+    [ -d "$_h" ] || ao_die "$AO_E_USAGE" "not a directory: $_h"
+    for _req in AGENTS.md MANDATE.md; do
+      [ -f "$_h/$_req" ] || { printf '%s: missing %s\n' "$_h" "$_req"; _bad=1; }
+    done
+    if [ -f "$_h/CLAUDE.md" ] && [ "$(grep -v '^[[:space:]]*$' "$_h/CLAUDE.md")" != "@AGENTS.md" ]; then
+      printf '%s/CLAUDE.md: must contain only @AGENTS.md\n' "$_h"
+      _bad=1
+    fi
+    [ -f "$_h/operator.conf" ] || continue
+    _n=0
+    while IFS= read -r _l || [ -n "$_l" ]; do
+      _n=$((_n + 1))
+      case $_l in '' | '#'*) continue ;; esac
+      _k=${_l%%=*} _v=${_l#*=}
+      case $_k in
+        key) ao_is_name "$_v" || { printf '%s/operator.conf:%s: invalid key\n' "$_h" "$_n"; _bad=1; } ;;
+        session.claude | session.codex | session.custom) ;;
+        work.*)
+          case $_v in
+            *'|owner') printf '%s\t%s\n' "${_v%|owner}" "$_h" >>"$_owners" ;;
+            *'|contributor') ;;
+            *) printf '%s/operator.conf:%s: work value must end in |owner or |contributor\n' "$_h" "$_n"; _bad=1 ;;
+          esac ;;
+        *) printf '%s/operator.conf:%s: unknown key %s\n' "$_h" "$_n" "$_k"; _bad=1 ;;
+      esac
+    done <"$_h/operator.conf"
+  done
+  _dups=$(cut -f 1 "$_owners" | sort | uniq -d)
+  if [ -n "$_dups" ]; then
+    printf '%s\n' "$_dups" | while IFS= read -r _u; do printf 'owned by more than one home: %s\n' "$_u"; done
+    _bad=1
+  fi
+  [ "$_bad" -eq 0 ] || return "$AO_E_FAIL"
+}
+
+# check_kit  The kit repository's own gate.
+check_kit() {
+  [ -f kit/KIT.md ] && [ -d skills ] || ao_die "$AO_E_USAGE" "run check.sh kit at the root of a kit checkout"
+  _rc=0
+  check_links || _rc=$AO_E_FAIL
+  check_skills skills || _rc=$AO_E_FAIL
+  set -- kit/KIT.md docs/*.md skills/*/SKILL.md
+  if ! _d=$(check_dupes "$@"); then
+    printf 'warning: duplicated rule text (keep one home, point to it):\n%s\n' "$_d"
+  fi
+  return "$_rc"
+}
+
 # check_privacy_each PATTERNS FILE...  Scan each text file (internal entry
 # point, run through xargs -0 / find -exec so any file name is safe). Exits
 # 2 if a file cannot be read.
@@ -127,12 +269,25 @@ check_privacy_each() {
   for _f in "$@"; do
     [ -f "$_f" ] || continue
     [ -r "$_f" ] || { ao_warn "cannot read $_f"; _rc=2; continue; }
-    # grep: 0 text, 1 binary or empty (skip), 2 error (fail).
+    check_privacy_name "$_f" "$_pat"
+    # grep: 0 text, 1 binary or empty, 2 error (fail).
     grep -qI . -- "$_f" 2>/dev/null
-    case $? in 0) ;; 1) continue ;; *) ao_warn "cannot read $_f"; _rc=2; continue ;; esac
+    case $? in
+      0) ;;
+      1) [ ! -s "$_f" ] || printf '%s: binary, not scanned\n' "$_f"; continue ;;
+      *) ao_warn "cannot read $_f"; _rc=2; continue ;;
+    esac
     check_privacy_scan "$_f" "$_pat" || { ao_warn "could not scan $_f"; _rc=2; }
   done
   return "$_rc"
+}
+
+# check_privacy_name FILE PATTERNS  Report a denylist match in the path.
+check_privacy_name() {
+  AO_F=$1 AO_P=$2 awk 'BEGIN {
+    f = ENVIRON["AO_F"]; low = tolower(f)
+    while ((getline p < ENVIRON["AO_P"]) > 0) if (p != "" && index(low, tolower(p))) { print f ": denylist match in the file name"; exit }
+  }'
 }
 
 # check_privacy_scan FILE PATTERNS  Print `FILE:LINE: kind` for each finding.
@@ -145,7 +300,7 @@ check_privacy_scan() {
       while ((getline p < ENVIRON["AO_P"]) > 0) if (p != "") deny[++nd] = tolower(p)
     }
     {
-      if ($0 ~ /(^|[[:space:]"\047=:(`])(\/Users|\/home)\/[A-Za-z0-9._-]+/) print f ":" FNR ": home path"
+      if ($0 ~ /\/(Users|home)\/[A-Za-z0-9._-]+/ || $0 ~ /(^|[^A-Za-z0-9])~[a-z][a-z0-9_-]*\// || $0 ~ /[A-Za-z]:(\\)+Users(\\)+/) print f ":" FNR ": home path"
       rest = $0
       while (match(rest, /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]+/)) {
         addr = tolower(substr(rest, RSTART, RLENGTH))
@@ -204,12 +359,15 @@ check_privacy() {
 
 main() {
   case ${1-} in
+    kit) shift; check_kit "$@" ;;
+    links) shift; check_links "$@" ;;
+    home) shift; check_home "$@" ;;
     dupes) shift; check_dupes "$@" ;;
     skills) shift; check_skills "$@" ;;
     privacy) shift; check_privacy "$@" ;;
     __scan) shift; check_privacy_each "$@" ;;
     -h | --help) ao_usage; exit 0 ;;
-    *) ao_die "$AO_E_USAGE" "usage: check.sh dupes|skills|privacy ... (see --help)" ;;
+    *) ao_die "$AO_E_USAGE" "usage: check.sh kit|links|dupes|skills|home|privacy ... (see --help)" ;;
   esac
 }
 

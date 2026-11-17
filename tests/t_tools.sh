@@ -198,4 +198,57 @@ test_drift_needs_files() {
   assert_has "$T/err" "nothing to audit"
 }
 
+test_check_privacy_more_forms() {
+  mkdir -p "$T/repo"
+  printf 'see file://%s/x\n' "/Us""ers/alice" >"$T/repo/a.md"
+  printf 'cc -I%s/inc\n' "/Us""ers/alice" >"$T/repo/b.md"
+  printf 'cd %s\n' "~ali""ce/src" >"$T/repo/c.md"
+  bs=$(printf '\134')
+  printf 'C:%sUsers%salice\n' "$bs" "$bs" >"$T/repo/d.md"
+  printf 'fine\n' >"$T/repo/bluebird-notes.md"
+  printf '\000\001binary' >"$T/repo/e.bin"
+  printf 'bluebird\n' >"$T/deny"
+  run check.sh privacy --denylist "$T/deny" "$T/repo"
+  assert_rc 1
+  for f in a b c d; do assert_has "$T/out" "$T/repo/$f.md:1: home path"; done
+  assert_has "$T/out" "bluebird-notes.md: denylist match in the file name"
+  assert_has "$T/out" "$T/repo/e.bin: binary, not scanned"
+}
+
+test_check_links() {
+  mkdir -p "$T/d/sub"
+  printf '# Top\n## Two words, here!\n## Two words, here!\n' >"$T/d/sub/t.md"
+  cat >"$T/d/a.md" <<'MD'
+[ok](sub/t.md) [ok2](sub/t.md#two-words-here) [dup](sub/t.md#two-words-here-1)
+[self](#local) [web](https://example.com/x) [dir](sub)
+`[code](nowhere.md)`
+[dead](missing.md) [badfrag](sub/t.md#nope)
+```
+[fenced](nowhere.md)
+```
+## Local
+MD
+  run check.sh links "$T/d/a.md"
+  assert_rc 1
+  assert_eq "$(wc -l <"$T/out" | tr -d ' ')" 2 "dead links"
+  assert_has "$T/out" "a.md:4: missing.md"
+  assert_has "$T/out" "a.md:4: sub/t.md#nope (no such heading)"
+}
+
+test_check_home() {
+  mkdir -p "$T/h1" "$T/h2"
+  for h in h1 h2; do printf 'x\n' >"$T/$h/AGENTS.md"; printf 'x\n' >"$T/$h/MANDATE.md"; done
+  printf '@AGENTS.md\n' >"$T/h1/CLAUDE.md"
+  printf 'key=web\nwork.app=git@git.example.com:o/app.git|owner\n' >"$T/h1/operator.conf"
+  run check.sh home "$T/h1"
+  assert_rc 0
+  printf 'Read AGENTS.md and also this rule.\n' >"$T/h2/CLAUDE.md"
+  printf 'key=infra\nwork.app=git@git.example.com:o/app.git|owner\nwork.x=u|boss\n' >"$T/h2/operator.conf"
+  run check.sh home "$T/h1" "$T/h2"
+  assert_rc 1
+  assert_has "$T/out" "h2/CLAUDE.md: must contain only @AGENTS.md"
+  assert_has "$T/out" "owned by more than one home: git@git.example.com:o/app.git"
+  assert_has "$T/out" "h2/operator.conf:3: work value must end"
+}
+
 ao_test_main "$0"

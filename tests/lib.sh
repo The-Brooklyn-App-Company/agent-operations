@@ -1,4 +1,4 @@
-# shellcheck shell=sh disable=SC2034
+# shellcheck shell=sh disable=SC2034,SC2016
 # (SC2034: the globals below are read by the test files.)
 # lib.sh - tiny test harness for the kit's shell scripts. Sourced by each
 # tests/t_*.sh file, which defines test_* functions and ends with
@@ -31,7 +31,11 @@ ao_test_setup() {
   PATH="$T/bin:$PATH" HOME=$T/user CLAUDE_CONFIG_DIR=$T/claude CODEX_HOME=$T/codex
   AO_PROFILE=$T/profile FAKE_LOG=$T/fake.log
   export PATH HOME CLAUDE_CONFIG_DIR CODEX_HOME AO_PROFILE FAKE_LOG
-  unset XDG_CONFIG_HOME XDG_STATE_HOME AO_NOW FAKE_MODE FAKE_OUTPUT AO_TIMEOUT_BIN AO_PRIVACY_DENYLIST
+  unset XDG_CONFIG_HOME XDG_STATE_HOME AO_NOW FAKE_MODE FAKE_OUTPUT FAKE_MCP AO_TIMEOUT_BIN \
+    AO_PRIVACY_DENYLIST AO_LOCK_TOOL AO_KEEP_STREAM
+  # A short TERM-to-KILL grace keeps the timeout tests fast.
+  AO_GRACE=1
+  export AO_GRACE
   cat >"$T/profile" <<EOF
 oracle_home=$T/home
 state_dir=$T/state
@@ -82,6 +86,20 @@ transcript() {
   : >"$T/claude/projects/$_slug/0000-test.jsonl"
   touch -t "$2" "$T/claude/projects/$_slug/0000-test.jsonl"
 }
+
+# hold_lock NAME  Hold the kit's kernel lock NAME from another process
+# until release_lock; returns once it is held.
+hold_lock() {
+  _lf=$T/state/locks/$1.lk
+  mkdir -p "$T/state/locks"
+  "$AO_TEST_SHELL" -c 'exec 9>>"$1"
+    if command -v flock >/dev/null 2>&1; then flock -n 9; else lockf -s -t 0 9; fi || exit 1
+    : >"$1.held"; exec sleep 60' sh "$_lf" </dev/null >/dev/null 2>&1 &
+  HOLDER=$!
+  _n=0
+  while [ ! -e "$_lf.held" ] && [ "$_n" -lt 50 ]; do sleep 0.1; _n=$((_n + 1)); done
+}
+release_lock() { kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null; }
 
 count_files() {
   set -- "$1"/*

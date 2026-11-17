@@ -13,8 +13,10 @@
 #   2. Hooks. Executables in <hooks_dir>/every run on every tick; those in
 #      hourly/, daily/ (from daily_hour) and weekly/ (from weekly_day at
 #      weekly_hour, catching up later that ISO week) run once per period
-#      each (stamped as they start), in name order, under hook_timeout. A failing hook leaves one
-#      note in the Oracle's inbox. Hooks get AO_PROFILE, AO_HOME, AO_INBOX,
+#      each (stamped as they start), in name order, under hook_timeout.
+#      A failing hook leaves one note in the Oracle's inbox, at most once
+#      per watchdog_realert_min per hook. Group- or world-writable hooks are
+#      skipped. A TERM to the tick stops the running hook first. Hooks get AO_PROFILE, AO_HOME, AO_INBOX,
 #      AO_STATE, AO_SCRIPTS, AO_ORACLE_KEY and AO_PERIOD, stdin closed,
 #      cwd = oracle_home; their output goes to <state_dir>/hooks.log.
 #   3. Relay (relay.sh), which costs nothing when every inbox is empty.
@@ -61,14 +63,19 @@ tick_in_days() {
 }
 
 # tick_in_hours HOUR SPEC  SPEC: `all`, or HH-HH (start inclusive, end
-# exclusive: 09-19 is 09:00 to 18:59).
+# exclusive: 09-19 is 09:00 to 18:59). A window may wrap past midnight:
+# 22-06 is 22:00 to 05:59.
 tick_in_hours() {
   [ "$2" = all ] && return 0
   _lo=$(tick_num "${2%-*}") _hi=$(tick_num "${2#*-}")
-  if ! ao_is_uint "$_lo" || ! ao_is_uint "$_hi"; then
-    ao_die "$AO_E_USAGE" "watchdog_hours: expected HH-HH or all, got '$2'"
+  if ! ao_is_uint "$_lo" || ! ao_is_uint "$_hi" || [ "$_lo" -gt 23 ] || [ "$_hi" -gt 24 ] || [ "$_lo" -eq "$_hi" ]; then
+    ao_die "$AO_E_USAGE" "watchdog_hours: expected HH-HH (different hours) or all, got '$2'"
   fi
-  [ "$1" -ge "$_lo" ] && [ "$1" -lt "$_hi" ]
+  if [ "$_lo" -lt "$_hi" ]; then
+    [ "$1" -ge "$_lo" ] && [ "$1" -lt "$_hi" ]
+  else
+    [ "$1" -ge "$_lo" ] || [ "$1" -lt "$_hi" ]
+  fi
 }
 
 # watchdog_row  Registry callback: alert on one stalled operator.
@@ -144,6 +151,12 @@ tick_hooks() {
     _name=${_hook##*/}
     case $_name in .* | *~ | *.disabled | *.example) continue ;; esac
     [ -f "$_hook" ] && [ -x "$_hook" ] || continue
+    if [ -n "$(find "$_hook" -prune \( -perm -0020 -o -perm -0002 \) -print 2>/dev/null)" ]; then
+      ao_warn "skipping $1/$_name: group- or world-writable"
+      ao_log "$AO_STATE/hooks.log" "SKIPPED $1/$_name: group- or world-writable"
+      failures=$((failures + 1))
+      continue
+    fi
     _sfile=$AO_STATE/stamps/$1-$_name
     if [ -n "$_want" ] && [ "$(cat "$_sfile" 2>/dev/null)" = "$_want" ]; then
       continue
@@ -159,22 +172,40 @@ tick_hooks() {
       continue
     fi
     ao_log "$AO_STATE/hooks.log" "run $1/$_name"
-    (cd "$AO_HOME" && AO_PERIOD=$1 && export AO_PERIOD &&
-      ao_timeout "$hook_timeout" "$_hook" >>"$AO_STATE/hooks.log" 2>&1)
+    # In this shell, not a subshell, so a TERM to the tick reaches the hook.
+    AO_PERIOD=$1 AO_RUN_DIR=$AO_HOME
+    export AO_PERIOD
+    ao_timeout "$hook_timeout" "$_hook" >>"$AO_STATE/hooks.log" 2>&1
     _rc=$?
+    AO_RUN_DIR=
     [ "$_rc" -eq 0 ] && continue
     failures=$((failures + 1))
     ao_log "$AO_STATE/hooks.log" "FAILED $1/$_name rc=$_rc"
-    ao_note_oracle "hook-fail-$1-$_name" "Hook $1/$_name failed (exit $_rc) at $AO_T_STAMP. Output: $AO_STATE/hooks.log" ||
-      ao_warn "could not tell the Oracle that hook $1/$_name failed"
+    tick_hook_alert "$1" "$_name" "$_rc"
   done
+}
+
+# tick_hook_alert PERIOD NAME RC  Tell the Oracle a hook failed, at most once
+# per watchdog_realert_min for each hook.
+tick_hook_alert() {
+  _hs=$AO_STATE/hookfail/$1-$2.last
+  _last=$(cat "$_hs" 2>/dev/null) || _last=0
+  ao_is_uint "$_last" || _last=0
+  [ $((AO_T_EPOCH - _last)) -ge $((realert_min * 60)) ] || return 0
+  if ao_note_oracle "hook-fail-$1-$2" "Hook $1/$2 failed (exit $3) at $AO_T_STAMP. Output: $AO_STATE/hooks.log. Further failures of this hook are logged without a note for $realert_min minutes."; then
+    if ! { mkdir -p "$AO_STATE/hookfail" && printf '%s\n' "$AO_T_EPOCH" | ao_write_atomic "$_hs"; }; then
+      ao_warn "cannot record $_hs"
+    fi
+  else
+    ao_warn "could not tell the Oracle that hook $1/$2 failed"
+  fi
 }
 
 tick_relay() {
   if [ -n "$dry_run" ]; then
-    "$AO_SCRIPTS/relay.sh" --dry-run
+    ao_bg "$AO_SCRIPTS/relay.sh" --dry-run
   else
-    "$AO_SCRIPTS/relay.sh"
+    ao_bg "$AO_SCRIPTS/relay.sh"
   fi
   case $? in 0 | "$AO_E_BUSY") ;; *) failures=$((failures + 1)) ;; esac
 }
@@ -195,6 +226,7 @@ main() {
   daily_hour=$(ao_cfg_uint daily_hour 6) || exit
   weekly_day=$(ao_cfg_uint weekly_day 5) || exit
   weekly_hour=$(ao_cfg_uint weekly_hour 6) || exit
+  realert_min=$(ao_cfg_uint watchdog_realert_min 180) || exit
   tick_watchdog
   for period in every hourly daily weekly; do tick_hooks "$period"; done
   [ -z "$relay" ] || tick_relay

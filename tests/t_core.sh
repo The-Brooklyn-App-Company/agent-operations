@@ -32,6 +32,27 @@ EOF
   assert_no_file "$PWD/SHOULD_NOT_EXIST"
 }
 
+test_profile_ignores_the_environment() {
+  AO_C_relay_label=from-env AO_C_worker_cmd=/bin/evil
+  export AO_C_relay_label AO_C_worker_cmd
+  lib 'echo "label=$(ao_cfg relay_label dflt) cmd=$(ao_cfg worker_cmd none)"'
+  assert_eq "$(cat "$T/out")" "label=dflt cmd=none"
+}
+
+test_nothing_answers() {
+  for a in NOTHING 'NOTHING.' '`NOTHING`' '  NOTHING' '**NOTHING**'; do
+    printf '%s\n' "$a" >"$T/ans"
+    lib 'ao_is_nothing "$AO_HOME/../ans" && echo yes || echo no'
+    assert_eq "$(cat "$T/out")" yes "NOTHING variant [$a]"
+  done
+  for a in 'Nothing to report, except X' 'NOTHING
+but one finding'; do
+    printf '%s\n' "$a" >"$T/ans"
+    lib 'ao_is_nothing "$AO_HOME/../ans" && echo yes || echo no'
+    assert_eq "$(cat "$T/out")" no "finding [$a]"
+  done
+}
+
 test_profile_later_lines_win() {
   profile_set worker_model second
   lib 'ao_cfg worker_model'
@@ -97,18 +118,48 @@ test_clock_can_be_pinned() {
 }
 
 test_lock_is_exclusive_and_released() {
-  lib 'ao_lock demo && echo first; ( AO_LOCK=; ao_lock demo; echo "inner=$?" )'
-  assert_has "$T/out" first
-  assert_has "$T/out" "inner=3"
-  assert_no_file "$T/state/locks/demo.lock"
+  for tool in "" mkdir; do
+    AO_LOCK_TOOL=$tool
+    export AO_LOCK_TOOL
+    lib 'ao_lock demo && echo first; ( AO_LOCK=; ao_lock demo; echo "inner=$?" )'
+    assert_has "$T/out" first
+    assert_has "$T/out" "inner=3"
+    lib 'ao_lock demo && echo again'
+    assert_has "$T/out" again
+  done
+}
+
+test_kernel_lock_ignores_a_recycled_pid() {
+  # A lock file naming a live, unrelated process (this test shell) must not
+  # block: only a held kernel lock counts.
+  mkdir -p "$T/state/locks"
+  echo $$ >"$T/state/locks/demo.lk"
+  lib 'ao_lock demo && echo got'
+  assert_has "$T/out" got
+  hold_lock demo
+  lib 'ao_lock demo; echo "rc=$?"'
+  release_lock
+  assert_has "$T/out" "rc=3"
+}
+
+test_lock_is_not_inherited_by_children() {
+  # A child that outlives the script (say, a stray background process)
+  # must not keep the lock.
+  lib 'ao_lock demo; ao_timeout 5 sh -c "sleep 4 &"; echo started'
+  lib 'ao_lock demo && echo free'
+  assert_has "$T/out" free
 }
 
 test_cleanup_only_releases_own_lock() {
+  AO_LOCK_TOOL='mkdir'
+  export AO_LOCK_TOOL
   lib 'ao_lock demo; echo 1 >"$AO_STATE/locks/demo.lock/pid"'
   assert_file "$T/state/locks/demo.lock"
 }
 
 test_reclaim_generation_marker_excludes_contenders() {
+  AO_LOCK_TOOL='mkdir'
+  export AO_LOCK_TOOL
   mkdir -p "$T/state/locks/demo.lock" "$T/state/locks/demo.lock.reclaim-999999999"
   echo 999999999 >"$T/state/locks/demo.lock/pid"
   lib 'ao_lock demo; echo "rc=$?"'
@@ -117,6 +168,8 @@ test_reclaim_generation_marker_excludes_contenders() {
 }
 
 test_reclaim_backs_off_when_owner_changed() {
+  AO_LOCK_TOOL='mkdir'
+  export AO_LOCK_TOOL
   # A lock held by a live process (this test shell) is never reclaimed.
   mkdir -p "$T/state/locks/demo.lock"
   echo $$ >"$T/state/locks/demo.lock/pid"
@@ -141,6 +194,8 @@ test_inbox_put_never_overwrites() {
 }
 
 test_stale_lock_is_reclaimed() {
+  AO_LOCK_TOOL='mkdir'
+  export AO_LOCK_TOOL
   mkdir -p "$T/state/locks/demo.lock"
   # A pid that cannot be alive: above any default pid_max.
   echo 999999999 >"$T/state/locks/demo.lock/pid"
@@ -150,8 +205,9 @@ test_stale_lock_is_reclaimed() {
 }
 
 test_subshell_exit_keeps_parent_lock_and_tmp() {
-  lib 'ao_lock demo; f=$(ao_tmp keep); ( exit 3 ); [ -d "$AO_STATE/locks/demo.lock" ] && [ -f "$f" ] && echo intact'
+  lib 'ao_lock demo; f=$(ao_tmp keep); ( exit 3 ); ( AO_LOCK=; ao_lock demo; echo "inner=$?" ); [ -f "$f" ] && echo intact'
   assert_has "$T/out" intact
+  assert_has "$T/out" "inner=3"
 }
 
 test_timeout_portable_fallback() {
@@ -192,7 +248,8 @@ test_interrupt_stops_children_before_releasing_lock() {
   sleep 2
   kill -s TERM "$sup"
   wait "$sup"
-  assert_no_file "$T/state/locks/demo.lock"
+  lib 'ao_lock demo && echo free'
+  assert_has "$T/out" free
   sleep 3
   assert_no_file "$T/home/stubborn"
 }

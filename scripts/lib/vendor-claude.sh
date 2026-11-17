@@ -1,25 +1,29 @@
-# shellcheck shell=sh disable=SC2153
-# (SC2153: R_* globals come from ao_role_load in vendor.sh.)
+# shellcheck shell=sh disable=SC2153,SC2034
+# (SC2153: R_* globals come from ao_role_load in vendor.sh; SC2034:
+# AO_RUN_DIR is read by ao_timeout in core.sh.)
 # vendor-claude.sh - Claude Code behind the vendor interface (see vendor.sh).
 #
-# Every invocation is headless (`claude -p`), loads no tool servers
-# (--strict-mcp-config without --mcp-config) and runs no hooks
-# (disableAllHooks), so user or project customisation cannot act on the
-# machine before or around the run.
+# Every invocation is headless (`claude -p`) and --restricted (user,
+# project and local settings ignored; code-running tools and WebFetch
+# removed; file tools confined to the working directory), loads no tool
+# servers (--strict-mcp-config without --mcp-config) and runs no hooks
+# (disableAllHooks). Verified with Claude Code 2.1.322 on 2026-11-17.
 #
 # run:      no session persistence; built-in tools limited to <role>_tools,
 #           default read-only (Read,Grep,Glob).
 # deliver:  a short run whose only job is one call of the built-in
-#           SendMessage tool (Claude Code 2.1.224+), addressed to the
-#           session's display name. The message is untrusted text in front of
-#           a model, so the run may use only <role>_tools, default
-#           ToolSearch,ListAgents,SendMessage, and success is never taken from
-#           the model's words: the JSON event stream must show exactly one
-#           SendMessage call, addressed to this name, whose text is this batch
-#           (exact, ignoring only leading and trailing blank space), and a
-#           successful, non-error result for
-#           that call. Verifying needs jq; without it delivery fails closed.
-#           Delivered is not read.
+#           SendMessage tool, addressed to the session's display name. The
+#           message is the relay's fixed-shape pointer (never note text), the
+#           run may use only <role>_tools (default ListAgents,SendMessage),
+#           and success is never taken from the model's words: the JSON event
+#           stream must show exactly one SendMessage call, addressed to this
+#           name, and a successful, non-error result for that call. The
+#           stream is checked even when the client exits non-zero or times
+#           out, so a send that landed is never repeated. If the text differs
+#           from the message the delivery still counts, with a warning.
+#           Verifying needs jq; without it delivery fails closed. Delivered
+#           is not read. AO_KEEP_STREAM=<file> keeps a copy of the event
+#           stream, for diagnosis.
 # activity: the registered session's transcript
 #           ($CLAUDE_CONFIG_DIR/projects/<dir-slug>/<session>.jsonl). A
 #           registered CLI session id (a UUID) must match exactly; other ids,
@@ -31,19 +35,23 @@
 
 _VC_SETTINGS='{"disableAllHooks":true}'
 _VC_RUN_TOOLS='Read,Grep,Glob'
-_VC_RELAY_TOOLS='ToolSearch,ListAgents,SendMessage'
+_VC_RELAY_TOOLS='ListAgents,SendMessage'
 _VC_UUID='[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 
 vendor_claude_run() {
   _vc_dir=$1 _vc_out=$3 _vc_err=$4
   set -- "$R_CMD" -p "$(ao_prompt_text "$2")" --no-session-persistence \
-    --strict-mcp-config --settings "$_VC_SETTINGS"
+    --restricted --strict-mcp-config --settings "$_VC_SETTINGS"
   [ -z "$R_MODEL" ] || set -- "$@" --model "$R_MODEL"
   [ -z "$R_MAX_TURNS" ] || set -- "$@" --max-turns "$R_MAX_TURNS"
   _vc_tools=${R_TOOLS:-$_VC_RUN_TOOLS}
   [ "$_vc_tools" = default ] || set -- "$@" --tools "$_vc_tools"
   [ -z "$R_DISALLOWED" ] || set -- "$@" --disallowedTools "$R_DISALLOWED"
-  (cd "$_vc_dir" && ao_timeout "$R_TIMEOUT" "$@" >"$_vc_out" 2>"$_vc_err")
+  AO_RUN_DIR=$_vc_dir
+  ao_timeout "$R_TIMEOUT" "$@" >"$_vc_out" 2>"$_vc_err"
+  _vc_rc=$?
+  AO_RUN_DIR=
+  return "$_vc_rc"
 }
 
 vendor_claude_deliver() {
@@ -62,26 +70,36 @@ $(cat "$_vc_msg")
 
 After sending, print SENT. If SendMessage fails, print FAILED and the error."
   set -- "$R_CMD" -p "$_vc_prompt" --output-format stream-json --verbose \
-    --strict-mcp-config --settings "$_VC_SETTINGS"
+    --restricted --strict-mcp-config --settings "$_VC_SETTINGS"
   [ -z "$R_MODEL" ] || set -- "$@" --model "$R_MODEL"
   [ -z "$R_MAX_TURNS" ] || set -- "$@" --max-turns "$R_MAX_TURNS"
   _vc_tools=${R_TOOLS:-$_VC_RELAY_TOOLS}
   [ "$_vc_tools" = default ] || set -- "$@" --tools "$_vc_tools"
   [ -z "$R_DISALLOWED" ] || set -- "$@" --disallowedTools "$R_DISALLOWED"
-  _vc_wd=$(ao_cfg_path relay_workdir "$AO_HOME")
-  if ! (cd "$_vc_wd" && ao_timeout "$R_TIMEOUT" "$@" >"$_vc_out" 2>"$_vc_out.err"); then
-    tail -n 5 "$_vc_out.err" >>"$_vc_out"
-    return 1
-  fi
+  AO_RUN_DIR=$(ao_cfg_path relay_workdir "$AO_HOME")
+  ao_timeout "$R_TIMEOUT" "$@" >"$_vc_out" 2>"$_vc_out.err"
+  _vc_rc=$?
+  AO_RUN_DIR=
+  [ -z "${AO_KEEP_STREAM:-}" ] || cp "$_vc_out" "$AO_KEEP_STREAM" 2>/dev/null
   _vc_verdict=$(_vendor_claude_receipt "$_vc_out" "$_vc_name" "$_vc_msg")
-  [ "$_vc_verdict" = ok ] && return 0
-  echo "receipt: ${_vc_verdict:-unreadable event stream}" >>"$_vc_out"
+  case $_vc_verdict in
+    ok) return 0 ;;
+    altered)
+      _vc_tail=$(cat "$_vc_out")
+      printf 'warning: SendMessage text differs from the message (client exit %s)\n%s\n' "$_vc_rc" "$_vc_tail" >"$_vc_out"
+      return 0 ;;
+  esac
+  echo "receipt: ${_vc_verdict:-unreadable event stream} (client exit $_vc_rc)" >>"$_vc_out"
+  [ "$_vc_rc" -eq 0 ] || tail -n 5 "$_vc_out.err" >>"$_vc_out"
   return 1
 }
 
 # _vendor_claude_receipt STREAM NAME MESSAGE_FILE  Print `ok` if the event
-# stream proves the delivery, else the reason. Lines that are not JSON are
-# ignored; every tool_use block in every assistant event is counted.
+# stream proves the delivery, `altered` if it proves a successful send to
+# NAME with different text, else the reason. Lines that are not JSON are
+# ignored; every tool_use block in every assistant event is counted. The
+# tool result's text is JSON with "success": true in Claude Code 2.1.322
+# (see tests/fixtures/).
 _vendor_claude_receipt() {
   jq -nrR --arg to "$2" --rawfile msg "$3" '
     def norm: sub("^\\s+"; "") | sub("\\s+$"; "");
@@ -94,13 +112,13 @@ _vendor_claude_receipt() {
     | if ($sends | length) != 1 then "expected one SendMessage call, saw \($sends | length)"
       else $sends[0] as $s
       | if ($s.input.to // "") != $to then "SendMessage was addressed to \($s.input.to // "nobody"), not \($to)"
-        elif ([$s.input.message, $s.input.content] | map(select(type == "string") | norm)
-              | any(. == ($msg | norm))) | not then "SendMessage text differs from the batch"
         else ([$ev[] | select(.type == "user") | .message.content[]?
                 | select(.type? == "tool_result" and .tool_use_id == $s.id)] | first) as $r
         | if $r == null then "no result for the SendMessage call"
           elif $r.is_error == true then "SendMessage returned an error"
           elif ($r.content | text | (fromjson? // {}) | .success?) != true then "SendMessage did not report success"
+          elif ([$s.input.message, $s.input.content] | map(select(type == "string") | norm)
+              | any(. == ($msg | norm))) | not then "altered"
           else "ok" end
         end
       end' <"$1" 2>/dev/null

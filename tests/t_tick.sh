@@ -214,12 +214,68 @@ test_tick_relay_failure_is_reported() {
 }
 
 test_tick_lock() {
-  mkdir -p "$T/state/locks/tick.lock"
-  echo $$ >"$T/state/locks/tick.lock/pid"
+  hold_lock tick
   hook every e
   run tick.sh
+  release_lock
   assert_rc 3
   assert_eq "$(ran e)" 0
+}
+
+test_term_to_the_tick_stops_the_running_hook() {
+  # The tick is told to stop mid-hook: the hook (which ignores TERM) is gone
+  # before the tick exits, and the lock is free again.
+  hook every slow 'trap "" TERM; sleep 8; : >"$AO_STATE/survived"'
+  at "2026-11-17 20:00"
+  "$AO_TEST_SHELL" "$SCRIPTS/tick.sh" --no-relay </dev/null >"$T/out" 2>"$T/err" &
+  tick=$!
+  sleep 2
+  kill -s TERM "$tick"
+  wait "$tick"
+  rc=$?
+  assert_rc 143
+  sleep 7
+  assert_no_file "$T/state/survived"
+  hook every e
+  run tick.sh --no-relay
+  assert_eq "$(ran e)" 1
+}
+
+test_overnight_watchdog_window() {
+  profile_set watchdog_hours 22-06
+  profile_set watchdog_days all
+  for t in "2026-11-17 23:00" "2026-11-18 03:00"; do
+    rm -rf "$T/state/watchdog" "$T/home/inbox/oracle"
+    at "$t"
+    run tick.sh --no-relay
+    assert_count "$T/home/inbox/oracle" 2
+  done
+  rm -rf "$T/state/watchdog" "$T/home/inbox/oracle"
+  at "2026-11-17 12:00"
+  run tick.sh --no-relay
+  assert_no_file "$T/home/inbox/oracle"
+}
+
+test_hook_failure_notes_are_rate_limited() {
+  hook every bad 'exit 5'
+  at "2026-11-17 20:00"
+  run tick.sh --no-relay
+  AO_NOW=$((AO_NOW + 600))
+  run tick.sh --no-relay
+  assert_rc 1
+  set -- "$T/home/inbox/oracle"/*-hook-fail-every-bad.md
+  assert_eq "$#" 1 "hook-fail notes"
+  assert_eq "$(grep -c 'FAILED every/bad' "$T/state/hooks.log")" 2 "logged failures"
+}
+
+test_writable_hooks_are_skipped() {
+  hook every loose
+  chmod 777 "$T/home/hooks/every/loose"
+  at "2026-11-17 20:00"
+  run tick.sh --no-relay
+  assert_rc 1
+  assert_eq "$(ran loose)" 0
+  assert_has "$T/state/hooks.log" "SKIPPED every/loose"
 }
 
 test_bad_window_config() {

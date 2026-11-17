@@ -6,7 +6,8 @@
 # Runs the profile's worker role (or --role PREFIX) once: headless,
 # read-only, ephemeral, stdin closed, hard timeout (<role>_timeout), tool
 # servers per <role>_mcp_disable. Routing of the result:
-#   output is exactly NOTHING              -> nothing is written
+#   output is NOTHING (blank space, quotes,
+#   backticks and a final period ignored)  -> nothing is written
 #   any other output                       -> note in RECIPIENT's inbox
 #   the run fails, times out, or exits 0
 #   without any output                     -> note in the Oracle's inbox
@@ -32,12 +33,6 @@ AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$AO_SCRIPTS/lib/core.sh"
 . "$AO_SCRIPTS/lib/registry.sh"
 . "$AO_SCRIPTS/lib/vendor.sh"
-
-# worker_is_nothing FILE  True when FILE is exactly NOTHING (a final
-# newline allowed).
-worker_is_nothing() {
-  [ "$(cat "$1")" = NOTHING ]
-}
 
 # worker_is_empty FILE  True when FILE holds nothing but whitespace.
 worker_is_empty() {
@@ -74,7 +69,7 @@ worker_route() {
     worker_fail "exit 0 but no answer" "$err"
     return "$AO_E_FAIL"
   fi
-  worker_is_nothing "$out" && return 0
+  ao_is_nothing "$out" && return 0
   {
     printf 'From worker job %s at %s:\n\n' "\`$job\`" "$AO_T_STAMP"
     cat "$out"
