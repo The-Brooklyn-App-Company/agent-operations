@@ -15,7 +15,7 @@ description: Use when designing, reviewing, running, replacing or retiring a sch
 ## Do
 
 1. Follow `<kit-root>/docs/scheduled-workers.md`.
-2. Fill in `<kit-root>/templates/worker-profile.md` before you enable anything.
+2. Fill in `<kit-root>/templates/worker-profile.md` before you enable anything, and register the worker in the schedule inventory on the cheapest tier that works.
 3. Check the expected behavior against `<kit-root>/examples/scheduled-worker-fixture.json`.
 4. Use only the scheduler controls that the client actually provides.
 5. Report each outcome as one of: healthy-unchanged (quiet), changed, failed, unknown or delivery-uncertain.

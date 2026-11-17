@@ -5,6 +5,7 @@
 - **Host:** `<host label>`. Exactly one active host.
 - **Scheduler / native ID / status:** `<native scheduler>` / `<id>` / `<enabled or paused>`. Use its native controls.
 - **Execution kind / destination / model and effort / cadence:** `<standalone or attached context>` / `<run location, separate from handoff target>` / `<selection>` / `<schedule and timezone>`. Compare actual native readback with this profile at each schedule audit or cutover.
+- **Cost tier / inventory entry:** `<free script, cheap model or model session>` / `<link to the schedule inventory row>`
 - **Approved by and on:** `<who, date>`
 
 ## Deterministic gate

@@ -32,7 +32,7 @@ The implementer works on a scoped branch from the base SHA and returns implement
 - Known gaps
 - Anything the implementer skipped and the reason
 
-The implementer respects its packet’s merge/deploy boundary and does not broaden scope. Usually it returns a reviewed artifact for the operator to integrate. A worker’s exit or returned notes do not settle the requested delivery. The operator checks the actual head and result against the packet’s acceptance, retaining the existing delivery owner and next action for any missing or partial outcome.
+Before pushing, the implementer runs every locally reproducible, non-effectful check that CI runs within scope, not just the named suite, and records any CI-only checks. The implementer respects its packet’s merge/deploy boundary and does not broaden scope. Usually it returns a reviewed artifact for the operator to integrate. A worker’s exit or returned notes do not settle the requested delivery. The operator checks the actual head and result against the packet’s acceptance, retaining the existing delivery owner and next action for any missing or partial outcome.
 
 ## Behavioral checks and reusable evidence
 
@@ -48,7 +48,9 @@ When recommending a fix, separate its incremental benefit on the recent failure/
 
 ## Independent review
 
-The reviewer receives the packet's acceptance criteria and the **exact head SHA**. It does not receive the implementer's reasoning, which keeps the findings independent.
+For code, use **cross-family review**: one model family implements and a different family reviews adversarially at high effort. Differently trained models agreeing is the useful signal; the work moves when they agree, or once an authorized tie-break or escalation has given every open finding a disposition. The review is truly adversarial but not nitpicking for its own sake.
+
+The reviewer receives the packet's acceptance criteria and the **exact head SHA**. It does not receive the implementer's reasoning, which keeps the findings independent. Brief it neutrally: ask it to find problems, not to confirm that the work is good, and do not lead it toward a verdict.
 
 Before starting a repository review, verify the working directory, repository, branch and commit. For a review of current integration, compare the checkout with the verified integration ref. For a PR or release review, use the intended head even if another branch is newer. If the review needs local changes, identify those changes alongside the base commit.
 
@@ -71,16 +73,18 @@ Every existing finding needs a substantiated disposition:
 
 ## Bounded rounds and stopping
 
-Set a round limit in the packet. Two rounds is the example default.
+Set a round limit in the packet. Three rounds is the example default.
+
+The implementer addresses every major finding, may push back and make the reviewer defend a weak one, and uses judgment on minor ones. Verify any external identifier a reviewer cites, such as a security advisory ID, before recording it; reviewers can cite ones that do not exist. Keep running review rounds until one comes back clean or the limit is reached.
 
 Review stops when either of these is true:
 
 - Every acceptance item passes at the current SHA and no blocking findings remain open.
-- The round limit is reached. In that case, the operator escalates the open items to the human with a recommendation.
+- The round limit is reached. Park valid minor findings (for example P2/P3) in the backlog with an owner, and escalate unresolved major ones (P0/P1) with a recommendation. A narrow verify-only pass that checks just the last fixes is allowed after the limit; a new major finding there stops the work and escalates.
+
+If the implementer and reviewer keep disagreeing about whether a finding is real, a third model breaks the tie. Product, user-experience and architecture disagreements go to the human.
 
 A new head requires current evidence; use the repository’s stale-approval/content-identity rules. Re-review the affected delta rather than rerunning an unchanged full audit.
-
-One reviewer is enough by default. Escalate to a stronger model or to a human only when there is demonstrated need, such as repeated disagreement or high-risk changes. A multi-model panel is not required.
 
 ## Maintainer integration
 
@@ -92,9 +96,17 @@ Give each superseded PR an honest disposition: link the accepted replacement and
 
 An explicit, scoped independent-review or solo exception is an available authorized route. Consume it when its conditions are met instead of waiting indefinitely for an unavailable peer or inventing another approval gate. Record its scope and evidence; retain required checks and release limits. Without such authority, report the actual missing decision.
 
-## Claude CLI example
+## CLI examples
 
-For an already-approved Opus consultation, use the owner’s existing supported CLI/subscription route. Verify `claude --help` and the actual model available on that installation. A read-only, tool-disabled consultation can use:
+A Codex review with a read-only filesystem sandbox, run from the repository with the diff and a neutral prompt:
+
+```sh
+codex exec --ephemeral -m gpt-6.1-sol -c model_reasoning_effort='"high"' -s read-only -o review.txt "<neutral review prompt>" </dev/null
+```
+
+Always give a CLI agent `</dev/null` (or a file) on stdin; otherwise it can wait on stdin indefinitely. The sandbox governs the model's own commands, not configured MCP or connector tools: run reviews with a configuration that disables effectful tools. Verify `codex exec --help` and model access on your installation.
+
+For an already-approved Claude consultation, use the owner’s existing supported CLI/subscription route. Verify `claude --help` and the actual model available on that installation. A read-only, tool-disabled consultation can use:
 
 ```sh
 claude -p --model claude-opus-5-5 --effort medium --permission-mode default --system-prompt 'You are a read-only reviewer with no tools. Return the requested review as plain text; do not emit tool calls or write a plan file.' --tools '' --strict-mcp-config --mcp-config '{"mcpServers":{}}' --disable-slash-commands --no-session-persistence < packet.md > review.txt
