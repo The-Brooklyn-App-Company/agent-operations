@@ -16,7 +16,7 @@ loudly instead.
 | Profile | For | Review |
 | --- | --- | --- |
 | [claude-only](../profiles/claude-only.profile) | Claude Code in every role | `same-family` |
-| [codex-only](../profiles/codex-only.profile) | Codex in every role; sessions read their inbox (`file-only`) | `same-family` |
+| [codex-only](../profiles/codex-only.profile) | Codex roles; passive `file-only` default, opt-in native queue for Codex rows | `same-family` |
 | [both](../profiles/both.profile) | Claude Code sessions, Codex worker and reviewer | `cross` |
 | [custom](../profiles/custom.profile) | Any CLI that implements the [custom command contract](../scripts/lib/vendor-custom.sh) | `single-model` |
 

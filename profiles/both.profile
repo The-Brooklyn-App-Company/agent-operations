@@ -12,7 +12,7 @@ work_root=~/src
 path=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
 
 # Relay: Claude sessions get a pointer through SendMessage; a registry row
-# can say file-only instead. Codex sessions read their inbox.
+# can say file-only instead. Codex rows queue a pointer to the named thread.
 relay_default=claude
 relay_claude_model=CHANGE-ME-small-claude-model
 relay_claude_max_turns=4

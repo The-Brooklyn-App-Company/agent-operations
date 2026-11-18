@@ -473,17 +473,22 @@ test_routing_follows_the_lease() {
   assert_rc 0
   assert_count "$T/home/inbox/ws" 1
   assert_has "$T/state/relay.log" "to=ws held by gate"
-  # Held by codex: status reports the provider; held by claude: delivered
-  # to the lease's session name.
+  # The held lease routes to its owning provider and session name.
   acq codex ops-ws
   run status.sh --tsv
   assert_has "$T/out" "ws${TAB}ops-ws${TAB}codex"
+  run relay.sh --key ws
+  assert_rc 0
+  assert_has "$FAKE_LOG" "arg: ops-ws"
+  assert_lacks "$FAKE_LOG" "== claude"
+  assert_count "$T/home/inbox/ws" 0
   lease note --instance "$TOK" --epoch 2
   cp "$T/out" "$T/ops/ws/HANDOFF.md"
   lease release --instance "$TOK" --epoch 2
   run status.sh --tsv
   assert_has "$T/out" "${TAB}codex${TAB}"
   acq claude "Workshop-2"
+  note ws follow-up.md "next owner"
   FAKE_MODE=sent run relay.sh --key ws
   assert_rc 0
   assert_has "$FAKE_LOG" 'to "Workshop-2"'

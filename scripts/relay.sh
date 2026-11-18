@@ -11,9 +11,9 @@
 # never put in the message, so the delivering model never sees it; the
 # receiving session reads the files itself, as data.
 #
-# Rows on clients without a relay transport (file-only, codex) are left
-# alone: those sessions read their inbox at turn start. A delivery that is
-# not confirmed is retried on later runs, at most relay_max_attempts
+# File-only sessions read their inbox at turn start. For Codex, acceptance
+# by the native queue confirms submission, and resume is best-effort. A
+# delivery that is not confirmed is retried on later runs, at most relay_max_attempts
 # (default 3) times in a row; then the row backs off (1 h, doubling up to
 # 24 h) and the Oracle gets one note naming the notes. A confirmed delivery
 # clears the backoff. Delivery is at-least-once; the relay id is the same
@@ -33,7 +33,7 @@
 # Environment: AO_PROFILE; AO_KEEP_STREAM (see lib/vendor-claude.sh).
 # Log: <state_dir>/relay.log.
 #
-# Exit codes: 0 delivered or nothing to do; 1 a delivery or move failed;
+# Exit codes: 0 accepted, delivered or nothing to do; 1 a delivery or move failed;
 # 2 usage or configuration error; 3 another relay is running.
 set -u
 AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -153,8 +153,12 @@ relay_failed() {
 # relay_deliver  Subshell body for one delivery: a broken transport
 # configuration exits only this subshell, never the whole relay.
 relay_deliver() {
-  ao_role_load "relay_$OP_CLIENT" "$OP_CLIENT" &&
-    ao_role_deliver "$OP_NAME" "$OP_SID" "$msg" "$out" "$_id"
+  _session=$OP_SID
+  if [ "$OP_CLIENT" = codex ] && [ -z "$_session" ] && [ "$OP_LEASE" = held ]; then
+    _session=$OP_NAME
+  fi
+  ao_role_load "relay_$OP_CLIENT" "$OP_CLIENT" >"$out" 2>&1 &&
+    ao_role_deliver "$OP_NAME" "$_session" "$msg" "$out" "$_id"
 }
 
 # relay_row  Registry callback: serve one operator's inbox.
@@ -162,7 +166,7 @@ relay_row() {
   [ -z "$only_key" ] || [ "$OP_KEY" = "$only_key" ] || return 0
   case " $AO_RELAY_VENDORS " in *" $OP_CLIENT "*) ;; *)
     case $OP_CLIENT in
-      file-only | codex) return 0 ;;
+      file-only) return 0 ;;
       *) ao_log "$log" "to=$OP_KEY FAILED: unknown client '$OP_CLIENT'"; failures=$((failures + 1)); return 0 ;;
     esac ;;
   esac
@@ -179,6 +183,10 @@ relay_row() {
   [ -s "$new" ] || [ -s "$pending" ] || [ -e "$1" ] || return 0
   if ! ao_gate relay; then
     ao_log "$log" "to=$OP_KEY held by gate"
+    return 0
+  fi
+  if [ "$OP_CLIENT" = codex ] && [ -z "$OP_SID" ] && [ "$OP_LEASE" != held ]; then
+    ao_log "$log" "to=$OP_KEY held: registry has no Codex thread ID"
     return 0
   fi
   if [ -n "$dry_run" ]; then
@@ -206,7 +214,10 @@ relay_row() {
   fi
   _count=$(wc -l <"$pending" | tr -d ' ')
   rm -f "$pending" "$failf"
-  if [ "$(head -c 8 "$out")" = warning: ]; then
+  if [ "$OP_CLIENT" = codex ]; then
+    _diagnostic=$(cat "$out")
+    ao_log "$log" "to=$OP_KEY via=$OP_CLIENT id=$_id files=$_count queue accepted${_diagnostic:+; $_diagnostic}"
+  elif [ "$(head -c 8 "$out")" = warning: ]; then
     ao_log "$log" "to=$OP_KEY via=$OP_CLIENT id=$_id files=$_count delivered with a warning: $(head -n 1 "$out")"
     ao_note_oracle "relay-warning-$OP_KEY" "Relay to $OP_NAME ($OP_KEY) was delivered, but the delivering run changed the message text or made other SendMessage calls; check that session and any session it may have messaged. Relay id $_id. Log: $log" ||
       ao_warn "could not tell the Oracle about the relay warning for $OP_KEY"

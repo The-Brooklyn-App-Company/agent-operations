@@ -179,7 +179,7 @@ cross_review_days tracker chat githost ci secrets attribution
 lease_stale doorbell_codex doorbell_rering_min'
 # Role keys: <prefix>_<field> for these prefixes and fields.
 AO_ROLE_PREFIXES='worker reviewer reviewer_claude reviewer_codex implementer_claude
-implementer_codex relay_claude relay_custom'
+implementer_codex relay_claude relay_codex relay_custom'
 AO_ROLE_FIELDS='client cmd model effort timeout mcp_disable tools max_turns
 disallowed_tools token_secret token_env'
 

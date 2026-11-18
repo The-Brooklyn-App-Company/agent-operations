@@ -247,7 +247,7 @@ ring_current() {
   [ -n "$_pending" ] || return 0
   ao_gate doorbell || { ao_log "$log" "$OP_KEY doorbell held by gate"; return 0; }
   # A new holder (client or epoch) is rung even for mail already rung for.
-  _fp=$(printf '%s\n' "$OP_CLIENT $OP_NAME $OP_EPOCH" "$_pending" | cksum | cut -d' ' -f1)
+  _fp=$(printf '%s\n' "$OP_CLIENT $OP_NAME $OP_SID $OP_EPOCH" "$_pending" | cksum | cut -d' ' -f1)
   _stamp=$AO_STATE/doorbell/$OP_KEY
   _last=$(cat "$_stamp" 2>/dev/null) || _last=
   _lt=${_last%% *} _lf=${_last#* }
@@ -262,7 +262,12 @@ ring_current() {
     _rc=$?
   fi
   case $_rc in
-    0) ao_log "$log" "$OP_KEY rang $OP_CLIENT \`$OP_NAME\`" ;;
+    0)
+      if [ "$OP_CLIENT" = codex ]; then
+        ao_log "$log" "$OP_KEY doorbell queue accepted ($OP_CLIENT)"
+      else
+        ao_log "$log" "$OP_KEY rang $OP_CLIENT \`$OP_NAME\`"
+      fi ;;
     2) ao_log "$log" "$OP_KEY doorbell unavailable ($OP_CLIENT); pickup at the next turn"
       notify_fallback ;;
     *) ao_log "$log" "$OP_KEY doorbell FAILED rc=$_rc"

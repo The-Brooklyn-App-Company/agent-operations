@@ -6,7 +6,7 @@ templates, thin skills, and POSIX sh scripts run by the OS scheduler. It
 works with Claude Code and Codex in any seat. It is not a framework, a
 daemon or an agent runtime.
 
-Version 0.2.0. [Changelog](CHANGELOG.md).
+Version 0.3.0 draft. [Changelog](CHANGELOG.md).
 
 ## Who it is for
 
@@ -58,7 +58,7 @@ and/or Codex signed in.
 
 ```sh
 git clone <kit-url> ~/src/agent-operations
-cd ~/src/agent-operations && git checkout v0.2.0
+cd ~/src/agent-operations && git checkout <reviewed-release-tag>
 scripts/install.sh --dry-run oracle ~/ops/oracle    # lists every file
 scripts/install.sh oracle ~/ops/oracle              # creates and commits
 $EDITOR ~/.config/agent-operations/profile          # replace every CHANGE-ME
@@ -71,6 +71,8 @@ Then start and name a session in each home, and apply each home's
 `settings/` pattern in your client yourself. The full walkthrough is
 [install and bootstrap](docs/operators-and-repos.md#install-and-bootstrap);
 a worked example is [two operators](examples/two-operators/README.md).
+
+Start-to-finish setup: [MANUAL.md](MANUAL.md).
 
 ## Reading order
 
@@ -104,11 +106,11 @@ Highest stage reached for each piece, with the client, version and date.
 | `install.sh sync`, `status.sh --drift` | Fakes only (test suite); not yet run against a real two-client setup | |
 | launchd unit | Rendered by `install.sh`; loading it is your step | |
 | systemd units, Linux hosts | **Untested** | |
-| Codex relay delivery | **Not supported** in 0.2.0: Codex sessions read their inbox | |
+| Codex relay delivery | Native CLI queue transport; acceptance is not receiver execution | New routing tests and live deployment acceptance tracked in [TESTING.md](TESTING.md) |
 | **Experimental:** lease, standby redirect, forward, cold takeover, asks ledger ([handoff](docs/handoff.md)) | Test suite; sandboxed end-to-end with both real CLIs, headless, `file-only` registry (validation table in [handoff](docs/handoff.md#per-client-validation)) | Claude Code 2.1.322, codex-cli 0.169.0-alpha.11, 2026-11-17. **Not yet** the live test on a real operator ([TESTING.md](TESTING.md)) |
 | **Experimental:** switch-in audit gate (`audit=pending` until `lease.sh audit-done` records the committed report) | Lease path end-to-end in the sandbox above, report by a real reviewer; registry path: fakes only | 2026-11-17 |
 | **Experimental:** human takeover, `settle`, `unlock` on a terminal | Driven through a pseudo-terminal (`script(1)`) only; a human at a real terminal and the clients' interactive permission prompts are **unverified** | |
-| **Experimental:** doorbells | Claude: fakes only, never reached a live session; Codex: **not supported** (no Codex transport) | |
+| **Experimental:** doorbells | See opt-in transport settings and limitations in [handoff](docs/handoff.md); live acceptance remains separately required | |
 | `examples/tracker-linear` | **Untested** sketch | |
 
 ## Repository layout

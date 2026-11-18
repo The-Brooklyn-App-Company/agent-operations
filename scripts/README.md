@@ -17,6 +17,9 @@ and exit codes.
 | `cross-review.sh` | Weekly review of every operator by the other model family (from `OP_PROVIDER`), and the switch-in audit report after a move to the other family ([K-22](../kit/KIT.md), [handoff](../docs/handoff.md#switch-in-audit)) |
 | `status.sh` | One line per operator: activity, quiet list, inbox depth, switch-in audit; profile warnings; `--drift` reports mismatches between the clients with their fixes |
 | `inbox-put.sh` | Atomic note into an inbox, for hooks and adapters |
+| `jobs.sh` | Validate explicit schedule snapshots and plan safe owning-side job cutovers; no scheduler apply |
+| `worktree.sh` | Create a scoped repo-local worktree after verified macOS churn exclusions; see `--help` |
+| `pr-watch.sh` | Deterministic change-only PR snapshots into the owning inbox; see `--help` |
 | `check.sh` | Links, duplicate rule text, skill shape, home layout, privacy scan |
 | `drift-check.sh` | Weekly audit: `check.sh dupes` plus a worker pass with `drift-prompt.md` |
 | `lease.sh` | **Experimental.** Advisory lease per operator: holder, standby, takeover ([handoff](../docs/handoff.md)) |
@@ -268,3 +271,65 @@ Linux hosts should keep coreutils `timeout`. Used tools beyond POSIX:
 present. `shellcheck -x scripts/*.sh scripts/lib/*.sh tests/*.sh
 adapters/*.sh` is clean. `tests/run.sh` runs the suite under every
 installed shell with fake agent CLIs: no network, no model calls.
+
+## PR watcher
+
+`pr-watch.sh --help` is the interface contract. Configure one invocation per
+owned repository in a deterministic tick hook, with a stable key and persistent
+state. Polls are reads; the watcher creates local inbox data only. The registry
+and relay choose the active client, so no watcher calls a dormant session.
+First successful polling establishes a baseline; subsequent unchanged polling
+is quiet. Failed reads retain the last successful snapshot. Record the precise
+head/review/check/comment coverage actually implemented and tested; adapter
+summary fields alone do not cover every comment event. End-to-end installed
+acceptance needs an observed event and receiver acknowledgement, not just fakes.
+
+## Worktree creation
+
+`worktree.sh --help` describes its arguments. New seats use a real canonical
+repo's `worktrees.noindex` container. The helper verifies a sticky macOS Time
+Machine exclusion with no sudo, plus child readback before checkout churn.
+Native app-managed and historical seats are not relocated. Unique work and
+irreplaceable state need independent backed-up custody; excluding a container
+is not proof of restore safety. See [the manual](../MANUAL.md).
+
+## Codex queue settings
+
+A registry row's `client=codex` selects native queue delivery to its existing
+session ID (the lease holder overrides the row when enabled). File-only rows
+remain passive; the codex-only profile keeps that conservative default until
+the owner verifies local transport. No second provider is called for the row.
+`relay_codex_cmd` selects the installed CLI and `relay_codex_timeout` is a positive
+hard limit (default 30 seconds). No model role is needed to enqueue a pointer.
+`doorbell_codex=queue` separately opts in to the experimental lease-mail doorbell;
+its default is `off`. Success means queued, not resumed/read/executed. An absent
+CLI/off doorbell can use the existing unavailable-transport chat fallback;
+a failed queue call is a delivery failure, not an automatic second route.
+Retries preserve the relay ID, but an ambiguous timeout can duplicate a pointer;
+receivers deduplicate IDs and reconcile action state before any effect.
+
+### Watcher coverage
+
+Configure `githost=gh` (or a compatible executable adapter), then invoke
+`pr-watch.sh --key web --repo sample/app-web` from an authorized tick hook.
+The bundled adapter makes one bounded read-only metadata query: up to 100
+recently updated open PRs, first 100 check contexts, last 20 submitted reviews
+and last 20 top-level comments per PR. It requests IDs/timestamps/states, not
+comment/review bodies or authors. Inline review threads, departures from the
+open list, changes entirely between polls and older items outside these windows
+are not covered. GitHub Enterprise schema compatibility is unverified. The
+current [GraphQL PullRequest schema](https://docs.github.com/en/graphql/reference/pulls#pullrequest)
+includes the PR head's status-check rollup; fixture tests do not prove live API
+availability or authorization on a deployment.
+
+## Job inventory planner
+
+Copy [the synthetic sample](../templates/oracle/JOBS.tsv) into a private home
+and replace it with actual scheduler IDs/state. `jobs.sh check REGISTRY` validates
+its nine-field TSV schema. `jobs.sh plan REGISTRY OWNER claude|codex` returns
+advisory actions ordered disable, enable, nochange. No native API calls or
+scheduler changes occur. Neutral timers stay unchanged; paused intent is
+preserved; unknown/mismatched state and active unmirrored old-side jobs block
+before any plan output. A supplied enabled snapshot is not live readback.
+See [the manual](../MANUAL.md#job-registry-and-provider-cutover) for cutover and
+unshipped automation boundaries.

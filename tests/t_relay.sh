@@ -234,14 +234,98 @@ test_empty_inboxes_cost_nothing() {
 
 test_rows_without_a_transport_are_left_alone() {
   printf 'gamma\tGamma\t%s\tsid-g\tfile-only\n' "$T/proj/beta" >>"$T/home/operators/REGISTRY.tsv"
-  printf 'delta\tDelta\t%s\tsid-d\tcodex\n' "$T/proj/beta" >>"$T/home/operators/REGISTRY.tsv"
   note gamma g.md "x"
-  note delta d.md "y"
   run relay.sh
   assert_rc 0
   assert_count "$T/home/inbox/gamma" 1
-  assert_count "$T/home/inbox/delta" 1
   assert_no_file "$FAKE_LOG"
+}
+
+codex_row() {
+  printf 'gamma\tGamma Op\t%s\t%s\tcodex\n' "$T/proj/beta" "${1:-sid-g}" >>"$T/home/operators/REGISTRY.tsv"
+}
+
+test_codex_owner_gets_one_native_queue_with_only_the_pointer() {
+  codex_row
+  note gamma 'queue note.md' "private note body"
+  run relay.sh
+  assert_rc 0
+  assert_eq "$(grep -c '^== codex$' "$FAKE_LOG")" 1 "one Codex CLI call"
+  assert_eq "$(grep -c '^arg: ' "$FAKE_LOG")" 6 "queue argv"
+  assert_has "$FAKE_LOG" "arg: queue"
+  assert_has "$FAKE_LOG" "arg: --thread"
+  assert_has "$FAKE_LOG" "arg: sid-g"
+  assert_has "$FAKE_LOG" "arg: --message"
+  assert_has "$FAKE_LOG" "arg: --resume"
+  assert_has "$FAKE_LOG" "stdin: eof"
+  assert_lacks "$FAKE_LOG" "== claude"
+  assert_lacks "$FAKE_LOG" "Gamma Op"
+  assert_lacks "$FAKE_LOG" "private note body"
+  assert_has "$FAKE_LOG" "-gamma-queue-note.md"
+  assert_has "$FAKE_LOG" "relay-id: gamma-"
+  assert_has "$T/state/relay.log" "files=1 queue accepted"
+  assert_count "$T/home/inbox/sent" 1
+  assert_no_file "$T/home/inbox/gamma/.relay-pending"
+  run relay.sh
+  assert_rc 0
+  assert_eq "$(grep -c '^== codex$' "$FAKE_LOG")" 1 "no resend"
+}
+
+test_codex_missing_owner_id_holds_the_note() {
+  codex_row pending
+  note gamma g.md "still in the inbox"
+  run relay.sh
+  assert_rc 0
+  assert_count "$T/home/inbox/gamma" 1
+  assert_no_file "$FAKE_LOG"
+  assert_has "$T/state/relay.log" "held: registry has no Codex thread ID"
+}
+
+test_codex_failures_preserve_pending_and_reuse_the_id() {
+  codex_row
+  note gamma g.md "deliver on retry"
+  for mode in queue-failed queue-ambiguous; do
+    FAKE_MODE=$mode run relay.sh
+    assert_rc 1
+    assert_has "$T/home/inbox/gamma/.relay-pending" "-gamma-g.md"
+    assert_count "$T/home/inbox/sent" 1
+  done
+  FAKE_MODE=queue-warning run relay.sh
+  assert_rc 0
+  assert_has "$T/state/relay.log" "queue accepted"
+  assert_has "$T/state/relay.log" "could not resume thread"
+  assert_no_file "$T/home/inbox/gamma/.relay-pending"
+  assert_no_file "$T/state/relay/gamma.fail"
+  assert_eq "$(grep -c '^== codex$' "$FAKE_LOG")" 3 "queued attempts"
+  assert_eq "$(grep -o 'relay-id: [a-z0-9-]*' "$FAKE_LOG" | sort -u | wc -l | tr -d ' ')" 1 "distinct relay ids"
+  assert_lacks "$FAKE_LOG" "== claude"
+}
+
+test_codex_queue_has_a_bounded_timeout() {
+  codex_row
+  note gamma g.md "timeout"
+  profile_set relay_codex_timeout 0
+  FAKE_MODE=queue-hang run relay.sh
+  assert_rc 1
+  assert_no_file "$FAKE_LOG"
+  assert_has "$T/state/relay.log" "relay_codex_timeout must be positive"
+  profile_set relay_codex_timeout 1
+  FAKE_MODE=queue-hang run relay.sh
+  assert_rc 1
+  assert_has "$T/state/relay.log" "queue acceptance unconfirmed (Codex exit 124)"
+  assert_has "$T/home/inbox/gamma/.relay-pending" "-gamma-g.md"
+  assert_lacks "$FAKE_LOG" "== claude"
+}
+
+test_codex_missing_executable_never_falls_back_to_claude() {
+  codex_row
+  profile_set relay_codex_cmd "$T/bin/unavailable"
+  note gamma g.md "unavailable"
+  run relay.sh
+  assert_rc 1
+  assert_no_file "$FAKE_LOG"
+  assert_has "$T/state/relay.log" "not executable"
+  assert_has "$T/home/inbox/gamma/.relay-pending" "-gamma-g.md"
 }
 
 test_dry_run_moves_nothing() {

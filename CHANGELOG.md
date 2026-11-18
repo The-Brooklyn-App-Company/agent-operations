@@ -5,6 +5,23 @@ with 0.2.0; 0.1.x guidance had none.
 
 ## Unreleased
 
+### 0.3.0 draft
+
+- **K-13, K-14, K-22, K-23, K-24, K-26, K-34:** end-to-end two-client
+  [manual](MANUAL.md), exclusive owning-side routing, switch-in and bounded
+  partner retirement, change-only PR sensing, usage handoff and token design.
+- **K-13, K-24, K-28:** bounded schedule snapshot validation and job cutover
+  planner, preserving paused intent and blocking unmatched active peers; native
+  execution/sidebar/lifecycle adapters and usage automation remain roadmap.
+- **K-29:** distinguish replaceable churn from irreplaceable application state;
+  preserve unique commits and dirty/private artifacts before exclusions or cleanup.
+- **K-16, K-27, K-29:** repo-local `worktrees.noindex` creation helper with a
+  verified sticky macOS backup exclusion; no new broad writable roots.
+- **K-10, K-23, K-28:** native Codex queue relay and deterministic PR watcher;
+  transport acceptance, fixture tests and installed runtime proof stay distinct.
+- Full release validation and remaining live acceptance recorded in
+  [TESTING.md](TESTING.md); this draft is not a published release.
+
 ## 0.2.1-rc1 (release candidate, unreleased)
 
 Adds the handoff layer between Claude Code and Codex, **experimental**,

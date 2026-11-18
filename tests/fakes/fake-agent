@@ -47,6 +47,16 @@ if IFS= read -r _line; then stdin=data; else stdin=eof; fi
   for a in "$@"; do printf 'arg: %s\n' "$a"; done
 } >>"${FAKE_LOG:-/dev/null}"
 
+if [ "$name" = codex ] && [ "$_sub" = queue ]; then
+  case ${FAKE_MODE:-ok} in
+    queue-warning) echo 'warning: queued, but could not resume thread' >&2 ;;
+    queue-failed) echo 'thread not found' >&2; exit 7 ;;
+    queue-ambiguous) echo 'connection closed after submission' >&2; exit 1 ;;
+    queue-hang) exec sleep 30 ;;
+  esac
+  exit 0
+fi
+
 out=
 prev=
 for a in "$@"; do

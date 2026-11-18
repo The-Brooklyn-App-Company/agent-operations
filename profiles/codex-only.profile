@@ -9,8 +9,9 @@ oracle_key=oracle
 work_root=~/src
 path=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
 
-# Relay: Codex has no confirmed way to message a session, so sessions read
-# their inbox at turn start and on recovery.
+# Relay: passive by default. Set relay_default=codex after verifying the
+# native CLI queue on this host; explicit codex registry rows also queue
+# pointers. Queue acceptance is not recipient execution.
 relay_default=file-only
 
 # Cheap worker: read-only sandbox, ephemeral; every tool server in your

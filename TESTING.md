@@ -1,3 +1,44 @@
+# v0.3.0 draft validation
+
+Release remains maintainer-owned. The records below separate deterministic tests,
+isolated installs and installed-client acceptance. Do not mark pending items green.
+
+| Check | Evidence / result |
+| --- | --- |
+| Fresh Oracle install plus home check | PASS, November 18, 2026: isolated temporary HOME and AO_PROFILE for claude-only, codex-only, both and custom templates; four install exit 0 and four home-check exit 0; no models/network |
+| Full sh/dash test suite | PASS: all 13 test files under sh and dash; 274 cases per shell. Full suite plus final changed-file regression pass, no models/network |
+| Kit links/skills and shellcheck | PASS scripts/check.sh kit and full shellcheck; exit 0 |
+| Local denylist privacy scan | PASS local uncommitted denylist scan; no findings |
+| Independent privacy-only read | PASS final public-only independent read; prior attribution finding fixed; final documentation additions reviewed separately |
+| Technical review | PASS independent technical review, clean round 3; maintainer cross-family review PENDING |
+| New worktree helper | PASS: 10 cases per shell including nonempty-container custody guard; isolated draft seat excluded on actual macOS host |
+| Native Codex delivery | PASS fake queue/owner routing and opt-in doorbell fixtures; live clean-machine kit queue/resume/readback remains unrun |
+| PR watcher | PASS: 17 cases per shell for baseline/change/failure/recovery/state custody. Live bundled GraphQL polling unrun; windows and no-closure coverage explicit |
+| Clean separate-machine install | NOT RUN for any profile; isolated HOME tests above are narrower |
+| Planned next-day provider switch-back | PENDING: prepare COLD HANDOFF notes; after the live test record provider versions, exact lease/registry change, resume-from-files, one pointer/readback and dormant-side suppression. Release need not claim this unrun test complete; follow-up corrections require a patch |
+
+## Final result record
+
+The draft is based on `17281d5`; enclosing Git history identifies the committed
+review artifact. No source changed after the final code review. The full
+`tests/run.sh` invocation and final `tests/run.sh tests/t_jobs.sh
+tests/t_pr_watch.sh tests/t_worktree.sh tests/t_install.sh` regression invocation
+both exited 0. Together they cover all 13 test files and 274 distinct cases per
+shell, including the final job comparison and watcher-error repairs. Repeated
+changed-file checks are not extra distinct tests.
+
+Independent technical review settled three findings: existing nonempty backup
+container custody, durable watcher failure/recovery deduplication, and literal
+numeric-looking owner/cadence identity. The third bounded round was clean.
+Review was same-family with a fresh independent context; maintainer cross-family
+review still gates integration/publication. The privacy-only pass has no private
+source context; its final doc delta and deterministic gates are recorded in this table.
+
+Queue acceptance, recipient reading, runtime deployment and human acceptance
+are separate stages (K-10).
+
+---
+
 # Testing the experimental handoff layer
 
 The lease, mailboxes, approvals ledger and takeover

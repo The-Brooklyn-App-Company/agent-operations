@@ -109,9 +109,11 @@ A doorbell only says "you have mail". `mail.sh ring-all` (from a tick hook,
 see `examples/hooks/every/40-doorbells`) rings each holder while it has
 mail, again only when the pending set or the holder changes, or after
 `doorbell_rering_min` (60). Claude: the relay's confirmed `SendMessage` path
-with fixed text. Codex: unavailable (exit 2), as the kit has no Codex
-delivery transport since 0.2.0; the human is notified through the `chat`
-slot instead (`doorbell_codex` is reserved; `off` is the only value). A registry `client` of `file-only` keeps
+with fixed text. Codex: `doorbell_codex=queue` opts into the native CLI queue
+transport; `off` remains the default. Successful enqueue is acceptance only,
+not proof that resume succeeded or the recipient read its mail. Unsupported
+CLI versions fail; the existing `chat` slot remains the documented fallback.
+A registry `client` of `file-only` keeps
 an operator off every active transport.
 
 ## Asks and approvals
@@ -341,3 +343,9 @@ prefix_rule(pattern=["scripts/lease.sh", ["unlock", "settle"]], decision="forbid
   last saw: a change made before its first run for that operator, or
   between two runs and back again, is not seen. An operator without a lease
   has no enforced gate, only `status.sh` and the inbox note.
+
+## Cold handoff recovery record
+
+Before switching the holder, follow the [cold handoff checklist](../MANUAL.md#cold-handoff-checklist).
+Record the actual incoming readback and ownership suppression test; planned
+switches and existing headless fixtures do not establish live acceptance.

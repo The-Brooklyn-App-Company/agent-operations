@@ -85,7 +85,7 @@ contributors ([K-16](../kit/KIT.md), [K-17](../kit/KIT.md)).
 | Question | Practice |
 | --- | --- |
 | Where does the owner work? | The primary checkout, `<work_root>/<repo>`. It alone updates the default branch, and it serializes merges |
-| Where do contributors work? | Their own worktree, `<work_root>/.worktrees/<key>/<repo>`, on branches `<key>/<topic>` |
+| Where do contributors work? | A scoped repo-local seat, `<repo>/worktrees.noindex/<task-slug>`, on branches `<key>/<topic>` |
 | Who reviews? | The reviewer role on a neutral packet, never the author. Across people: the reviewer named in `PROJECTS.tsv` |
 | How does work reach the owner? | A pull request with the handoff section of the [delegation packet](../templates/packets/delegation.md) filled in. With no git host: the branch plus an inbox note, within one instance only; work that crosses people needs a git host |
 | Who resolves conflicts? | The branch author rebases or merges forward; the owner never edits a contributor's branch |
@@ -148,3 +148,9 @@ kit pin), then each operator home, and rerun `install.sh oracle` and
 restored, by design: inbox contents and chat history. Two machines must
 never run the same operator at once; stop the old host's timers and
 sessions before starting the new one ([switching hosts](hosts-and-ci.md#switching-hosts)).
+
+## Two-client operating walkthrough
+
+See [the setup manual](../MANUAL.md) for verified roots, active-client routing,
+deterministic watchers, backup-safe worktrees and cleanup custody. Existing
+managed worktrees and documented live runtime exceptions are preserved.

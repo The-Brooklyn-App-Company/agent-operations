@@ -3,6 +3,7 @@
 # (see CONTRACT.md). Uses gh's own sign-in; never handles a token.
 #
 # Usage: git-gh.sh pr-poll [REPO]
+#        git-gh.sh pr-watch-poll REPO
 #        git-gh.sh review-request NUMBER REVIEWER [REPO]
 #        git-gh.sh status SHA [REPO]
 #
@@ -10,6 +11,9 @@
 #
 # pr-poll         open pull requests: number, head sha, state, review
 #                 decision, url (TSV)
+# pr-watch-poll   up to 100 recently updated open PRs: number, head sha,
+#                 review decision, check/review/comment fingerprints, url
+#                 (TSV; see pr-watch.sh for snapshot coverage)
 # review-request  ask REVIEWER to review pull request NUMBER
 # status          combined state of SHA over commit statuses and check runs
 #                 (GitHub Actions): sha, state, url (TSV); state is failure
@@ -39,6 +43,57 @@ gh_run() {
 
 repo_args() { [ -z "${1-}" ] || printf -- '--repo\n%s\n' "$1"; }
 
+# Request metadata in one read-only query. The generic gh pr list fields
+# also fetch review and comment bodies and omit comment edit timestamps.
+pr_watch_poll() {
+  # shellcheck disable=SC2016 # GraphQL variables are part of the query
+  query='query($owner: String!, $repo: String!) {
+    repository(owner: $owner, name: $repo) {
+      pullRequests(states: [OPEN], first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
+        nodes {
+          number headRefOid reviewDecision url
+          comments(last: 20) { totalCount nodes { id lastEditedAt } }
+          reviews(last: 20, states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) {
+            totalCount nodes { id state submittedAt lastEditedAt }
+          }
+          statusCheckRollup {
+            state
+            contexts(first: 100) {
+              totalCount
+              nodes {
+                ... on CheckRun { id status conclusion startedAt completedAt }
+                ... on StatusContext { id state }
+              }
+            }
+          }
+        }
+      }
+    }
+  }'
+  json=$(gh_run api graphql -f "query=$query" -f "owner=${1%/*}" -f "repo=${1#*/}") || return
+  printf '%s\n' "$json" | jq -r '
+    def collection(f):
+      if (.nodes | type) == "array" and (.totalCount | type) == "number"
+      then [.totalCount, (.nodes | map(f) | sort)]
+      else error("incomplete PR metadata connection") end;
+    if ((.errors // []) | length) != 0 then error("partial PR response") else
+      .data.repository.pullRequests.nodes
+    end
+    | if type != "array" then error("missing PR list") else .[] end
+    | if has("statusCheckRollup") and has("reviewDecision") then . else
+        error("incomplete PR metadata")
+      end
+    | [
+        .number, .headRefOid, (.reviewDecision // "NONE"),
+        (.statusCheckRollup | if . == null then [] else
+          [.state, (.contexts | collection([.id, .state, .status, .conclusion, .startedAt, .completedAt]))]
+        end | tojson),
+        (.reviews | collection([.id, .state, .submittedAt, .lastEditedAt]) | tojson),
+        (.comments | collection([.id, .lastEditedAt]) | tojson),
+        .url
+      ] | @tsv'
+}
+
 case ${1-} in
   pr-poll)
     # shellcheck disable=SC2046 # repo_args prints at most two safe words
@@ -46,6 +101,14 @@ case ${1-} in
       --json number,headRefOid,state,reviewDecision,url) || exit
     printf '%s\n' "$json" |
       jq -r '.[] | [.number, .headRefOid, .state, (.reviewDecision // "NONE"), .url] | @tsv' ;;
+  pr-watch-poll)
+    [ $# -eq 2 ] || { echo "usage: git-gh.sh pr-watch-poll OWNER/REPO" >&2; exit 3; }
+    case $2 in
+      -* | */-* | .* | */.* | */*/* | */ | /* | *[!A-Za-z0-9_./-]*)
+        echo "git-gh.sh: expected repository in OWNER/REPO form" >&2; exit 3 ;;
+      */*) pr_watch_poll "$2" ;;
+      *) echo "git-gh.sh: expected repository in OWNER/REPO form" >&2; exit 3 ;;
+    esac ;;
   review-request)
     [ $# -ge 3 ] || { echo "usage: git-gh.sh review-request NUMBER REVIEWER [REPO]" >&2; exit 3; }
     # shellcheck disable=SC2046

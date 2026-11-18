@@ -184,13 +184,43 @@ test_doorbell_claude_carries_no_mail() {
   assert_rc 2
   run doorbell-codex.sh ring ops-ws
   assert_rc 2
-  # No Codex delivery transport since 0.2.0: any other value is unavailable
-  # too, and no client is called.
   profile_set doorbell_codex resume
   FAKE_MODE=ok run doorbell-codex.sh ring ops-ws sid-1
   assert_rc 2
-  assert_has "$T/err" "no Codex delivery transport"
+  assert_has "$T/err" "doorbell_codex must be off or queue"
   assert_lacks "$FAKE_LOG" "== codex"
+}
+
+test_codex_doorbell_queues_for_the_held_session_only() {
+  msetup
+  acq codex "Current Workshop"
+  assert_rc 0
+  profile_set doorbell_codex queue
+  printf 'private mailbox content\n' >"$T/body"
+  srun mail.sh send ws --kind notice --from oracle/claude <"$T/body"
+  run mail.sh ring-all
+  assert_rc 0
+  assert_has "$FAKE_LOG" "arg: Current Workshop"
+  assert_has "$FAKE_LOG" "arg: --resume"
+  assert_has "$FAKE_LOG" "doorbell-id: "
+  assert_has "$FAKE_LOG" "stdin: eof"
+  assert_lacks "$FAKE_LOG" "== claude"
+  assert_lacks "$FAKE_LOG" "private mailbox content"
+  assert_has "$T/state/doorbell.log" "ws doorbell queue accepted (codex)"
+  assert_count "$IB/new" 1
+  run mail.sh ring-all
+  assert_eq "$(grep -c '^== codex$' "$FAKE_LOG")" 1 "no repeat for the same mail"
+}
+
+test_codex_doorbell_prefers_the_registered_id_and_reports_failure() {
+  msetup
+  profile_set doorbell_codex queue
+  FAKE_MODE=queue-failed run doorbell-codex.sh ring "Example Workshop" sid-test
+  assert_rc 1
+  assert_has "$T/err" "queue acceptance unconfirmed"
+  assert_has "$FAKE_LOG" "arg: sid-test"
+  assert_lacks "$FAKE_LOG" "Example Workshop"
+  assert_lacks "$FAKE_LOG" "== claude"
 }
 
 ao_test_main "$0"

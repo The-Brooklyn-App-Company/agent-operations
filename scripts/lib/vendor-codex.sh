@@ -13,8 +13,9 @@
 #           an unexpected name) the run fails closed. Verified with
 #           codex-cli 0.169 on 2026-11-17; the plugin and app switches with
 #           0.169.0-alpha.11.
-# deliver:  none in 0.2.0. Registry rows on codex read their inbox at turn
-#           start; the relay leaves their notes in place.
+# deliver:  `codex queue --thread SESSION --message POINTER --resume`.
+#           The CLI exit status confirms queue acceptance. Resume is
+#           best-effort and a failed resume can still exit 0.
 # activity: newest $CODEX_HOME/sessions/**/*<session>*.jsonl.
 
 # Global switches for every Codex run: no plugins, no apps (connectors).
@@ -64,6 +65,33 @@ vendor_codex_run() {
   # shellcheck disable=SC2086
   set -- "$@" $_vx_off "$(ao_prompt_text "$_vx_prompt")"
   ao_timeout "$R_TIMEOUT" "$@" >/dev/null 2>"$_vx_err"
+}
+
+vendor_codex_deliver() {
+  _vx_thread=$2 _vx_out=$4
+  case $_vx_thread in
+    '' | -* | *"$AO_NL"* | *"$AO_TAB"*) echo "no addressable Codex thread" >"$_vx_out"; return 1 ;;
+  esac
+  if ! [ "$R_TIMEOUT" -gt 0 ]; then
+    echo "relay_codex_timeout must be positive" >"$_vx_out"
+    return 1
+  fi
+  _vx_pointer=$(ao_prompt_text "$3") && [ -n "$_vx_pointer" ] &&
+    [ "$(wc -c <"$3")" -le "$AO_ARG_MAX_BYTES" ] || {
+    echo "invalid Codex pointer message" >"$_vx_out"
+    return 1
+  }
+  ao_timeout "$R_TIMEOUT" "$R_CMD" queue --thread "$_vx_thread" --message "$_vx_pointer" --resume \
+    >/dev/null 2>"$_vx_out.err"
+  _vx_rc=$?
+  if [ "$_vx_rc" -eq 0 ]; then
+    # Preserve queue/resume diagnostics separately from the acceptance stage.
+    tail -c 300 "$_vx_out.err" | tr '\n' ' ' >"$_vx_out"
+    return 0
+  fi
+  printf 'queue acceptance unconfirmed (Codex exit %s)\n' "$_vx_rc" >"$_vx_out"
+  tail -c 240 "$_vx_out.err" | tr '\n' ' ' >>"$_vx_out"
+  return 1
 }
 
 vendor_codex_activity() {

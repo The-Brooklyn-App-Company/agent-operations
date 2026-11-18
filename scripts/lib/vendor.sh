@@ -26,10 +26,10 @@
 #       one headless, read-only, ephemeral run with stdin closed; the final
 #       answer goes to OUT_FILE, diagnostics to ERR_FILE; returns the status
 #   vendor_<client>_deliver NAME SESSION MESSAGE_FILE OUT_FILE RELAY_ID
-#       put MESSAGE_FILE (which contains RELAY_ID) in front of a live
-#       session; 0 only when delivery is confirmed, never on a model's word.
+#       submit MESSAGE_FILE (which contains RELAY_ID) for that session;
+#       0 only on a client receipt. Codex confirms queue acceptance.
 #       A confirmed delivery with a caveat writes `warning: ...` as the first
-#       line of OUT_FILE. Optional: codex has none in 0.2.0
+#       line of OUT_FILE.
 #   vendor_<client>_activity DIR SESSION
 #       print the epoch time of the session's last activity, or nothing
 # Callers use ao_role_run, ao_role_deliver and ao_activity, never the vendor
@@ -37,7 +37,7 @@
 
 AO_VENDORS='claude codex custom'
 # Clients that can deliver a relay message; other rows read their inbox.
-AO_RELAY_VENDORS='claude custom'
+AO_RELAY_VENDORS='claude codex custom'
 # One argv string: Linux caps a single argument at 128 KiB (MAX_ARG_STRLEN),
 # so prompts and relay messages stay below that with room for wrappers.
 AO_ARG_MAX_BYTES=120000
@@ -71,7 +71,9 @@ ao_role_load() {
   [ -x "$R_CMD" ] || ao_die "$AO_E_USAGE" "$1: not executable: $R_CMD"
   R_MODEL=$(ao_cfg "$1_model" '')
   R_EFFORT=$(ao_cfg "$1_effort" '')
-  R_TIMEOUT=$(ao_cfg_uint "$1_timeout" 600) || exit
+  _ao_timeout_default=600
+  [ "$1" != relay_codex ] || _ao_timeout_default=30
+  R_TIMEOUT=$(ao_cfg_uint "$1_timeout" "$_ao_timeout_default") || exit
   R_MCP=$(ao_cfg "$1_mcp_disable" '')
   R_TOOLS=$(ao_cfg "$1_tools" '')
   R_MAX_TURNS=$(ao_cfg "$1_max_turns" '')
