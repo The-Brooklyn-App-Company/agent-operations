@@ -87,7 +87,9 @@ checked.
 
 **K-13 One Oracle, one operator per outcome.** Each person has one
 persistent Oracle. Each operator owns one outcome and is exactly one home
-plus a declared list of work repositories.
+plus a declared list of work repositories. Across clients, only its named
+holder acts; a bounded partner has a written scope and retirement condition,
+not a second ownership claim.
 
 **K-14 One home per rule and fact.** Every rule or changing fact lives in
 one place; everything else points to it. General practice lives in the
@@ -133,8 +135,10 @@ owns, its home notes and mandate, and leftover worktrees and branches. The
 Oracle's own home is reviewed the same way. The operator triages the
 findings within a working day. When an operator moves to another client,
 the incoming family audits what the outgoing one left before it takes new
-work. Recurring findings become rule or mandate changes at the weekly
-review, not new incident rules. On by default (`cross_review=on`).
+work: its report is committed in the operator's home and recorded before
+the switch counts as done. Recurring findings become rule or mandate
+changes at the weekly review, not new incident rules. On by default
+(`cross_review=on`).
 
 ## Scheduled work and model runs
 
@@ -166,8 +170,11 @@ confirm the target's identity and the acting principal from the execution
 route itself. After an ambiguous result, reconcile the target's state
 before anything is repeated.
 
-**K-29 Keep churn out of backups.** State, logs, caches, build output and
-virtual machines stay out of git, backups and search indexing.
+**K-29 Keep churn out of backups; preserve sole-copy state.** Replaceable
+logs, caches, build output, worktree farms and virtual machines stay out of
+git, routine backups and search indexing. Preserve irreplaceable application
+state, original assets, unique commits and dirty work in an explicitly
+backed-up location before excluding or removing their only copy.
 
 ## Records and privacy
 
@@ -190,7 +197,7 @@ material rather than letting working documents grow.
 without the owner only where a mandate enables it and every gate in
 [the auto-ship example](../examples/security-auto-ship.md) holds.
 
-**K-34 Lease checks (experimental, coming in 0.2.x).** Once an operator
+**K-34 Lease checks (experimental since 0.2.1).** Once an operator
 uses the advisory lease, a session that is not the holder does no work and
-redirects; see [continuity](../docs/continuity.md#lease-and-takeover).
+redirects; see [handoff](../docs/handoff.md).
 **Fixed** once enabled.

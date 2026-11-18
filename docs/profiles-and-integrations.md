@@ -16,9 +16,20 @@ loudly instead.
 | Profile | For | Review |
 | --- | --- | --- |
 | [claude-only](../profiles/claude-only.profile) | Claude Code in every role | `same-family` |
-| [codex-only](../profiles/codex-only.profile) | Codex in every role; sessions read their inbox (`file-only`) | `same-family` |
+| [codex-only](../profiles/codex-only.profile) | Codex roles; default queue relay for actual thread IDs; `relay_codex=off` for passive pickup | `same-family` |
 | [both](../profiles/both.profile) | Claude Code sessions, Codex worker and reviewer | `cross` |
 | [custom](../profiles/custom.profile) | Any CLI that implements the [custom command contract](../scripts/lib/vendor-custom.sh) | `single-model` |
+
+Codex relay defaults to `relay_codex=queue` for Codex rows with actual owner
+thread IDs, including existing rows. `relay_default` and the registry client
+select the owner route; `relay_codex=off` keeps Codex relay passive.
+`doorbell_codex=queue` separately enables mailbox doorbells. Both Codex
+transports require an actual owner session ID. Ordinary relay has one live
+isolated round trip observed on macOS, 2026-11-18, codex-cli 0.169.0-alpha.11.1,
+on an existing account/machine; this is not a clean account/machine test and
+resume is not guaranteed. Both experimental lease-mail doorbells remain fakes
+only, live unrun; see [the capability table](../README.md#what-is-proven).
+Off relay mode preserves new notes, interrupted claims and pending state.
 
 ## Roles
 
@@ -48,7 +59,7 @@ it was verified, is in [scripts/README.md](../scripts/README.md#clients).
 | Instructions | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` canonical; `CLAUDE.md` imports it |
 | Permissions | Allow and deny rules, plus a classifier that can reject relayed approvals | Sandbox level plus approval policy | Grants live in mandates; the human applies a per-client pattern from `settings/`; a denial is reported verbatim ([K-02](../kit/KIT.md)) |
 | Scheduled work | Native scheduled tasks | Native automations, headless runs | The OS scheduler by default; native tasks are listed in `SCHEDULES.md` too |
-| Messaging a session | A headless run can message a named session (verified, see the README) | Headless resume of a session; desktop threads unverified | Inbox files are the transport; delivery is a convenience on top |
+| Messaging a session | A headless run can message a named session (verified, see the README) | Native CLI queue to an actual thread ID; one isolated live ordinary-relay round trip observed (limits above), no guaranteed resume | Inbox files are the transport; delivery is a convenience on top |
 
 ## Integration slots
 

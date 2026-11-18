@@ -5,6 +5,115 @@ with 0.2.0; 0.1.x guidance had none.
 
 ## Unreleased
 
+## 0.3.0 (2026-11-18)
+
+- **K-13, K-14, K-22, K-23, K-24, K-26, K-34:** end-to-end two-client
+  [manual](MANUAL.md), exclusive owning-side routing, switch-in and bounded
+  partner retirement, change-only PR sensing, usage handoff and token design.
+- **K-13, K-24, K-28:** bounded schedule snapshot validation and job cutover
+  planner, preserving paused intent and blocking unmatched active peers; native
+  execution/sidebar/lifecycle adapters and usage automation remain roadmap.
+- **K-29:** distinguish replaceable churn from irreplaceable application state;
+  preserve unique commits and dirty/private artifacts before exclusions or cleanup.
+- **K-16, K-27, K-29:** repo-local `worktrees.noindex` creation helper with a
+  verified sticky macOS backup exclusion; no new broad writable roots.
+- **K-10, K-23, K-28:** native Codex queue relay and deterministic PR
+  watcher; transport acceptance, fixture tests and installed runtime proof stay
+  distinct. One isolated ordinary Codex relay round trip was observed on macOS,
+  2026-11-18, codex-cli 0.169.0-alpha.11.1, using an existing account/machine;
+  resume is not guaranteed. Both lease-mail doorbells are fakes only; live unrun.
+- **K-10, K-28, K-34 upgrade from 0.2.0:** Codex rows with actual owner thread
+  IDs now queue pointers by default (`relay_codex=queue`). Set `relay_codex=off`
+  for passive inbox pickup; existing inbox/claimed/pending state is preserved
+  while off. Missing IDs hold notes; display names are never thread addresses.
+  The experimental Codex doorbell remains separately opt-in and default off.
+- **K-10, K-13, K-24, K-34:** dated unshipped manual designs for ownership
+  generation/drain, job occurrences, capability evidence and complete package
+  hashes, and deterministic wake/restart proof before polling-fallback retirement.
+- Full release validation and remaining live acceptance recorded in
+  [TESTING.md](TESTING.md).
+
+## 0.2.1-rc1 (release candidate; folded into 0.3.0)
+
+Adds the handoff layer between Claude Code and Codex, **experimental**,
+and makes the switch-in audit one mechanism.
+
+### Rules
+
+- **K-22** The switch-in audit counts as done only when the incoming
+  family's report is committed in the operator's home and recorded
+  (`lease.sh audit-done`). The reviewer is chosen from the operator's model
+  family (its lease's provider, else the registry client), never from a
+  `file-only` transport.
+- **K-34** Lease checks are available, experimental (no longer "coming in
+  0.2.x"); see [docs/handoff.md](docs/handoff.md).
+
+### Scripts
+
+- **Experimental** handoff layer (K-34, K-28, K-08): `lease.sh` (advisory
+  lease per operator home: holder and standby, redirect, dispatch markers,
+  warm release, human-only takeover with a cold note, `settle`, `unlock`),
+  `mail.sh` (file mailboxes, once-only forward of a direct human turn,
+  `ring-all` hook), `doorbell-claude.sh`, `doorbell-codex.sh`, `ask.sh`
+  (asks and the approvals ledger bound to the lease epoch). Routed through
+  `ao_operator_resolve` and `ao_gate`; profile keys `lease_stale`,
+  `doorbell_codex`, `doorbell_rering_min`; exit code 5 for a lease refusal.
+  The lease keeps its own fail-closed directory lock rather than core's
+  kernel lock: lease verbs run without a profile, lock one operator home
+  each, and must stay locked after a crash mid-change.
+- One switch-in audit (K-22): a lease handoff to another client, or a
+  family change without a lease (recorded by `cross-review.sh` in
+  `<state_dir>/audit/`, also with `cross_review=off`), makes the audit
+  pending; `cross-review.sh` writes the incoming family's headless report
+  to `<home>/audits/`; `lease.sh audit-done --report PATH` records its path
+  and commit and clears the gate. `status.sh` gains an AUDIT column (a new
+  last field in `--tsv`). With a lease, dispatches and new asks refuse
+  while it is pending.
+- `cross-review.sh` uses `OP_PROVIDER` (the model family) for every
+  reviewer choice, and names family and transport in the packet.
+- `doorbell-codex.sh` is always unavailable (exit 2; the chat slot is the
+  fallback): 0.2.0 has no Codex delivery transport. `doorbell_codex` is
+  reserved; `off` is the only value.
+- `install.sh sync <client>` brings every registry row up to date for a
+  second client (instruction pointers, settings patterns including the new
+  `settings/handoff.md`, a `session.<client>` name) and prints the per-
+  operator steps; `status.sh --drift` reports mismatches across clients
+  (registry, lease holders, pointers, `operator.conf`, kit pin) with a fix
+  each, exit 1 while anything drifts (K-14, K-15).
+- Codex runs pass `--disable plugins --disable apps`: a plugin's tool
+  servers cannot be switched off by name, and the attempt made every Codex
+  run fail at configuration load on machines with such plugins (K-27).
+
+### Docs
+
+- New [docs/handoff.md](docs/handoff.md) (threat model, lease, standby,
+  mailboxes, asks, takeover, switch-in audit, per-client validation,
+  settings patterns, limits) and [TESTING.md](TESTING.md) (automated suite
+  and a live test on one low-risk operator). The Claude Code deny patterns
+  now put a wildcard between `lease.sh` and the verb, so `--home DIR`
+  before the verb is covered too.
+- `docs/continuity.md` points its placeholders at the handoff doc;
+  README's "What is proven" lists each experimental piece with its
+  evidence.
+
+### Unverified
+
+- The live test on a real operator (TESTING.md, part 2), which needs a
+  human at a terminal: the takeover, `settle` and `unlock` confirmations
+  were typed through a pseudo-terminal by the tests and the sandboxed
+  end-to-end, never by a person.
+- Either client's interactive permission prompt for the takeover command;
+  a desktop-app thread as holder or standby.
+- A doorbell reaching a live session; any Codex doorbell.
+- A registry switch-in audit with a real reviewer (fakes only), and the
+  weekly cross-review on real clients.
+- In the Codex sandbox, `dispatch-begin --pid` cannot read process state
+  and committing fails (`.git` is read-only under `workspace-write`).
+- `install.sh sync` and `status.sh --drift` against a real two-client
+  setup (fakes only so far).
+- A forward whose run dies after publishing and before marking it sent is
+  sent again by a later run (a duplicate notification, never a lost turn).
+
 ## 0.2.0 (2026-11-17)
 
 A clean break from 0.1.x: the kit becomes rules with stable IDs, six

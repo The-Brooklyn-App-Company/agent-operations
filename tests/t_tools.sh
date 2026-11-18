@@ -16,13 +16,13 @@ test_status_columns() {
   note beta b2.md y
   run status.sh --tsv
   assert_rc 0
-  assert_eq "$(sed -n 1p "$T/out")" "alpha${TAB}Alpha Op${TAB}claude${TAB}idle_min=60${TAB}-${TAB}0"
-  assert_eq "$(sed -n 2p "$T/out")" "beta${TAB}Beta Op${TAB}claude${TAB}no-transcript${TAB}2026-12-31${TAB}2"
-  assert_eq "$(sed -n 3p "$T/out")" "gamma${TAB}Gamma${TAB}claude${TAB}pending${TAB}-${TAB}0"
-  assert_eq "$(sed -n 4p "$T/out")" "delta${TAB}Delta${TAB}file-only${TAB}unknown${TAB}-${TAB}0"
+  assert_eq "$(sed -n 1p "$T/out")" "alpha${TAB}Alpha Op${TAB}claude${TAB}idle_min=60${TAB}-${TAB}0${TAB}-"
+  assert_eq "$(sed -n 2p "$T/out")" "beta${TAB}Beta Op${TAB}claude${TAB}no-transcript${TAB}2026-12-31${TAB}2${TAB}-"
+  assert_eq "$(sed -n 3p "$T/out")" "gamma${TAB}Gamma${TAB}claude${TAB}pending${TAB}-${TAB}0${TAB}-"
+  assert_eq "$(sed -n 4p "$T/out")" "delta${TAB}Delta${TAB}file-only${TAB}unknown${TAB}-${TAB}0${TAB}-"
   assert_lacks "$T/out" "Oracle"
   run status.sh --all
-  assert_has "$T/out" "KEY"
+  assert_has "$T/out" "AUDIT"
   assert_has "$T/out" "Oracle"
   assert_no_file "$T/state/relay.log"
 }

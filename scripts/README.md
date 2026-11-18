@@ -9,16 +9,23 @@ and exit codes.
 
 | Script | Job |
 | --- | --- |
-| `install.sh` | Create the Oracle home, operator homes, skill links and the tick unit; `--dry-run` lists everything first |
+| `install.sh` | Create the Oracle home, operator homes, skill links and the tick unit; `sync <client>` brings every home up to date for a second client; `--dry-run` lists everything first |
 | `tick.sh` | Scheduled heartbeat: stall watchdog, period hooks, then the relay |
 | `relay.sh` | Move new inbox notes to the archive and tell the session, with a pointer, never the note text |
 | `worker-run.sh` | One cheap read-only worker job; result to an inbox unless `NOTHING` |
 | `review-run.sh` | One independent review pass by a reviewer role |
-| `cross-review.sh` | Weekly review of every operator by the other model family, and a switch-in audit ([K-22](../kit/KIT.md)) |
-| `status.sh` | One line per operator: activity, quiet list, inbox depth; profile warnings |
+| `cross-review.sh` | Weekly review of every operator by the other model family (from `OP_PROVIDER`), and the switch-in audit report after a move to the other family ([K-22](../kit/KIT.md), [handoff](../docs/handoff.md#switch-in-audit)) |
+| `status.sh` | One line per operator: activity, quiet list, inbox depth, switch-in audit; profile warnings; `--drift` reports mismatches between the clients with their fixes |
 | `inbox-put.sh` | Atomic note into an inbox, for hooks and adapters |
+| `jobs.sh` | Validate explicit schedule snapshots and plan safe owning-side job cutovers; no scheduler apply |
+| `worktree.sh` | Create a scoped repo-local worktree after verified macOS churn exclusions; see `--help` |
+| `pr-watch.sh` | Deterministic change-only PR snapshots into the owning inbox; see `--help` |
 | `check.sh` | Links, duplicate rule text, skill shape, home layout, privacy scan |
 | `drift-check.sh` | Weekly audit: `check.sh dupes` plus a worker pass with `drift-prompt.md` |
+| `lease.sh` | **Experimental.** Advisory lease per operator: holder, standby, takeover ([handoff](../docs/handoff.md)) |
+| `mail.sh` | **Experimental.** File mailboxes in each home; `ring-all` for a tick hook |
+| `doorbell-claude.sh`, `doorbell-codex.sh` | **Experimental.** "You have mail", never the mail |
+| `ask.sh` | **Experimental.** Asks and the approvals ledger, bound to the lease |
 | `units/` | launchd (macOS) and systemd (Linux, untested) templates for the tick |
 | `lib/` | Shared code: `core.sh`, `registry.sh`, `vendor.sh`, one `vendor-<client>.sh` per harness |
 
@@ -49,7 +56,7 @@ key.
 | `inbox/<key>/*.md` | `inbox_dir` | New notes waiting for a session; `.claimed/` holds notes being archived (an atomic rename, so a later note under the same name is untouched); `.relay-pending` lists archived notes whose pointer is not yet confirmed |
 | `inbox/sent/` | `sent_dir` | Archived notes, `<stamp>-<key>-<name>.md`; must be on a filesystem with hard links |
 | `hooks/{every,hourly,daily,weekly}/` | `hooks_dir` | Tick hooks; optional `hooks/gate` |
-| `~/.local/state/agent-operations/` | `state_dir` | Logs, stamps, locks, backoff and cross-review state (machine-local; keep out of git and backups) |
+| `~/.local/state/agent-operations/` | `state_dir` | Logs, stamps, locks, backoff, cross-review state and registry switch-in audit records (`audit/`) (machine-local; keep out of git and backups) |
 
 **Registry** (tab-separated; `#` comments; no empty fields, use `-`):
 
@@ -102,7 +109,8 @@ Unknown keys warn; keys starting with `x_` are free for local hooks.
 | `daily_hour` | `6` | Daily hooks run from this hour |
 | `weekly_day`, `weekly_hour` | `5`, `6` | Weekly hooks and cross-reviews run from this day and hour, catching up later that ISO week |
 | `hook_timeout` | `900` | Seconds per hook |
-| `relay_default` | `claude` | Client for registry rows without one |
+| `relay_default` | `claude` | Client for registry rows without one (`codex` in the Codex-only profile) |
+| `relay_codex` | `queue` | Codex rows queue pointers to actual owner thread IDs (one isolated live round trip observed; evidence below); `off` leaves inbox, claimed and pending state untouched. Independent of `doorbell_codex` |
 | `relay_label` | `Relay (automated inbox, not from the human):` | First line of every relayed message |
 | `relay_max_attempts` | `3` | Failed deliveries in a row before the row backs off and the Oracle is told |
 | `relay_workdir` | `oracle_home` | Working directory for delivery runs |
@@ -113,6 +121,7 @@ Unknown keys warn; keys starting with `x_` are free for local hooks.
 | `secrets` | `os` | Secrets slot: `os` (macOS keychain; libsecret on Linux), `none`, or an adapter path called as `<adapter> get <name>` |
 | `tracker`, `chat`, `githost`, `ci` | `none` | Integration slots, recorded for agents and adapters; the scripts do not read them yet |
 | `attribution` | `none` | AI attribution in commits: `none` or `disclose`; read by agents, not scripts |
+| `lease_stale`, `doorbell_codex`, `doorbell_rering_min` | `4h`, `off`, `60` | Experimental lease layer (see [handoff](../docs/handoff.md)) |
 
 **Roles.** Each role is a prefix:
 
@@ -122,7 +131,7 @@ Unknown keys warn; keys starting with `x_` are free for local hooks.
 | `reviewer` | `review-run.sh`, and cross-review for rows on other clients |
 | `reviewer_claude`, `reviewer_codex` | Per-family reviewers (client fixed by the name): `cross-review.sh` reviews Claude operators with `reviewer_codex` and Codex operators with `reviewer_claude`; a family counts as configured when its `_model` is set |
 | `implementer_claude`, `implementer_codex` | Per-seat implementer preferences, read by agents when they delegate; the scripts do not run them |
-| `relay_claude`, `relay_custom` | Relay transports (client fixed by the name) |
+| `relay_claude`, `relay_codex`, `relay_custom` | Relay settings (client fixed by the name); Codex relay defaults to `relay_codex=queue`; `off` makes it passive. The Codex doorbell uses these settings with its separate opt-in; its live path remains unrun |
 
 Every role takes the same fields:
 
@@ -155,16 +164,24 @@ only call the role interface, so adding a harness touches nothing else.
 | Client | run | deliver | activity |
 | --- | --- | --- | --- |
 | `claude` | `claude -p --restricted`, no session persistence, read-only tools, no tool servers or hooks | Headless run with only `ListAgents` and `SendMessage` calls `SendMessage` once; confirmed from the event stream with `jq` (below) | `<session>.jsonl` under `$CLAUDE_CONFIG_DIR/projects/<dir-slug>/`, else the newest transcript there |
-| `codex` | `codex exec --ephemeral -s read-only`, every configured tool server off | None in 0.2.0: the session reads its inbox | Newest `$CODEX_HOME/sessions/**/*<session>*.jsonl` |
+| `codex` | `codex exec --ephemeral -s read-only`, every configured tool server off | Default `relay_codex=queue` (set `off` for passive pickup): `codex queue --thread <actual-session-id> --message <pointer> --resume`. One isolated live round trip observed; no guaranteed resume (evidence below) | Newest `$CODEX_HOME/sessions/**/*<session>*.jsonl` |
 | `custom` | `<cmd> run <workdir> <prompt> <out>` | `<cmd> deliver <name> <session> <message> <relay-id>` | `<cmd> activity <dir> <session>` (optional) |
 | `file-only` | n/a | Nothing: the session reads its inbox at turn start | n/a |
 
-Verified on macOS on 2026-11-17 with Claude Code 2.1.322 and codex-cli
-0.169: relay delivery to a named desktop session, worker and review runs.
+Verified on macOS on 2026-11-17: Claude Code 2.1.322 relay delivery to a
+named desktop session; codex-cli 0.169 worker and review runs. One live isolated
+ordinary Codex relay round trip was observed on macOS on 2026-11-18 with
+codex-cli 0.169.0-alpha.11.1: the recipient read the archived fixture and
+acknowledged its exact relay ID in a later app turn. This used an existing
+account/machine, not a clean account or machine. The queue implementation treats
+exit 0 as submission only; that run also reported a failed resume. Resume is
+not guaranteed. Both experimental lease-mail doorbells remain **fakes only;
+live unrun**. Verify the installed CLI and recipient readback independently.
+A display name is never a Codex thread address: absent an actual owner session ID, relay holds
+all notes in place and the Codex doorbell is unavailable.
 All runs close stdin, run under a hard timeout, and pass the prompt as one
 argument (120000-byte cap, under Linux's 128 KiB per-argument limit).
-Delivered is not read: report a relayed message as delivered, not as acted
-on.
+Submission, recipient readback and action are separate stages (K-10).
 
 **Relay trust boundary.** Whatever can write an inbox can put a file in
 front of a session, so the relay never puts note text in front of a model:
@@ -203,10 +220,12 @@ can write the hooks folder gets scheduled execution. Keep `hooks_dir` where
 agents do not write unattended, or review every change to it.
 
 An optional executable `hooks/gate` is asked before acting on an operator:
-`gate <action> <key> <client> <session>`, where action is `relay` or
-`watchdog`; non-zero holds that operator for this tick. This is where the
-0.2.x lease check plugs in. Which client and session own an operator is
-decided in one function, `ao_operator_resolve` in `lib/registry.sh`.
+`gate <action> <key> <client> <session>`, where action is `relay`,
+`watchdog` or `doorbell`; non-zero holds that operator for this tick. An
+operator whose home has a lease (experimental, [handoff](../docs/handoff.md))
+is routed to the holder, and held without asking the gate while its lease
+names no holder. Which client and session own an operator is decided in one
+function, `ao_operator_resolve` in `lib/registry.sh`.
 
 ## Scheduling
 
@@ -230,7 +249,9 @@ Shared by all scripts (`lib/core.sh`): `0` success or nothing to do; `1`
 runtime failure, or findings from a check; `2` usage or configuration error;
 `3` busy (another run holds the lock; benign); `4` required role not
 configured; `124` timed out; `129`, `130`, `143` stopped by HUP, INT or
-TERM. Runners otherwise pass through the client's own status.
+TERM. Runners otherwise pass through the client's own status. The
+experimental lease scripts add `5`: refused by the lease (not the holder,
+wrong epoch, a marker or a missing confirmation).
 
 ## Environment
 
@@ -259,3 +280,73 @@ Linux hosts should keep coreutils `timeout`. Used tools beyond POSIX:
 present. `shellcheck -x scripts/*.sh scripts/lib/*.sh tests/*.sh
 adapters/*.sh` is clean. `tests/run.sh` runs the suite under every
 installed shell with fake agent CLIs: no network, no model calls.
+
+## PR watcher
+
+`pr-watch.sh --help` is the interface contract. Configure one invocation per
+owned repository in a deterministic tick hook, with a stable key and persistent
+state. Polls are reads; the watcher creates local inbox data only. The registry
+and relay choose the active client, so no watcher calls a dormant session.
+First successful polling establishes a baseline; subsequent unchanged polling
+is quiet. Failed reads retain the last successful snapshot. Record the precise
+head/review/check/comment coverage actually implemented and tested; adapter
+summary fields alone do not cover every comment event. End-to-end installed
+acceptance needs an observed event and receiver acknowledgement, not just fakes.
+
+## Worktree creation
+
+`worktree.sh --help` describes its arguments. New seats use a real canonical
+repo's `worktrees.noindex` container. The helper verifies a sticky macOS Time
+Machine exclusion with no sudo, plus child readback before checkout churn.
+Native app-managed and historical seats are not relocated. Unique work and
+irreplaceable state need independent backed-up custody; excluding a container
+is not proof of restore safety. See [the manual](../MANUAL.md).
+
+## Codex queue settings
+
+A registry row's `client=codex` selects native queue delivery by default to its
+actual session ID (the lease holder overrides the row when enabled). Set
+`relay_codex=off` to preserve inbox, interrupted claims and pending state for
+passive pickup; individual file-only rows also remain passive. A missing actual
+owner session ID holds notes, including under a lease. Display names never
+substitute for IDs. No second provider is called for the row. One live isolated
+ordinary relay round trip was observed; see [Clients](#clients) for its date,
+version and existing-account/machine limits. This does not verify either
+experimental lease-mail doorbell; both remain fakes only, live unrun.
+`relay_codex_cmd` selects the installed CLI and `relay_codex_timeout` is a positive
+hard limit (default 30 seconds). No model role is needed to enqueue a pointer.
+`doorbell_codex=queue` separately opts in to the experimental lease-mail doorbell;
+its default is `off`, independently of relay mode. The queue implementation
+treats exit 0 as queue submission only, not resumed/read/executed; the observed
+live run returned 0 with a resume-failed warning. Resume is not guaranteed.
+Verify the installed CLI and recipient acknowledgement separately. An absent
+CLI/off doorbell can use the existing unavailable-transport chat fallback;
+a failed queue call is a delivery failure, not an automatic second route.
+Retries preserve the relay ID, but an ambiguous timeout can duplicate a pointer;
+receivers deduplicate IDs and reconcile action state before any effect.
+
+### Watcher coverage
+
+Configure `githost=gh` (or a compatible executable adapter), then invoke
+`pr-watch.sh --key web --repo sample/app-web` from an authorized tick hook.
+The bundled adapter makes one bounded read-only metadata query: up to 100
+recently updated open PRs, first 100 check contexts, last 20 submitted reviews
+and last 20 top-level comments per PR. It requests IDs/timestamps/states, not
+comment/review bodies or authors. Inline review threads, departures from the
+open list, changes entirely between polls and older items outside these windows
+are not covered. GitHub Enterprise schema compatibility is unverified. The
+current [GraphQL PullRequest schema](https://docs.github.com/en/graphql/reference/pulls#pullrequest)
+includes the PR head's status-check rollup; fixture tests do not prove live API
+availability or authorization on a deployment.
+
+## Job inventory planner
+
+Copy [the synthetic sample](../templates/oracle/JOBS.tsv) into a private home
+and replace it with actual scheduler IDs/state. `jobs.sh check REGISTRY` validates
+its nine-field TSV schema. `jobs.sh plan REGISTRY OWNER claude|codex` returns
+advisory actions ordered disable, enable, nochange. No native API calls or
+scheduler changes occur. Neutral timers stay unchanged; paused intent is
+preserved; unknown/mismatched state and active unmirrored old-side jobs block
+before any plan output. A supplied enabled snapshot is not live readback.
+See [the manual](../MANUAL.md#job-registry-and-provider-cutover) for cutover and
+unshipped automation boundaries.

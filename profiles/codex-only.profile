@@ -9,9 +9,14 @@ oracle_key=oracle
 work_root=~/src
 path=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
 
-# Relay: Codex has no confirmed way to message a session, so sessions read
-# their inbox at turn start and on recovery.
-relay_default=file-only
+# Relay: Codex rows queue pointers by default when the owner has a real
+# thread ID. Set relay_codex=off for passive inbox pickup, or file-only on
+# an individual registry row. One isolated live round trip observed; see
+# README.md for versions and existing-account/machine limits. No guaranteed resume.
+# doorbell_codex is a separate, default-off opt-in, fakes only; live unrun.
+# Queued does not mean read.
+relay_default=codex
+relay_codex=queue
 
 # Cheap worker: read-only sandbox, ephemeral; every tool server in your
 # Codex configuration is switched off for the run.

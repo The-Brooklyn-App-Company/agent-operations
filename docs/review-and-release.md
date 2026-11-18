@@ -98,14 +98,14 @@ Oracle's home along with them.
 
 | Piece | How |
 | --- | --- |
-| Who reviews | The profile's per-family reviewer roles, `reviewer_codex_*` and `reviewer_claude_*`, chosen from the operator's `client` column in the registry. Each team sets its own models per seat |
+| Who reviews | The profile's per-family reviewer roles, `reviewer_codex_*` and `reviewer_claude_*`, chosen from the operator's model family: its lease's provider when it has a lease (experimental), else the registry `client` column. A `file-only` transport never decides it. Each team sets its own models per seat |
 | What is reviewed | The last seven days of commits (with patches) in the home and in each repository the operator owns, its `MANDATE.md`, `NOTES.md` and `AGENTS.md`, its worktrees, unmerged branches and uncommitted files |
 | What it looks for | Cruft and dead code, drift from the mandate, unfinished or abandoned work, contradictions, risky untested changes, and mistakes the implementing family tends to make |
 | Where findings go | The operator's inbox, unless the answer is `NOTHING`; the Oracle gets one digest when the week's reviews are done |
 | Triage | The operator settles each finding within a working day, as in [Review](#review): fixed, rejected with a reason, or deferred with an owner |
-| Switch-in audit | When an operator's `client` changes, the incoming family audits the last 30 days before the operator takes new work. The weekly direction flips with the registry |
+| Switch-in audit | When an operator moves to the other family (registry `client`, or a lease handoff), the incoming family's reviewer audits the last 30 days once and the report is written to the operator's `audits/`. The incoming session triages it, commits it and records it with `lease.sh audit-done`; until then `status.sh` shows the audit pending and, with a lease, new dispatches and asks refuse ([handoff](handoff.md#switch-in-audit)). The weekly direction flips with the family |
 | One family only | A different model of the same family reviews, the result is marked `same-family`, and `status.sh` warns until both families are configured |
-| Cost and bounds | `scripts/cross-review.sh` runs from an hourly tick hook and reviews at most `cross_review_per_run` operators per run, each under `cross_review_timeout`, so the week's reviews spread out and never hold the tick for long. `cross_review=off` turns it off |
+| Cost and bounds | `scripts/cross-review.sh` runs from an hourly tick hook and reviews at most `cross_review_per_run` operators per run, each under `cross_review_timeout`, so the week's reviews spread out and never hold the tick for long. `cross_review=off` turns the reviews off; switches are still recorded |
 
 **Learning loop.** At the weekly rule review ([K-32](../kit/KIT.md)), look
 across the digests: a finding that recurs becomes a change to a kit rule, a

@@ -31,8 +31,9 @@ as a folder in the Oracle's home (`install.sh operator <key> --embedded`);
 it then moves and backs up with the Oracle. Either way there is one home per
 operator and one checkout of it per machine.
 
-`ASKS.md`, `HANDOFF.md` and the `.operator/` lease and mailbox arrive with
-the [continuity layer](continuity.md) in 0.2.x.
+`ASKS.md`, `HANDOFF.md` and the `.operator/` lease and mailbox belong to
+the experimental [handoff layer](handoff.md) (0.2.1), and `audits/` holds
+switch-in audit reports ([K-22](../kit/KIT.md)).
 
 ### operator.conf
 
@@ -72,8 +73,9 @@ The 0.2.0 registry row is
 `key  name  home  session  [client]`, tab-separated: the session's display
 name (what the relay addresses), the operator's home (where its session is
 started, so its transcript can be found), a session id or `pending`, and
-the client. 0.2.x replaces the session column with the lease (see
-[continuity](continuity.md)).
+the client. An operator with a lease (experimental,
+[handoff](handoff.md)) is routed to the lease's holder instead of the
+session column.
 
 ## Shared work repositories
 
@@ -83,7 +85,7 @@ contributors ([K-16](../kit/KIT.md), [K-17](../kit/KIT.md)).
 | Question | Practice |
 | --- | --- |
 | Where does the owner work? | The primary checkout, `<work_root>/<repo>`. It alone updates the default branch, and it serializes merges |
-| Where do contributors work? | Their own worktree, `<work_root>/.worktrees/<key>/<repo>`, on branches `<key>/<topic>` |
+| Where do contributors work? | A scoped repo-local seat, `<repo>/worktrees.noindex/<task-slug>`, on branches `<key>/<topic>` |
 | Who reviews? | The reviewer role on a neutral packet, never the author. Across people: the reviewer named in `PROJECTS.tsv` |
 | How does work reach the owner? | A pull request with the handoff section of the [delegation packet](../templates/packets/delegation.md) filled in. With no git host: the branch plus an inbox note, within one instance only; work that crosses people needs a git host |
 | Who resolves conflicts? | The branch author rebases or merges forward; the owner never edits a contributor's branch |
@@ -146,3 +148,9 @@ kit pin), then each operator home, and rerun `install.sh oracle` and
 restored, by design: inbox contents and chat history. Two machines must
 never run the same operator at once; stop the old host's timers and
 sessions before starting the new one ([switching hosts](hosts-and-ci.md#switching-hosts)).
+
+## Two-client operating walkthrough
+
+See [the setup manual](../MANUAL.md) for verified roots, active-client routing,
+deterministic watchers, backup-safe worktrees and cleanup custody. Existing
+managed worktrees and documented live runtime exceptions are preserved.

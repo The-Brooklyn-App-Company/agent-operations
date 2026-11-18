@@ -1,0 +1,9 @@
+# job_id	owner	executor_side	cadence	model	desired	enabled	binding	mirror_group
+# Synthetic inventory: edit the enabled snapshot after checking the scheduler.
+# Paused is intent; disabled can also mean an enabled-intent inactive peer.
+tick	oracle	neutral	every 10 minutes	none	enabled	enabled	timer-tick	-
+review-claude	workshop	claude	weekly	strong-model	enabled	enabled	claude-review	review
+review-codex	workshop	codex	weekly	strong-model	enabled	disabled	codex-review	review
+paused-claude	workshop	claude	daily	small-model	paused	disabled	claude-paused	paused
+paused-codex	workshop	codex	daily	small-model	paused	disabled	codex-paused	paused
+single-claude	editor	claude	weekly	small-model	enabled	enabled	claude-single	-

@@ -206,6 +206,14 @@ test_tick_relays() {
   assert_count "$T/home/inbox/beta" 0
 }
 
+test_tick_with_no_changes_starts_neither_client() {
+  printf 'gamma\tGamma Op\t%s\tsid-g\tcodex\n' "$T/proj/beta" >>"$T/home/operators/REGISTRY.tsv"
+  at "2026-11-17 20:00"
+  run tick.sh
+  assert_rc 0
+  assert_no_file "$FAKE_LOG"
+}
+
 test_tick_relay_failure_is_reported() {
   at "2026-11-17 20:00"
   note beta b.md "deliver me"

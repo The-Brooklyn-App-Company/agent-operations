@@ -12,8 +12,13 @@ work_root=~/src
 path=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
 
 # Relay: Claude sessions get a pointer through SendMessage; a registry row
-# can say file-only instead. Codex sessions read their inbox.
+# can say file-only instead. Codex rows queue pointers by default when the
+# owner has a real thread ID; set relay_codex=off to keep those rows passive.
+# One isolated live round trip observed; see README.md for versions and limits.
+# No guaranteed resume. doorbell_codex is a separate, default-off opt-in,
+# fakes only; live unrun.
 relay_default=claude
+relay_codex=queue
 relay_claude_model=CHANGE-ME-small-claude-model
 relay_claude_max_turns=4
 relay_claude_timeout=300

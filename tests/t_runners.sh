@@ -12,7 +12,7 @@ test_worker_codex_invocation_is_locked_down() {
   prompt
   run worker-run.sh audit alpha "$T/prompt.md"
   assert_rc 0
-  for a in exec --ephemeral --skip-git-repo-check read-only "$T/home" small-model \
+  for a in plugins apps exec --ephemeral --skip-git-repo-check read-only "$T/home" small-model \
     mcp_servers.trade.enabled=false mcp_servers.ui.enabled=false "Check things. Print NOTHING if fine."; do
     assert_has "$FAKE_LOG" "arg: $a"
   done
@@ -177,7 +177,7 @@ test_claude_runs_accept_only_read_only_tools() {
 test_codex_lists_servers_from_the_run_directory() {
   prompt
   mv "$T/bin/codex" "$T/bin/codex.real"
-  printf '#!/bin/sh\nif [ "$1" = mcp ]; then pwd -P >"$FAKE_LOG.mcpdir"; echo "[]"; exit 0; fi\nexec "%s" "$@"\n' "$T/bin/codex.real" >"$T/bin/codex"
+  printf '#!/bin/sh\ncase " $* " in *" mcp list "*) pwd -P >"$FAKE_LOG.mcpdir"; echo "[]"; exit 0 ;; esac\nexec "%s" "$@"\n' "$T/bin/codex.real" >"$T/bin/codex"
   chmod +x "$T/bin/codex"
   run worker-run.sh audit alpha "$T/prompt.md" "$T/proj/alpha"
   assert_rc 0
