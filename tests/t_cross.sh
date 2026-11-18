@@ -133,6 +133,7 @@ test_switch_in_audit_by_the_incoming_family() {
   assert_eq "$(sed -n 1p "$r")" "# Switch-in audit: alpha, registry change 1 at $(sed -n 's/^since=//p' "$T/state/audit/alpha") (claude -> codex)"
   assert_has "$r" "P1 - branch x - abandoned"
   assert_has "$r" "## Triage"
+  assert_eq "$(grep -B 1 '^## Triage' "$r" | head -n 1)" "" "blank line before Triage"
   n=$(ls "$T/home/inbox/alpha"/*-cross-switch.md)
   assert_has "$n" "Cross-model switch-in audit of alpha (claude -> codex) by reviewer_codex (incoming)"
   assert_has "$n" "audit-done --report audits/switch-in-registry-"

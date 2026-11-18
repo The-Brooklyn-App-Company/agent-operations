@@ -61,15 +61,23 @@ Record every step's result (pass, fail, surprise) in the operator's notes.
 | 9 | Close the Claude session. In **your terminal**: `$K/scripts/lease.sh takeover --expect-epoch 1 --holder-stopped --provider codex --session '<codex name>'` | Refused: dispatch marker exists (and, while the Claude process lives, its client process too) |
 | 10 | `kill -KILL <pid>`; `$K/scripts/lease.sh settle --marker <id> --outcome not-landed` (type the confirmation) | Settled; marker moved to `settled/` |
 | 11 | Run the takeover again; type the confirmation | Cold note committed (`git log -1`), lease `assigned` to codex, epoch 2 |
-| 12 | In Codex: "Acquire the lease: `lease.sh acquire --provider codex --session '<its name>'`" | Prints **REQUIRED FIRST STEP: switch-in audit**; `dispatch-begin` and `ask.sh new` refuse until `audit-done` |
-| 13 | Ask Codex to run `lease.sh audit-brief`, do the audit, commit the report (starting with the brief's first line) and run `audit-done` | `switch-in audit recorded`; dispatch now allowed |
-| 14 | Re-open the old Claude session and send any message | Its `renew` fails; it redirects to Codex and does no work |
-| 15 | Approval from step 6 (if unused, file a new one in epoch 1 first) | `reserve` in Codex is refused: approvals do not cross a takeover |
+| 12 | In Codex: "Acquire the lease: `lease.sh acquire --provider codex --session '<its name>'`" | Prints **REQUIRED FIRST STEP: switch-in audit**; `dispatch-begin` and `ask.sh new` refuse until `audit-done`; `$K/scripts/status.sh` shows `pending` in the AUDIT column |
+| 13 | With a `reviewer_codex_model` in the profile, in your terminal: `$K/scripts/cross-review.sh --key demo` (one headless model call) | `audits/switch-in-lease-<generation>-2.md` in the home, starting with the audit line; a note in the operator's inbox |
+| 14 | Ask Codex to run `lease.sh audit-brief` (it lists that report), triage every finding in it (or write its own report, starting with the brief's first line), commit it and run `audit-done` | `switch-in audit recorded (lease, claude -> codex)`; dispatch now allowed; `lease.sh status` shows the report path and commit; `status.sh` shows `done` |
+| 15 | Re-open the old Claude session and send any message | Its `renew` fails; it redirects to Codex and does no work |
+| 16 | Approval from step 6 (if unused, file a new one in epoch 1 first) | `reserve` in Codex is refused: approvals do not cross a takeover |
 
 ### Afterwards
 
 - Warm handback (optional): Codex writes `HANDOFF.md` from `lease.sh note`,
   runs `release`; Claude acquires (another switch-in audit is required).
+- Registry switch without a lease (optional, on an operator with no
+  `.operator/lease`): run `$K/scripts/cross-review.sh --key <key>` once so
+  it records the operator's family, change its registry `client` column to
+  the other family, run it again, and expect
+  `status.sh` to show `pending` and a report in its `audits/`; after the
+  session commits it, `$K/scripts/lease.sh --home <home> audit-done --report
+  <path>` records it and `status.sh` shows `done`.
 - To stop testing: remove the `AGENTS.md` lines; `rm -rf $H/.operator`
   removes the lease, mailbox and markers (a later `acquire` starts a new
   generation).

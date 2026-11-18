@@ -69,5 +69,6 @@ is its merge owner), and web's contributor worktree
   abandoned branch, and triages both the same day. The Oracle gets one
   digest.
 - Juniper moves Infra from Codex to Claude for a week. Within the hour the
-  cross-review runs a switch-in audit: Claude audits what Codex left before
-  Infra takes new work.
+  cross-review runs a switch-in audit: Claude audits what Codex left, the
+  report lands in Infra's `audits/`, and Infra triages it and records it
+  (`lease.sh audit-done`) before it takes new work.

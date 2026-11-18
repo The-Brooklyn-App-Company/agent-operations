@@ -43,8 +43,9 @@ Overlays hold deltas only: a parameter, an added rule, or
   ([K-03](kit/KIT.md)).
 - **Cross-model accountability, on by default** ([K-22](kit/KIT.md)):
   every week the other model family reviews each operator's last seven
-  days (commits, notes, mandate, leftovers), and an operator that changes
-  client gets a switch-in audit by the incoming family. Findings go to the
+  days (commits, notes, mandate, leftovers), and an operator that moves to
+  the other family gets a switch-in audit by the incoming family, which its
+  session triages and records before new work. Findings go to the
   operator; a digest goes to the Oracle.
 - **Mail is a notification, never authority.** The relay tells a session
   where its new notes are; it never puts note text in front of a model.
@@ -98,12 +99,15 @@ Highest stage reached for each piece, with the client, version and date.
 | `review-run.sh` on Codex | Proven, codex-cli 0.169 | Toy diff, 2026-11-17 |
 | Claude `--restricted` delivery run with only `ListAgents`, `SendMessage` | Proven, Claude Code 2.1.322 | 2026-11-17 |
 | `worker-run.sh` and `review-run.sh` on Claude | Fakes only | |
-| `cross-review.sh` | Fakes only | |
+| `cross-review.sh` | Switch-in report by a real Codex reviewer, sandboxed; weekly review: fakes only | codex-cli 0.169.0-alpha.11, 2026-11-17 |
 | `install.sh` | Sandbox: fresh empty home, oracle + operator + check + status + timers render | 2026-11-17; not yet a separate clean machine |
 | launchd unit | Rendered by `install.sh`; loading it is your step | |
 | systemd units, Linux hosts | **Untested** | |
 | Codex relay delivery | **Not supported** in 0.2.0: Codex sessions read their inbox | |
-| Lease, mailboxes, takeover between clients | **Not in 0.2.0**: experimental, coming in 0.2.x ([continuity](docs/continuity.md)) | |
+| **Experimental:** lease, standby redirect, forward, cold takeover, asks ledger ([handoff](docs/handoff.md)) | Test suite; sandboxed end-to-end with both real CLIs, headless, `file-only` registry (validation table in [handoff](docs/handoff.md#per-client-validation)) | Claude Code 2.1.322, codex-cli 0.169.0-alpha.11, 2026-11-17. **Not yet** the live test on a real operator ([TESTING.md](TESTING.md)) |
+| **Experimental:** switch-in audit gate (`audit=pending` until `lease.sh audit-done` records the committed report) | Lease path end-to-end in the sandbox above, report by a real reviewer; registry path: fakes only | 2026-11-17 |
+| **Experimental:** human takeover, `settle`, `unlock` on a terminal | Driven through a pseudo-terminal (`script(1)`) only; a human at a real terminal and the clients' interactive permission prompts are **unverified** | |
+| **Experimental:** doorbells | Claude: fakes only, never reached a live session; Codex: **not supported** (no Codex transport) | |
 | `examples/tracker-linear` | **Untested** sketch | |
 
 ## Repository layout

@@ -5,6 +5,78 @@ with 0.2.0; 0.1.x guidance had none.
 
 ## Unreleased
 
+## 0.2.1-rc1 (release candidate, unreleased)
+
+Adds the handoff layer between Claude Code and Codex, **experimental**,
+and makes the switch-in audit one mechanism.
+
+### Rules
+
+- **K-22** The switch-in audit counts as done only when the incoming
+  family's report is committed in the operator's home and recorded
+  (`lease.sh audit-done`). The reviewer is chosen from the operator's model
+  family (its lease's provider, else the registry client), never from a
+  `file-only` transport.
+- **K-34** Lease checks are available, experimental (no longer "coming in
+  0.2.x"); see [docs/handoff.md](docs/handoff.md).
+
+### Scripts
+
+- **Experimental** handoff layer (K-34, K-28, K-08): `lease.sh` (advisory
+  lease per operator home: holder and standby, redirect, dispatch markers,
+  warm release, human-only takeover with a cold note, `settle`, `unlock`),
+  `mail.sh` (file mailboxes, once-only forward of a direct human turn,
+  `ring-all` hook), `doorbell-claude.sh`, `doorbell-codex.sh`, `ask.sh`
+  (asks and the approvals ledger bound to the lease epoch). Routed through
+  `ao_operator_resolve` and `ao_gate`; profile keys `lease_stale`,
+  `doorbell_codex`, `doorbell_rering_min`; exit code 5 for a lease refusal.
+  The lease keeps its own fail-closed directory lock rather than core's
+  kernel lock: lease verbs run without a profile, lock one operator home
+  each, and must stay locked after a crash mid-change.
+- One switch-in audit (K-22): a lease handoff to another client, or a
+  family change without a lease (recorded by `cross-review.sh` in
+  `<state_dir>/audit/`, also with `cross_review=off`), makes the audit
+  pending; `cross-review.sh` writes the incoming family's headless report
+  to `<home>/audits/`; `lease.sh audit-done --report PATH` records its path
+  and commit and clears the gate. `status.sh` gains an AUDIT column (a new
+  last field in `--tsv`). With a lease, dispatches and new asks refuse
+  while it is pending.
+- `cross-review.sh` uses `OP_PROVIDER` (the model family) for every
+  reviewer choice, and names family and transport in the packet.
+- `doorbell-codex.sh` is always unavailable (exit 2; the chat slot is the
+  fallback): 0.2.0 has no Codex delivery transport. `doorbell_codex` is
+  reserved; `off` is the only value.
+- Codex runs pass `--disable plugins --disable apps`: a plugin's tool
+  servers cannot be switched off by name, and the attempt made every Codex
+  run fail at configuration load on machines with such plugins (K-27).
+
+### Docs
+
+- New [docs/handoff.md](docs/handoff.md) (threat model, lease, standby,
+  mailboxes, asks, takeover, switch-in audit, per-client validation,
+  settings patterns, limits) and [TESTING.md](TESTING.md) (automated suite
+  and a live test on one low-risk operator). The Claude Code deny patterns
+  now put a wildcard between `lease.sh` and the verb, so `--home DIR`
+  before the verb is covered too.
+- `docs/continuity.md` points its placeholders at the handoff doc;
+  README's "What is proven" lists each experimental piece with its
+  evidence.
+
+### Unverified
+
+- The live test on a real operator (TESTING.md, part 2), which needs a
+  human at a terminal: the takeover, `settle` and `unlock` confirmations
+  were typed through a pseudo-terminal by the tests and the sandboxed
+  end-to-end, never by a person.
+- Either client's interactive permission prompt for the takeover command;
+  a desktop-app thread as holder or standby.
+- A doorbell reaching a live session; any Codex doorbell.
+- A registry switch-in audit with a real reviewer (fakes only), and the
+  weekly cross-review on real clients.
+- In the Codex sandbox, `dispatch-begin --pid` cannot read process state
+  and kit verbs that commit fail (`.git` is read-only under
+  `workspace-write`).
+
 ## 0.2.0 (2026-11-17)
 
 A clean break from 0.1.x: the kit becomes rules with stable IDs, six

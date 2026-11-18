@@ -13,7 +13,7 @@ and every gate below holds. Otherwise it takes the normal approval path.
 | Exact revision | Both verdicts and CI are bound to one candidate SHA and base SHA; any change voids them. The merge is a host operation conditional on both: a head-SHA match plus an up-to-date-with-base rule, or a merge queue whose result is re-verified. Where the host offers neither, auto-ship is off. The release record with both SHAs is committed before the merge |
 | Scope | Mandated work repositories only; a minimal diff; no migrations, major dependency bumps or widened permissions; rollback is one revert |
 | Deploy | If merging deploys, the mandate also needs a dated deploy grant; otherwise auto-ship stops at "ready to merge" |
-| Recovery precondition | Enabled only where the operator's recovery from an interrupted effect has been proven on that repository, or where the merge has no effect beyond git. Until the 0.2.x continuity layer proves recovery, that means: merges that do not deploy |
+| Recovery precondition | Enabled only where the operator's recovery from an interrupted effect has been proven on that repository, or where the merge has no effect beyond git. Until the continuity layer (experimental since 0.2.1) proves recovery, that means: merges that do not deploy |
 | Profile | Not with single-family review profiles ([K-21](../kit/KIT.md)) |
 | Record | An immediate heads-up to the owner with the evidence, both verdicts, the SHAs and the rollback |
 

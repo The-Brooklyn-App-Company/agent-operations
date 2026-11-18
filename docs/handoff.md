@@ -44,7 +44,7 @@ replaced atomically under `mkdir .operator/lease.lock`.
 | `state` | `held`, `released`, or `assigned` (a takeover named the next session; it has not acquired yet) |
 | `heartbeat` | Renewed by the holder at each turn start; never by the tick |
 | `prev_epoch`, `prev_note`, `prev_provider` | The previous epoch, the commit of `HANDOFF.md` to resume from, the previous client |
-| `audit`, `audit_note` | Switch-in audit state (`pending`, `done`) and its report commit |
+| `audit`, `audit_report`, `audit_note` | Switch-in audit state (`pending`, `done`), and the report's path and commit once recorded |
 | `client_pid`, `client_start` | The holder's client process where the client exposes one (Claude Code); liveness evidence only |
 
 A process counts as running while it exists and is not a zombie; a stopped
@@ -109,8 +109,9 @@ A doorbell only says "you have mail". `mail.sh ring-all` (from a tick hook,
 see `examples/hooks/every/40-doorbells`) rings each holder while it has
 mail, again only when the pending set or the holder changes, or after
 `doorbell_rering_min` (60). Claude: the relay's confirmed `SendMessage` path
-with fixed text. Codex: off by default (exit 2); the human is notified
-through the `chat` slot instead. A registry `client` of `file-only` keeps
+with fixed text. Codex: unavailable (exit 2), as the kit has no Codex
+delivery transport since 0.2.0; the human is notified through the `chat`
+slot instead (`doorbell_codex` is reserved; `off` is the only value). A registry `client` of `file-only` keeps
 an operator off every active transport.
 
 ## Asks and approvals
@@ -160,7 +161,7 @@ If the old holder wakes, its `renew` fails and it redirects; close it.
 ### Note format (`HANDOFF.md`)
 
 ```
-epoch: 12   from: claude/9f2c61d0   at: 2026-11-17T16:41:00Z   kind: warm|cold
+epoch: 12   from: claude/9f2c61d0   at: 2030-01-01T09:00:00Z   kind: warm|cold
 
 ## Switch-in audit   required first step after a move between clients
 ## In flight         per work repo: branch, HEAD, upstream state, dirty files
@@ -172,22 +173,29 @@ epoch: 12   from: claude/9f2c61d0   at: 2026-11-17T16:41:00Z   kind: warm|cold
 
 ## Switch-in audit
 
-When an operator moves between clients (any acquire or takeover whose client
-differs from the previous holder's), the lease records `audit=pending` and
-the incoming family must, **before any new work**, run a full adversarial
-audit of what the outgoing family left: unfinished work, cruft, leftover
-worktrees and branches, and drift between notes and reality. `lease.sh
-audit-brief` prints the checklist and evidence; the report is committed in
-the home and recorded with `lease.sh audit-done --report PATH`. The report
-must start with the brief's first line (key, generation, epoch, transition),
-live inside the home, and be committed after the handoff note. Until then
-`dispatch-begin`, `ask.sh new` and `ask.sh reserve` refuse. The kit's
-resolver (`ao_operator_resolve`) reports the lease's client for every lease
-state, and `OP_PROVIDER` (the owning family, also when the transport is
-`file-only`), so any check that picks a reviewer from the opposite family
-(such as a weekly cross-review) follows the handoff at once. A change to the
-registry `client` column of an operator **without** a lease is not detected
-here; whoever changes it runs the same audit by hand.
+One mechanism with the weekly cross-review ([K-22](../kit/KIT.md),
+`scripts/cross-review.sh`, `lib/registry.sh`). When an operator moves to the
+other model family, the incoming family must, **before any new work**,
+audit adversarially what the outgoing family left: unfinished work, cruft,
+leftover worktrees and branches, and drift between notes and reality.
+
+| Step | Lease operator | Operator without a lease |
+| --- | --- | --- |
+| Trigger | Any acquire or takeover whose client differs from the previous holder's sets `audit=pending` in the lease, at once | `cross-review.sh` sees the family change (the registry `client` column) at its next run and records it in `<state_dir>/audit/<key>`; `status.sh` shows it pending even before that, once cross-review has seen the operator |
+| Report | `cross-review.sh` runs the incoming family's reviewer role once, headless, over the last 30 days, and writes `<home>/audits/switch-in-<tag>.md`, starting with the line `audit-done` checks, with a note to the operator's inbox. Without a reviewer of the incoming family, the session writes its own report (`lease.sh audit-brief` prints the first line and the checklist) | same |
+| Triage | The incoming session checks every finding against the repos, records fixed, rejected (with a reason) or deferred (with an owner) under Triage, and commits the report | same |
+| Record | `lease.sh audit-done --instance T --epoch N --report PATH` (holder only) stores the path and commit in the lease | `lease.sh --home H audit-done --report PATH` stores them in `<state_dir>/audit/<key>.done` |
+| Gate | Until then `dispatch-begin`, `dispatch-run`, `ask.sh new` and `ask.sh reserve` refuse; `status.sh` shows `pending` in its AUDIT column | `status.sh` shows `pending`; nothing enforces it beyond the inbox note and the operator's instructions (no lease verbs run) |
+
+`audit-done` reads only the committed revision: the report must be a
+regular file in the home, start with the brief's first line exactly (key,
+generation and epoch, or the numbered registry change, and the transition),
+and, for a lease, be committed after the handoff note. A registry change
+recorded before a lease existed still gates the lease holder until it is
+recorded. The resolver (`ao_operator_resolve`) reports the lease's client
+for every lease state and `OP_PROVIDER`, the owning family, also when the
+transport is `file-only`; `cross-review.sh` picks every reviewer from
+`OP_PROVIDER`, so the weekly direction follows a handoff at once.
 
 ## Per-client validation
 
@@ -199,9 +207,9 @@ moves that client to the fallback.
 | --- | --- | --- |
 | Session id visible to tool commands | Yes: `CLAUDE_CODE_SESSION_ID` (observed) | Yes: `CODEX_THREAD_ID`, `CODEX_SESSION_ID` (observed) |
 | Is that id launch-private? | **No**: a second launch with `--resume` reported the same id (live run) | **No** (documented): `exec resume <id>` continues the same id; `fork` makes a new one. Not run live |
-| Per-launch value visible | Yes: `CLAUDE_PID` differed between the two launches; start time via `ps` (observed, undocumented) | None observed; `ps` is blocked in the read-only sandbox |
+| Per-launch value visible | Yes: `CLAUDE_PID` differed between the two launches; start time via `ps` (observed, undocumented) | None observed; `ps` is blocked in the read-only sandbox, and under `workspace-write` `dispatch-begin --pid` could not read the process state (exit 2): use `dispatch-run` there |
 | Tool command has a terminal | No (stdin, stdout not a tty; `/dev/tty` cannot be opened) | No in `exec`; interactive PTY tools unverified |
-| Deny rule blocks the takeover command | **Yes**: `deny: Bash(*lease.sh takeover*)` beat a matching allow rule (live, headless) | **Partial**: an execpolicy `prefix_rule(..., decision="forbidden")` matches exact leading tokens (offline `codex execpolicy check`); an absolute path or a `bash -c` wrapper did not match |
+| Deny rule blocks the takeover command | **Yes**: `deny: Bash(*lease.sh takeover*)` beat a matching allow rule (live, headless); `Bash(*lease.sh*takeover*)` also denied `lease.sh --home DIR takeover` (live, headless, 0.2.1-rc1) | **Partial**: an execpolicy `prefix_rule(..., decision="forbidden")` matches exact leading tokens (offline `codex execpolicy check`); an absolute path or a `bash -c` wrapper did not match |
 | "Ask" rule | Headless: not granted, acts as a deny (live) | `decision="prompt"` evaluates (offline) |
 | Fresh, uncached prompt showing the full command, every time | **Unverified** (interactive UI; cannot be shown headless) | **Unverified**; approvals can be remembered for a session |
 | Kit verbs that commit (`release`, `ask.sh`, `audit-done`) from a tool command | Work (git through Bash) | **Blocked** under `workspace-write`: `.git` is read-only (`index.lock: Operation not permitted`, live). The human approves an escalation, or the operator runs with a writable `.git` |
@@ -218,24 +226,43 @@ that sets out to get around them; they stop confusion and injected text.
 
 ### Sandboxed end-to-end with the real clients
 
-Run 2026-11-17 in scratch homes (registry `client` = `file-only`, so no
-doorbell or relay could reach any session), four headless calls:
+First run 2026-11-17 on the handoff branch (four headless calls); re-run on
+0.2.1-rc1 the same day, merged with the 0.2.0 core and the unified
+switch-in audit, with Claude Code 2.1.322 and codex-cli 0.169.0-alpha.11.
+Scratch homes, registry `client` = `file-only` (no doorbell or relay could
+reach any session), five headless model calls:
 
 1. Claude Code holder: `acquire` and `renew` worked and recorded its client
-   process; `takeover` was denied by the client's deny rule.
+   process; `takeover` (with `--home` before the verb) was denied by the
+   client's deny rule and never ran.
 2. Codex standby: `renew` refused (exit 5), `redirect` printed the reply,
    `mail.sh forward` sent the human turn once and refused the repeat,
    `takeover` was refused by the script inside the agent shell.
-3. Human takeover on a terminal: cold note committed, lease assigned to Codex
-   at epoch 2. Codex `acquire` printed the switch-in audit as the required
-   first step, `claim` showed the forwarded turn, `dispatch-begin` was refused
-   until `audit-done`; committing the report failed in the Codex sandbox (row
-   above) and was finished from a terminal.
-4. The old Claude session resumed: `renew` refused, `redirect` pointed at the
+3. Human takeover on a pseudo-terminal (`script(1)`, as the tests do): cold
+   note committed, lease assigned to Codex at epoch 2; `status.sh` showed
+   AUDIT `pending` under the `file-only` transport.
+4. `cross-review.sh --key demo`: the incoming family's reviewer (Codex,
+   picked from `OP_PROVIDER`, not the transport) wrote
+   `audits/switch-in-lease-<generation>-2.md` with one finding and the
+   audit line, and a note to the operator's inbox.
+5. Codex `acquire` printed the switch-in audit as the required first step,
+   `claim` showed the forwarded turn, `audit-brief` listed the headless
+   report, and the session triaged the finding in it; committing failed in
+   the Codex sandbox (row above) and `audit-done` refused the uncommitted
+   report. From a terminal: `dispatch-begin` refused while pending, the
+   report was committed, `audit-done` recorded its path and commit, then
+   `dispatch-begin` worked and `status.sh` showed `done`.
+6. The old Claude session resumed: `renew` refused, `redirect` pointed at the
    Codex holder.
 
+The first Codex attempt of the re-run failed at configuration load, before
+any model request: a plugin's tool servers cannot be switched off by name,
+which also broke every kit Codex run on such a machine. Codex runs now pass
+`--disable plugins --disable apps` (`lib/vendor-codex.sh`).
+
 Not covered: a doorbell reaching a live session, the interactive permission
-prompt of either client, a desktop-app thread.
+prompt of either client, a desktop-app thread, a registry switch-in audit
+with a real reviewer (the test suite covers it with fakes).
 
 ## Settings patterns (apply them yourself)
 
@@ -243,12 +270,17 @@ Claude Code (`settings.json` in the operator home or user settings):
 
 ```json
 { "permissions": { "deny": [
-  "Bash(*lease.sh takeover*)", "Bash(*lease.sh unlock*)", "Bash(*lease.sh settle*)"
+  "Bash(*lease.sh*takeover*)", "Bash(*lease.sh*unlock*)", "Bash(*lease.sh*settle*)"
 ] } }
 ```
 
+The wildcard between the script and the verb also covers `lease.sh --home
+DIR takeover`; a pattern with `lease.sh takeover` adjacent does not.
+
 Codex (a rules file, for example `~/.codex/rules/operator.rules`; prefix
-rules match exact tokens, so also keep the script's own refusals):
+rules match exact leading tokens, so `--home DIR` before the verb, an
+absolute path or a wrapper is not covered: keep the script's own
+refusals):
 
 ```
 prefix_rule(pattern=["scripts/lease.sh", "takeover"], decision="forbidden")
@@ -268,3 +300,7 @@ prefix_rule(pattern=["scripts/lease.sh", ["unlock", "settle"]], decision="forbid
   (the lease is left unchanged).
 - One machine per operator; multi-machine leases, automatic failover and
   crash-safe resume are later work.
+- A registry family change is detected against the family `cross-review.sh`
+  last saw: a change made before its first run for that operator, or
+  between two runs and back again, is not seen. An operator without a lease
+  has no enforced gate, only `status.sh` and the inbox note.

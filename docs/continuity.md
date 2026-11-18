@@ -6,7 +6,7 @@ remembered, owned and finished ([K-12](../kit/KIT.md), [K-15](../kit/KIT.md)).
 
 ## Records
 
-These live in the Oracle's home and are stable in 0.2.0.
+These live in the Oracle's home and are stable since 0.2.0.
 
 | Record | Holds | Rule |
 | --- | --- | --- |
@@ -37,30 +37,36 @@ Useful in practice, but their formats may change.
 
 ## Lease and takeover
 
-**Experimental, coming in 0.2.x.** Not part of 0.2.0.
+**Experimental since 0.2.1:** [handoff across clients](handoff.md), tested
+with [`TESTING.md`](../TESTING.md).
 
 Any operator may have a session on each client: one holder and one standby.
-The 0.2.x layer adds an advisory lease in `.operator/lease` (one routed
-holder per operator, a redirect from the wrong side, a human-confirmed
-takeover with a cold handoff note), file mailboxes under
-`.operator/inbox/` with optional per-client doorbells, and a committed asks
-and approvals ledger. It will not claim hard exclusion or crash-safe resume.
+The layer adds an advisory lease in `.operator/lease` (one routed holder per
+operator, a redirect from the wrong side, a human-confirmed takeover with a
+cold handoff note) and a switch-in audit gate shared with the weekly
+cross-review ([K-22](../kit/KIT.md)). It does not claim hard exclusion or
+crash-safe resume.
 
-Until it ships: give each operator one session on one client, and move it
-by hand. Park the work, push its branches, write a short handoff in
-`NOTES.md`, stop the old session, then start the new one in the same home
-and update its registry row. Treat every external effect the old session
-may have started as unknown until you have checked the target
-([K-28](../kit/KIT.md)).
+Without it (the stable path): give each operator one session on one client,
+and move it by hand. Park the work, push its branches, write a short handoff
+in `NOTES.md`, stop the old session, then start the new one in the same home
+and update its registry row; `cross-review.sh` then records the switch-in
+audit and `status.sh` shows it pending until the new session records the
+report ([handoff](handoff.md#switch-in-audit)). Treat every external effect
+the old session may have started as unknown until you have checked the
+target ([K-28](../kit/KIT.md)).
 
 ## Mailboxes and doorbells
 
-**Experimental, coming in 0.2.x.** In 0.2.0 the transport is the Oracle
-home's `inbox/<key>/` folders and `relay.sh`
-([scripts/README.md](../scripts/README.md#the-oracle-home)).
+**Experimental since 0.2.1:** file mailboxes under `.operator/inbox/` and
+per-client doorbells ([handoff](handoff.md#mailboxes-and-doorbells)). The
+stable transport is still the Oracle home's `inbox/<key>/` folders and
+`relay.sh` ([scripts/README.md](../scripts/README.md#the-oracle-home)).
 
 ## Asks and approvals ledger
 
-**Experimental, coming in 0.2.x.** In 0.2.0 an operator sends one batched
-ask to the Oracle and acts only on the human's answer in the Oracle's thread
-([K-08](../kit/KIT.md)), for that exact target and revision.
+**Experimental since 0.2.1:** a committed `ASKS.md` per home and the
+Oracle's `APPROVALS.tsv`, bound to the lease epoch
+([handoff](handoff.md#asks-and-approvals)). Without it, an operator sends one
+batched ask to the Oracle and acts only on the human's answer in the
+Oracle's thread ([K-08](../kit/KIT.md)), for that exact target and revision.

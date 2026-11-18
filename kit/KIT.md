@@ -133,8 +133,10 @@ owns, its home notes and mandate, and leftover worktrees and branches. The
 Oracle's own home is reviewed the same way. The operator triages the
 findings within a working day. When an operator moves to another client,
 the incoming family audits what the outgoing one left before it takes new
-work. Recurring findings become rule or mandate changes at the weekly
-review, not new incident rules. On by default (`cross_review=on`).
+work: its report is committed in the operator's home and recorded before
+the switch counts as done. Recurring findings become rule or mandate
+changes at the weekly review, not new incident rules. On by default
+(`cross_review=on`).
 
 ## Scheduled work and model runs
 
@@ -190,7 +192,7 @@ material rather than letting working documents grow.
 without the owner only where a mandate enables it and every gate in
 [the auto-ship example](../examples/security-auto-ship.md) holds.
 
-**K-34 Lease checks (experimental, coming in 0.2.x).** Once an operator
+**K-34 Lease checks (experimental since 0.2.1).** Once an operator
 uses the advisory lease, a session that is not the holder does no work and
-redirects; see [continuity](../docs/continuity.md#lease-and-takeover).
+redirects; see [handoff](../docs/handoff.md).
 **Fixed** once enabled.

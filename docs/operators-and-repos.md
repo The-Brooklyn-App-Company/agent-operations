@@ -31,8 +31,9 @@ as a folder in the Oracle's home (`install.sh operator <key> --embedded`);
 it then moves and backs up with the Oracle. Either way there is one home per
 operator and one checkout of it per machine.
 
-`ASKS.md`, `HANDOFF.md` and the `.operator/` lease and mailbox arrive with
-the [continuity layer](continuity.md) in 0.2.x.
+`ASKS.md`, `HANDOFF.md` and the `.operator/` lease and mailbox belong to
+the experimental [handoff layer](handoff.md) (0.2.1), and `audits/` holds
+switch-in audit reports ([K-22](../kit/KIT.md)).
 
 ### operator.conf
 
@@ -72,8 +73,9 @@ The 0.2.0 registry row is
 `key  name  home  session  [client]`, tab-separated: the session's display
 name (what the relay addresses), the operator's home (where its session is
 started, so its transcript can be found), a session id or `pending`, and
-the client. 0.2.x replaces the session column with the lease (see
-[continuity](continuity.md)).
+the client. An operator with a lease (experimental,
+[handoff](handoff.md)) is routed to the lease's holder instead of the
+session column.
 
 ## Shared work repositories
 

@@ -14,8 +14,8 @@ and exit codes.
 | `relay.sh` | Move new inbox notes to the archive and tell the session, with a pointer, never the note text |
 | `worker-run.sh` | One cheap read-only worker job; result to an inbox unless `NOTHING` |
 | `review-run.sh` | One independent review pass by a reviewer role |
-| `cross-review.sh` | Weekly review of every operator by the other model family, and a switch-in audit ([K-22](../kit/KIT.md)) |
-| `status.sh` | One line per operator: activity, quiet list, inbox depth; profile warnings |
+| `cross-review.sh` | Weekly review of every operator by the other model family (from `OP_PROVIDER`), and the switch-in audit report after a move to the other family ([K-22](../kit/KIT.md), [handoff](../docs/handoff.md#switch-in-audit)) |
+| `status.sh` | One line per operator: activity, quiet list, inbox depth, switch-in audit; profile warnings |
 | `inbox-put.sh` | Atomic note into an inbox, for hooks and adapters |
 | `check.sh` | Links, duplicate rule text, skill shape, home layout, privacy scan |
 | `drift-check.sh` | Weekly audit: `check.sh dupes` plus a worker pass with `drift-prompt.md` |
@@ -53,7 +53,7 @@ key.
 | `inbox/<key>/*.md` | `inbox_dir` | New notes waiting for a session; `.claimed/` holds notes being archived (an atomic rename, so a later note under the same name is untouched); `.relay-pending` lists archived notes whose pointer is not yet confirmed |
 | `inbox/sent/` | `sent_dir` | Archived notes, `<stamp>-<key>-<name>.md`; must be on a filesystem with hard links |
 | `hooks/{every,hourly,daily,weekly}/` | `hooks_dir` | Tick hooks; optional `hooks/gate` |
-| `~/.local/state/agent-operations/` | `state_dir` | Logs, stamps, locks, backoff and cross-review state (machine-local; keep out of git and backups) |
+| `~/.local/state/agent-operations/` | `state_dir` | Logs, stamps, locks, backoff, cross-review state and registry switch-in audit records (`audit/`) (machine-local; keep out of git and backups) |
 
 **Registry** (tab-separated; `#` comments; no empty fields, use `-`):
 

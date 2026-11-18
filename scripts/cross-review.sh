@@ -263,7 +263,12 @@ cr_switch_report() {
       "$OP_KEY" "$OP_AUDIT_TRANS" "$role" "$family" "$AO_T_STAMP"
     printf 'Before any new work, the incoming session checks every finding against the repos, records its decision under Triage (fixed, rejected with a reason, or deferred with an owner), adds what it finds itself, commits this file and records it:\n\n    %s <path of this file>\n\n' "$_how"
     printf '## Findings\n\n'
-    if [ "$_n" -eq 0 ]; then echo 'NOTHING: the reviewer found nothing that needs attention.'; else cat "$out"; fi
+    if [ "$_n" -eq 0 ]; then
+      echo 'NOTHING: the reviewer found nothing that needs attention.'
+    else
+      cat "$out"
+      [ -z "$(tail -c 1 "$out")" ] || echo
+    fi
     printf '\n## Triage\n\n(the incoming session fills this in)\n'
   } >"$_rt" || ! _rp=$(ao_place "$_rt" "$OP_DIR/$_base" .md); then
     rm -f "$_rt"
