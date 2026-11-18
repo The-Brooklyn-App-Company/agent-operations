@@ -1,0 +1,7 @@
+#!/bin/sh
+# Hourly tick hook: the weekly cross-model review (scripts/cross-review.sh,
+# kit rule K-22). Each run reviews at most cross_review_per_run operators
+# that are due, so the week's reviews spread over the hours after
+# weekly_day / weekly_hour. install.sh oracle installs this hook by default;
+# set cross_review=off in the profile to stop it.
+exec "$AO_SCRIPTS/cross-review.sh"

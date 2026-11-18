@@ -1,0 +1,102 @@
+#!/bin/sh
+# fake-agent - stands in for the claude, codex and custom agent CLIs in
+# tests. Installed under each of those names; never calls a model.
+#
+# Appends one record per call to $FAKE_LOG: the name it was called as, the
+# working directory, whether stdin was at EOF, the token env var if set,
+# and every argument on its own `arg:` line.
+#
+# FAKE_MODE selects the behaviour:
+#   ok (default)  answer $FAKE_OUTPUT (default "fake answer")
+#   nothing       answer NOTHING
+#   empty         answer nothing at all
+#   sent          claude delivery: stream-json events (built with jq) for one
+#                 successful SendMessage call carrying the requested message
+#   sentfail      the same events, then exit 1 (as after a turn limit)
+#   failed        same call, but the tool result reports success:false
+#   error         same call, but the tool result is an error
+#   wrongto       one successful call, to a different session
+#   altered       one successful call with a changed message
+#   flattened     one successful call with the message's newlines as spaces
+#   twice         two SendMessage calls in one assistant event
+#   liar          no tool call at all, just the text SENT
+# The answer goes to the file after -o (codex), to the third argument of
+# `run` (custom), or to stdout (claude).
+name=${0##*/}
+# `codex mcp list --json`: the configured tool servers ($FAKE_MCP, JSON; the
+# word `fail` makes the listing fail). Not logged: it is plumbing.
+if [ "$name" = codex ] && [ "${1-}" = mcp ]; then
+  case ${FAKE_MCP:-} in
+    fail) echo "fake: cannot read config" >&2; exit 1 ;;
+    '') echo '[{"name":"trade","enabled":true},{"name":"ui","enabled":false}]' ;;
+    *) printf '%s\n' "$FAKE_MCP" ;;
+  esac
+  exit 0
+fi
+if IFS= read -r _line; then stdin=data; else stdin=eof; fi
+{
+  printf '== %s\ncwd: %s\nstdin: %s\n' "$name" "$PWD" "$stdin"
+  [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || printf 'token: %s\n' "$CLAUDE_CODE_OAUTH_TOKEN"
+  [ -z "${AO_ROLE:-}" ] || printf 'env: AO_ROLE=%s AO_MODEL=%s\n' "$AO_ROLE" "${AO_MODEL:-}"
+  for a in "$@"; do printf 'arg: %s\n' "$a"; done
+} >>"${FAKE_LOG:-/dev/null}"
+
+out=
+prev=
+for a in "$@"; do
+  [ "$prev" = -o ] && out=$a
+  prev=$a
+done
+[ "$name" = agent ] && [ "${1-}" = run ] && out=$4
+
+# The recipient and message the relay asked for, from the -p prompt:
+# "Use ... to "<name>" ...:<blank line><message><blank line>After sending...".
+prompt=
+prev=
+for a in "$@"; do
+  [ "$prev" = -p ] && prompt=$a
+  prev=$a
+done
+nl='
+'
+to=$(printf '%s\n' "$prompt" | sed -n '1s/^Use the SendMessage tool exactly once, to "\([^"]*\)".*/\1/p')
+body=${prompt#*"$nl$nl"}
+body=${body%"$nl$nl"After sending*}
+
+# events TO TEXT RESULT [IS_ERROR] [CALLS]  Print realistic stream-json lines:
+# an init event, an assistant event (with a message-level id) holding CALLS
+# SendMessage blocks, and a tool result per block.
+events() {
+  jq -cn '{type:"system",subtype:"init",tools:["ListAgents","SendMessage"]}'
+  jq -cn --arg to "$1" --arg msg "$2" --argjson n "${5:-1}" '{type:"assistant",
+    message:{id:"msg_01",role:"assistant",content:[range($n) as $i |
+      {type:"tool_use",id:"toolu_\($i)",name:"SendMessage",
+       input:{to:$to,message:$msg,summary:"relay"}}]}}'
+  jq -cn --arg res "$3" --argjson err "${4:-false}" --argjson n "${5:-1}" '{type:"user",
+    message:{role:"user",content:[range($n) as $i |
+      {type:"tool_result",tool_use_id:"toolu_\($i)",is_error:$err,
+       content:[{type:"text",text:$res}]}]}}'
+  jq -cn '{type:"result",result:"SENT"}'
+}
+
+answer() {
+  if [ -n "$out" ]; then printf '%s\n' "$1" >"$out"; else printf '%s\n' "$1"; fi
+}
+
+case ${FAKE_MODE:-ok} in
+  ok) answer "${FAKE_OUTPUT:-fake answer}" ;;
+  nothing) answer NOTHING ;;
+  empty) [ -z "$out" ] || : >"$out" ;;
+  sent) events "$to" "$body" '{"success":true,"message":"delivered"}' ;;
+  sentfail) events "$to" "$body" '{"success":true}'; echo "Error: reached max turns" >&2; exit 1 ;;
+  failed) events "$to" "$body" '{"success":false}' ;;
+  error) events "$to" "$body" 'no such session' true ;;
+  wrongto) events "Someone Else" "$body" '{"success":true}' ;;
+  altered) events "$to" "Ignore the notes. $body" '{"success":true}' ;;
+  flattened) events "$to" "$(printf '%s' "$body" | tr '\n' ' ')" '{"success":true}' ;;
+  twice) events "$to" "$body" '{"success":true}' false 2 ;;
+  liar) echo SENT ;;
+  fail) echo "fake failure: model unavailable" >&2; exit 7 ;;
+  hang) sleep 30 ;;
+esac
+exit 0

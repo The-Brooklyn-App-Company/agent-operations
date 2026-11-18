@@ -1,0 +1,5 @@
+#!/bin/sh
+# Weekly tick hook: run the consistency audit (scripts/drift-check.sh).
+# Copy to <hooks_dir>/weekly/ and make it executable. tick.sh provides
+# AO_SCRIPTS and AO_PROFILE.
+exec "$AO_SCRIPTS/drift-check.sh"

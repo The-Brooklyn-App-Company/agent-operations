@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd user agent for tick.sh (macOS). Template: replace every @NAME@
+  (see scripts/README.md#scheduling), save as
+  ~/Library/LaunchAgents/@LABEL@.plist, then:
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/@LABEL@.plist
+  @LABEL@     reverse-DNS label, e.g. org.example.agent-operations.tick
+  @KIT_DIR@   absolute path of the pinned kit checkout
+  @PROFILE@   absolute path of your profile
+  @LOG_DIR@   absolute path for launchd's stdout/stderr capture
+  /bin/sh is a stable, already-approved system binary: no new OS prompts.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>@LABEL@</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/sh</string><string>@KIT_DIR@/scripts/tick.sh</string></array>
+  <key>EnvironmentVariables</key>
+  <dict><key>AO_PROFILE</key><string>@PROFILE@</string></dict>
+  <key>StartInterval</key><integer>600</integer>
+  <key>RunAtLoad</key><false/>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>@LOG_DIR@/tick.out.log</string>
+  <key>StandardErrorPath</key><string>@LOG_DIR@/tick.err.log</string>
+</dict>
+</plist>

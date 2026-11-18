@@ -1,0 +1,17 @@
+# systemd user service for tick.sh (Linux). UNTESTED: shipped for Linux
+# hosts, not yet run on one. Pair with tick.timer.in. Replace every @NAME@
+# (see scripts/README.md#scheduling), save both under
+# ~/.config/systemd/user/ as agent-operations-tick.{service,timer}, then:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now agent-operations-tick.timer
+# For ticks while logged out: loginctl enable-linger "$USER" (one-time).
+# Substituted paths are quoted, so spaces are fine; they must not contain
+# double quotes, backslashes or % (systemd specifiers).
+[Unit]
+Description=agent-operations tick (watchdog, hooks, relay)
+
+[Service]
+Type=oneshot
+Environment="AO_PROFILE=@PROFILE@"
+ExecStart=/bin/sh "@KIT_DIR@/scripts/tick.sh"
+Nice=10

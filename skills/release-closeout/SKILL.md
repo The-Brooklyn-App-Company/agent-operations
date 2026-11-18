@@ -5,22 +5,19 @@ description: Use when declaring activation needs in a pull request, promoting a 
 
 # Release closeout
 
-## Locate the kit
+`<kit>`: two levels above this skill's real path.
+Stop if it does not resolve.
 
-1. Resolve this skill directory's real path by following symlinks.
-2. Take the directory two levels up as the kit root.
-3. On Windows, or if resolution fails, read `kit.kitRoot` from `~/.config/agent-operations/profile.local.json` or the alternate profile path explicitly recorded in local guidance.
-4. If neither works, stop and report.
-
-## Do
-
-1. Follow `<kit-root>/docs/releases.md`.
-2. Use `<kit-root>/templates/release-record.md` in the repository's existing release record or index. Do not create a parallel one.
-3. Match the intended target and acting principal through the actual execution route before effects.
-4. Record source, artifact, deployment and intended-persona acceptance separately, following the guide.
-5. Follow the activations and any recovery until the release settles.
-
-## Never
-
-- Treat release approval as covering UI control, authentication, email, purchases or expanded spend.
-- Invent soak periods, manual cloud logins or paid test runs that the repository does not require.
+1. Read `<kit>/docs/review-and-release.md#release`.
+2. Fill the activation section of `<kit>/templates/packets/release-record.md`
+   in the pull request.
+3. Use the repository's existing release record; never start a parallel one.
+4. Confirm the target and acting principal from the execution route before
+   any effect.
+5. Check the promotion is covered by the release owner's yes or a written
+   standing grant.
+6. Execute the ordered activations; record each one's result.
+7. Record each state separately: CI, merged, artifact, staging, runtime,
+   accepted.
+8. Own recovery until the release settles; never retry an ambiguous write.
+9. Report the highest stage reached, with evidence, to the Oracle.

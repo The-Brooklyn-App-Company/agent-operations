@@ -1,7 +1,6 @@
+# Local, machine-specific files never belong in the kit.
 *.local
 *.local.*
+!templates/oracle/KIT.local.md
 .env
 .env.*
-!.env.example
-__pycache__/
-dist/

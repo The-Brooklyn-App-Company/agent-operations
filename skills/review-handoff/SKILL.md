@@ -1,29 +1,25 @@
 ---
 name: review-handoff
-description: Use when preparing a delegation packet, implementing from one, or reviewing delegated work at an exact SHA.
+description: Use when preparing a delegation packet, implementing from one, reviewing work at an exact commit, or triaging cross-review findings.
 ---
 
 # Review handoff
 
-## Locate the kit
+`<kit>`: two levels above this skill's real path.
+Stop if it does not resolve.
 
-1. Resolve this skill directory's real path by following symlinks.
-2. Take the directory two levels up as the kit root.
-3. On Windows, or if resolution fails, read `kit.kitRoot` from `~/.config/agent-operations/profile.local.json` or the alternate profile path explicitly recorded in local guidance.
-4. If neither works, stop and report.
-
-## Do
-
-1. Follow `<kit-root>/docs/delegation-review.md`, including its behavioral-check, evidence-reuse and returned-result acceptance routes. For repeated failures, use the premise/observation check in `<kit-root>/docs/roles-and-context.md` before another equivalent attempt.
-2. Build or read the packet from `<kit-root>/templates/delegation-packet.md`.
-3. If you are the implementer: work from the base SHA, stay in scope and return implementer notes.
-4. If you are the reviewer (a different model family from the implementer, briefed neutrally): record independent findings against the exact head SHA and the acceptance criteria.
-5. Give every existing finding a disposition: fixed with a SHA, rejected with a reason, or deferred with an owner and tracking link.
-6. Stop when the stop criteria are met or the round limit is reached, then escalate open items.
-7. As the operator, follow the guide's maintainer integration route, including any explicit scoped review exception; preserve unique work when resolving stale or stacked PRs.
-
-## Never
-
-- Switch billing, plans or providers when quota runs out. Stop and report instead.
-- As a delegated implementer/reviewer, exceed the packet’s integration boundary. The operator retains its actual authorized merge/release scope.
-- Approve a SHA other than the current head.
+1. Read `<kit>/docs/review-and-release.md#delegation` and `#review`.
+2. Build the packet from `<kit>/templates/packets/delegation.md`: goal,
+   exact base commit, scope, acceptance, stop criteria.
+3. Implementer: work from the base commit on a scoped branch; return the
+   implementer notes.
+4. Reviewer: verify the checkout and head, then review the neutral packet
+   only; never ask for the implementer's reasoning.
+5. Run the review with `<kit>/scripts/review-run.sh`, and record the
+   `review_family` it prints.
+6. Give every finding a disposition: fixed (commit), rejected (reason) or
+   deferred (owner, link).
+7. Stop after a clean round or three rounds; escalate open P0 and P1.
+8. Cross-review findings in your inbox: triage the same way within a
+   working day (`<kit>/docs/review-and-release.md#cross-model-accountability`).
+9. Hand the branch to the merge owner with the packet's handoff section.
