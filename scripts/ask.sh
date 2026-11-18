@@ -228,7 +228,7 @@ do_reserve() {
     _pid=$$
   else
     ao_is_uint "$o_pid" || ao_die "$AO_E_USAGE" "reserve needs -- CMD [ARG...] (recommended) or --pid PID of the live process doing the effect"
-    [ "$(ao_proc_state "$o_pid")" != dead ] || ao_die "$AO_E_USAGE" "--pid $o_pid is not a running process"
+    [ "$(ao_proc_state "$o_pid")" = live ] || ao_die "$AO_E_USAGE" "--pid $o_pid is not a running process (or its state cannot be read)"
     _pid=$o_pid
   fi
   use_operator_home
@@ -324,9 +324,10 @@ do_done() {
   [ -f "$_mf" ] && [ "$(ao_marker_get "$_mf" ask)" = "$o_id" ] || { ao_lease_unlock; refuse "no open marker $o_marker for $o_id"; }
   [ "$(ao_marker_get "$_mf" instance)" = "$L_instance" ] && [ "$(ao_marker_get "$_mf" epoch)" = "$L_epoch" ] ||
     { ao_lease_unlock; refuse "marker $o_marker belongs to another holder or epoch"; }
-  if [ "$(ao_proc_state "$(ao_marker_get "$_mf" pid)" "$(ao_marker_get "$_mf" pid_start)")" = dead ]; then
+  _mst=$(ao_proc_state "$(ao_marker_get "$_mf" pid)" "$(ao_marker_get "$_mf" pid_start)")
+  if [ "$_mst" != live ]; then
     ao_lease_unlock
-    refuse "marker $o_marker's process died: the effect is unknown until a human checks the target and settles it (lease.sh settle)"
+    refuse "marker $o_marker's process is $_mst: the effect is unknown until a human checks the target and settles it (lease.sh settle)"
   fi
   _row=$(ao_ask_row "$ASKS" "$o_id") || { ao_lease_unlock; refuse "no ask $o_id"; }
   [ "$(printf '%s\n' "$_row" | cut -f9)" = reserved ] || { ao_lease_unlock; refuse "ask $o_id is not reserved"; }

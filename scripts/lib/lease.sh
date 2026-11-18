@@ -27,6 +27,7 @@ AO_E_REFUSED=5
 # Seconds after which a lease lock is treated as stuck (fail closed).
 AO_LEASE_LOCK_MAX=10
 AO_LEASE_LOCKED=
+AO_LEASE_GUARDED=
 _AO_LEASE_KEYS="operator provider session session_id instance generation host epoch state acquired heartbeat heartbeat_epoch prev_epoch prev_note prev_provider audit audit_note client_pid client_start"
 
 # ---------------------------------------------------------------- basics
@@ -90,14 +91,21 @@ ao_proc_start() {
 # ao_proc_state PID [START]  Print live, stopped or dead. A recorded START
 # that no longer matches means the pid was reused: dead.
 ao_proc_state() {
-  ao_is_uint "$1" || { echo dead; return; }
+  # A positive pid only: kill -0 0 would test the process group.
+  ao_is_uint "$1" && [ "$1" -gt 0 ] || { echo dead; return; }
   kill -0 "$1" 2>/dev/null || { echo dead; return; }
+  # Past kill -0, only positive evidence from ps counts. Where ps is
+  # unavailable (some sandboxes), the state is unknown, and callers that
+  # need a live or a dead process fail closed.
+  _ao_pstat=$(ps -o stat= -p "$1" 2>/dev/null) || _ao_pstat=
+  case $_ao_pstat in '') echo unknown; return ;; esac
   if [ -n "${2:-}" ] && [ "$2" != - ]; then
     _ao_ps=$(ao_proc_start "$1")
-    [ -z "$_ao_ps" ] || [ "$_ao_ps" = "$2" ] || { echo dead; return; }
+    [ -n "$_ao_ps" ] || { echo unknown; return; }
+    [ "$_ao_ps" = "$2" ] || { echo dead; return; }
   fi
   # A zombie (exited, not yet reaped) has run its course: dead.
-  case $(ps -o stat= -p "$1" 2>/dev/null) in *Z*) echo dead ;; *T*) echo stopped ;; *) echo live ;; esac
+  case $_ao_pstat in *Z*) echo dead ;; *T*) echo stopped ;; *) echo live ;; esac
 }
 
 # ao_client_pid PROVIDER  Print "PID START" of the client process that runs
@@ -278,7 +286,21 @@ ao_lease_lock() {
   _ao_lck=$H_OP/lease.lock
   [ -d "$H_OP" ] || ao_die "$AO_E_USAGE" "$H_OP does not exist (run: lease.sh init)"
   _ao_absent=0
-  while ! mkdir "$_ao_lck" 2>/dev/null; do
+  while :; do
+    # The lock is only ever created while holding the guard, which unlock
+    # also holds from its final check to the removal: a lock unlock did not
+    # confirm can never be removed by it.
+    if ! ao_lease_guard; then
+      _lease_guard_stuck
+      return "$AO_E_BUSY"
+    fi
+    if mkdir "$_ao_lck" 2>/dev/null; then
+      printf '%s\n' "$$" >"$_ao_lck/pid"
+      AO_LEASE_LOCKED=$_ao_lck
+      ao_lease_unguard
+      return 0
+    fi
+    ao_lease_unguard
     if ! _ao_lm=$(ao_mtime "$_ao_lck" 2>/dev/null); then
       # No lock to wait for, yet mkdir failed: not contention.
       _ao_absent=$((_ao_absent + 1))
@@ -291,9 +313,32 @@ ao_lease_lock() {
     fi
     sleep 1
   done
-  printf '%s\n' "$$" >"$_ao_lck/pid"
-  AO_LEASE_LOCKED=$_ao_lck
 }
+
+# ao_lease_guard  Take .operator/lease.guard (mkdir), held for milliseconds
+# around creating or removing the lease lock. Waits up to
+# AO_LEASE_LOCK_MAX seconds; fails if it stays taken.
+ao_lease_guard() {
+  _ao_gd=$H_OP/lease.guard
+  _ao_gw=0
+  while ! mkdir "$_ao_gd" 2>/dev/null; do
+    [ -d "$_ao_gd" ] || ao_die "$AO_E_FAIL" "cannot create $_ao_gd (permissions?)"
+    _ao_gw=$((_ao_gw + 1))
+    [ "$_ao_gw" -le "$AO_LEASE_LOCK_MAX" ] || return 1
+    sleep 1
+  done
+  AO_LEASE_GUARDED=$_ao_gd
+}
+
+ao_lease_unguard() {
+  [ -z "${AO_LEASE_GUARDED:-}" ] || rmdir "$AO_LEASE_GUARDED" 2>/dev/null
+  AO_LEASE_GUARDED=
+}
+
+_lease_guard_stuck() {
+  ao_msg "lease guard $H_OP/lease.guard stays taken: failing closed. A human checks that no lease.sh runs for this operator, then removes that directory"
+}
+
 
 _ao_lease_stuck() {
   ao_msg "lease lock $1 is older than ${AO_LEASE_LOCK_MAX}s: failing closed. A human must check that no lease verb is running, then run: lease.sh unlock --timers-off --sessions-stopped"
@@ -314,6 +359,7 @@ ao_lease_unlock() {
     rm -rf "$AO_LEASE_LOCKED"
   fi
   AO_LEASE_LOCKED=
+  ao_lease_unguard
 }
 
 # ao_lease_traps  Release the lease lock on every exit path this process

@@ -48,7 +48,10 @@ replaced atomically under `mkdir .operator/lease.lock`.
 | `client_pid`, `client_start` | The holder's client process where the client exposes one (Claude Code); liveness evidence only |
 
 A process counts as running while it exists and is not a zombie; a stopped
-(paused) process counts as running.
+(paused) process counts as running. Ending a marker needs positive evidence
+from `ps` that its process runs (or must be the process itself, as in
+`dispatch-run`); where `ps` is unavailable, such as some agent sandboxes, a
+marker made with `--pid` stays for the human to settle.
 
 **Every turn starts with `lease.sh renew --instance T --epoch N`.** Exit 5
 means "you are the standby". Holder verbs always present the token and the
@@ -57,8 +60,11 @@ epoch; a display-name match never counts.
 **Locks.** No script breaks a lock. A lock older than 10 s makes every verb
 fail closed (exit 3) and tells the Oracle once; the human runs `lease.sh
 unlock --timers-off --sessions-stopped` after checking that nothing runs.
-`unlock` removes only the lock it showed: if the lock was replaced while the
-human confirmed, it refuses and leaves the new one.
+`unlock` removes only the lock it showed: it holds a short guard directory
+(`.operator/lease.guard`), which every lock acquisition also takes, from its
+final check to the removal, and refuses a lock that was replaced while the
+human confirmed. A guard that stays taken also fails closed; a human removes
+it after checking that no lease verb runs.
 
 **Dispatch markers.** Before any effect, `dispatch-begin` validates the
 holder and creates the marker in one step under the lock; `dispatch-end`

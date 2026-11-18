@@ -256,7 +256,7 @@ test_failed_effect_stays_reserved_and_done_needs_live_process() {
   # Its process (that reserve run) is gone: done is refused, the human settles.
   run ask.sh "done" ws-1 --home "$T/ops/ws" --instance "$WTOK" --epoch "$WEP" --marker "$mk"
   assert_rc 5
-  assert_has "$T/err" "process died"
+  assert_has "$T/err" "process is dead"
   # A reservation without a command needs a live wrapper pid.
   RPID=$(dead_pid) reserve
   assert_rc 2

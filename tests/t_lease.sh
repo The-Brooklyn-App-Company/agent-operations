@@ -455,7 +455,7 @@ test_dead_marker_needs_settle_not_dispatch_end() {
   wait "$w" 2>/dev/null
   lease dispatch-end --instance "$TOK" --epoch "$EP" --marker "$mk"
   assert_rc 5
-  assert_has "$T/err" "process died"
+  assert_has "$T/err" "process is dead"
   assert_file "$T/ops/ws/.operator/markers/$mk"
   # dispatch-begin refuses a pid that is not running, or none.
   lease dispatch-begin --instance "$TOK" --epoch "$EP" --what x --pid "$w"
@@ -613,6 +613,64 @@ test_same_client_other_session_does_not_inherit_the_session_id() {
   git_init "$T/ops/cx"
   acq codex NewThread "$T/ops/cx"
   assert_eq "$(resolve cx sid)" "client=codex provider=codex lease=held audit=- name=NewThread sid="
+}
+
+# no_ps_path  A PATH with every usual tool except ps.
+no_ps_path() {
+  mkdir -p "$T/nops"
+  for d in "$T/bin" /bin /usr/bin /usr/sbin /sbin /opt/homebrew/bin /usr/local/bin; do
+    [ -d "$d" ] || continue
+    for f in "$d"/*; do
+      n=${f##*/}
+      [ "$n" != ps ] && [ ! -e "$T/nops/$n" ] && ln -s "$f" "$T/nops/$n"
+    done
+  done
+  echo "$T/nops"
+}
+
+test_without_ps_markers_end_only_in_process() {
+  lsetup
+  acq claude Workshop
+  sleep 60 &
+  w=$!
+  lease dispatch-begin --instance "$TOK" --epoch "$EP" --what publish --pid "$w"
+  mk=$(sed -n 's/^marker: //p' "$T/out")
+  np=$(no_ps_path)
+  PATH=$np lease dispatch-end --instance "$TOK" --epoch "$EP" --marker "$mk"
+  assert_rc 5
+  assert_has "$T/err" "is unknown"
+  assert_file "$T/ops/ws/.operator/markers/$mk"
+  # dispatch-run ends its own marker without asking ps.
+  PATH=$np lease dispatch-run --instance "$TOK" --epoch "$EP" --what "touch" -- touch "$T/e"
+  assert_rc 0
+  assert_count "$T/ops/ws/.operator/markers" 2
+  # A live --pid cannot be proven without ps, and pid 0 is never a process.
+  PATH=$np lease dispatch-begin --instance "$TOK" --epoch "$EP" --what x --pid "$w"
+  assert_rc 2
+  lease dispatch-begin --instance "$TOK" --epoch "$EP" --what x --pid 0
+  assert_rc 2
+  kill "$w"
+}
+
+test_guard_serializes_lock_and_unlock() {
+  lsetup
+  acq claude Workshop
+  # A guard that stays taken: lock acquisition fails closed.
+  mkdir "$T/ops/ws/.operator/lease.guard"
+  lease renew --instance "$TOK" --epoch "$EP"
+  assert_rc 3
+  assert_has "$T/err" "lease guard"
+  # unlock also waits for the guard, and removes nothing without it.
+  old_lock "$T/ops/ws"
+  with_tty "unlock ws" lease.sh --home "$T/ops/ws" unlock --timers-off --sessions-stopped
+  assert_eq "$rc" 5 "unlock without the guard"
+  assert_file "$T/ops/ws/.operator/lease.lock"
+  rmdir "$T/ops/ws/.operator/lease.guard"
+  with_tty "unlock ws" lease.sh --home "$T/ops/ws" unlock --timers-off --sessions-stopped
+  assert_eq "$rc" 0 "unlock"
+  lease renew --instance "$TOK" --epoch "$EP"
+  assert_rc 0
+  assert_no_file "$T/ops/ws/.operator/lease.guard"
 }
 
 ao_test_main "$0"

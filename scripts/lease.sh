@@ -472,7 +472,7 @@ do_dispatch_begin() {
   # wrapper); a short-lived shell would leave it dead at once. dispatch-run
   # is the wrapper.
   ao_is_uint "$o_pid" || ao_die "$AO_E_USAGE" "dispatch-begin needs --pid PID of the process doing the effect (or use dispatch-run)"
-  [ "$(ao_proc_state "$o_pid")" != dead ] || ao_die "$AO_E_USAGE" "--pid $o_pid is not a running process"
+  [ "$(ao_proc_state "$o_pid")" = live ] || ao_die "$AO_E_USAGE" "--pid $o_pid is not a running process (or its state cannot be read)"
   _pid=$o_pid
   lock
   ao_lease_load
@@ -522,9 +522,12 @@ do_dispatch_end() {
     ao_lease_unlock
     refuse "marker $o_marker belongs to another holder or epoch"
   }
-  if [ "$(ao_proc_state "$(ao_marker_get "$_mf" pid)" "$(ao_marker_get "$_mf" pid_start)")" = dead ]; then
+  # Only positive evidence that the marker's process still runs lets it end
+  # the marker; dead or unknown (no ps) leaves it for the human.
+  _mst=$(ao_proc_state "$(ao_marker_get "$_mf" pid)" "$(ao_marker_get "$_mf" pid_start)")
+  if [ "$_mst" != live ]; then
     ao_lease_unlock
-    refuse "marker $o_marker's process died: its effect is unknown until a human checks the target and settles it (lease.sh settle)"
+    refuse "marker $o_marker's process is $_mst: its effect is unknown until a human checks the target and settles it (lease.sh settle)"
   fi
   rm -f "$_mf" || ao_die "$AO_E_FAIL" "cannot remove $_mf"
   ao_lease_unlock
@@ -738,16 +741,14 @@ do_unlock() {
   _lp=$(cat "$_lk/pid" 2>/dev/null) || _lp=
   [ -z "$_lp" ] || [ "$(ao_proc_state "$_lp")" = dead ] || refuse "the lock's process (pid $_lp) is still running"
   confirm_tty "unlock $H_KEY"
-  # Set the confirmed lock aside by an atomic rename, then make sure what
-  # moved is the lock that was confirmed; a replacement goes back.
-  [ "$(lock_identity "$_lk")" = "$_id0" ] || refuse "the lock was replaced while you confirmed; nothing removed. Look again"
-  _aside=$H_OP/.unlocked.$$
-  mv "$_lk" "$_aside" 2>/dev/null || refuse "the lock was taken or removed meanwhile; nothing removed"
-  if [ "$(lock_identity "$_aside")" != "$_id0" ]; then
-    mv "$_aside" "$_lk" 2>/dev/null || ao_warn "a newer lock was set aside at $_aside; move it back to $_lk by hand"
-    refuse "the lock was replaced while you confirmed; nothing removed"
-  fi
-  rm -rf "$_aside" "$_lk.reported" || ao_die "$AO_E_FAIL" "cannot remove $_aside"
+  # From the final check to the removal, hold the guard every lock
+  # acquisition takes: no new lock can appear in between, so only the lock
+  # the human confirmed is removed.
+  ao_lease_guard || refuse "the lease guard stays taken; nothing removed"
+  [ "$(lock_identity "$_lk")" = "$_id0" ] || { ao_lease_unguard; refuse "the lock was replaced or removed while you confirmed; nothing removed. Look again"; }
+  [ -z "$_lp" ] || [ "$(ao_proc_state "$_lp")" = dead ] || { ao_lease_unguard; refuse "the lock's process (pid $_lp) is running"; }
+  rm -rf "$_lk" "$_lk.reported" || { ao_lease_unguard; ao_die "$AO_E_FAIL" "cannot remove $_lk"; }
+  ao_lease_unguard
   echo "unlocked. Now check: lease.sh status (open markers are unresolved effects) and ASKS.md."
 }
 
