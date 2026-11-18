@@ -69,8 +69,14 @@ holder() {
   fi
 }
 
+# no_audit_pending  The lease's own switch-in audit, or a registry one
+# recorded by cross-review.sh (lib/registry.sh), blocks new work.
 no_audit_pending() {
   [ "$L_audit" != pending ] || { ao_lease_unlock; refuse "switch-in audit pending: finish it (lease.sh audit-brief, audit-done) before new work"; }
+  if ao_audit_registry_pending "$H_KEY"; then
+    ao_lease_unlock
+    refuse "switch-in audit pending (registry change $A_from -> $A_to): finish it (lease.sh audit-brief, audit-done) before new work"
+  fi
 }
 
 use_operator_home() {

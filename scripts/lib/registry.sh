@@ -44,8 +44,9 @@ ao_registry_has() {
 # one operator. This is the single place that decides which provider and
 # session currently own an operator: the registry row, overridden by a lease
 # in the operator home (OP_LEASE: none, held, released, assigned or invalid;
-# OP_AUDIT: switch-in audit state; OP_PROVIDER: the owning family, also
-# under a file-only transport; EXPERIMENTAL, see ao_lease_route).
+# OP_PROVIDER: the owning model family, also under a file-only transport;
+# EXPERIMENTAL, see ao_lease_route), and its switch-in audit state
+# (OP_AUDIT and friends, see ao_audit_resolve).
 ao_operator_resolve() {
   OP_KEY=$1 OP_NAME=$2 OP_SID=$4
   OP_DIR=$(ao_expand_path "$3" /)
@@ -53,6 +54,154 @@ ao_operator_resolve() {
   [ -z "$5" ] || OP_CLIENT=$5
   case $OP_SID in pending | -) OP_SID= ;; esac
   ao_lease_route
+  ao_audit_resolve
+}
+
+# ---------------------------------------------------------------- switch-in audits
+#
+# When an operator moves to the other model family, the incoming family
+# audits what the outgoing one left before new work (kit rule K-22). One
+# mechanism, two triggers:
+#   lease     a lease acquire or takeover onto another client sets
+#             audit=pending in the lease itself (lease.sh, EXPERIMENTAL)
+#   registry  a change of the operator's family without a lease (the
+#             registry client column), seen by cross-review.sh and recorded
+#             in <state_dir>/audit/<key>
+# Either way cross-review.sh writes a headless report by the incoming
+# family to <home>/audits/, whose first line is OP_AUDIT_HEADER; the
+# incoming session triages and commits it, and `lease.sh audit-done
+# --report PATH` records it (path and commit) and clears the gate.
+#
+# <state_dir>/audit/<key> is written only by cross-review.sh:
+#   provider=  the family last seen    from=, to=  the last family change
+#   change=    its number (1, 2, ...; empty: no change seen yet)
+#   since=     when it was seen (UTC)
+# <state_dir>/audit/<key>.done is written only by lease.sh audit-done:
+#   change=    the change it audits    since=, report=, commit=, at=
+# A registry audit is pending while change= is set and differs from the
+# .done file's change=. Both files are flat key=value, parsed literally.
+
+# ao_is_family CLIENT  True for a model family (claude, codex).
+ao_is_family() {
+  case $1 in claude | codex) return 0 ;; esac
+  return 1
+}
+
+# ao_audit_file KEY [.done]  Print the path of an audit record.
+ao_audit_file() {
+  printf '%s/audit/%s%s\n' "$AO_STATE" "$1" "${2-}"
+}
+
+# ao_kv_get FILE KEY  Print KEY's value from a flat key=value file.
+ao_kv_get() {
+  [ -r "$1" ] || return 1
+  sed -n "s/^$2=//p" "$1" | head -n 1
+}
+
+# ao_audit_read KEY  Set A_provider, A_from, A_to, A_change, A_since (the
+# record) and A_done (the change= of the last recorded audit). False without
+# a record or without a state dir.
+ao_audit_read() {
+  A_provider='' A_from='' A_to='' A_change='' A_since='' A_done=''
+  [ -n "${AO_STATE:-}" ] || return 1
+  _ao_af=$(ao_audit_file "$1")
+  [ -r "$_ao_af" ] || return 1
+  A_provider=$(ao_kv_get "$_ao_af" provider)
+  A_from=$(ao_kv_get "$_ao_af" from)
+  A_to=$(ao_kv_get "$_ao_af" to)
+  A_change=$(ao_kv_get "$_ao_af" change)
+  A_since=$(ao_kv_get "$_ao_af" since)
+  A_done=$(ao_kv_get "$_ao_af.done" change 2>/dev/null) || A_done=
+  return 0
+}
+
+# ao_audit_registry_pending KEY  True while a recorded registry switch-in
+# audit is pending for KEY (A_* set).
+ao_audit_registry_pending() {
+  ao_audit_read "$1" && [ -n "$A_change" ] && [ "$A_change" != "$A_done" ]
+}
+
+# ao_audit_registry_tag  The stable id of the recorded registry change (A_*).
+ao_audit_registry_tag() {
+  printf 'registry-%s-%s\n' "$A_change" "$A_since"
+}
+
+# ao_audit_report_base TAG  The home-relative path, without .md, of the
+# headless report cross-review.sh writes for a pending change.
+ao_audit_report_base() {
+  printf 'audits/switch-in-%s\n' "$(printf '%s' "$1" | tr -d ':')"
+}
+
+# ao_audit_registry_header KEY  The first line a registry switch-in report
+# must have, from the record read by ao_audit_read.
+ao_audit_registry_header() {
+  printf '# Switch-in audit: %s, registry change %s at %s (%s -> %s)\n' "$1" "$A_change" "$A_since" "$A_from" "$A_to"
+}
+
+# ao_audit_resolve  Called by ao_operator_resolve after ao_lease_route. Sets
+#   OP_AUDIT         pending, done or - (none recorded)
+#   OP_AUDIT_FROM    lease or registry (which trigger), or -
+#   OP_AUDIT_TRANS   FROM -> TO of the pending change, or empty
+#   OP_AUDIT_HEADER  the first line its report must have (empty while a
+#                    registry change is seen but not yet recorded)
+#   OP_AUDIT_TAG     a stable id of the pending change, or empty
+# A pending lease audit comes first; a recorded registry change still
+# pending counts even after a lease appears.
+ao_audit_resolve() {
+  OP_AUDIT=$OP_AUDIT_LEASE OP_AUDIT_FROM=- OP_AUDIT_TRANS='' OP_AUDIT_HEADER='' OP_AUDIT_TAG=''
+  if [ "$OP_AUDIT" = pending ]; then
+    OP_AUDIT_FROM=lease OP_AUDIT_TRANS=$OP_LEASE_TRANS
+    OP_AUDIT_HEADER=$OP_LEASE_HEADER OP_AUDIT_TAG=$OP_LEASE_TAG
+    return 0
+  fi
+  ao_audit_read "$OP_KEY" || return 0
+  if [ -n "$A_change" ] && [ "$A_change" != "$A_done" ]; then
+    OP_AUDIT=pending OP_AUDIT_FROM=registry OP_AUDIT_TRANS="$A_from -> $A_to"
+    OP_AUDIT_HEADER=$(ao_audit_registry_header "$OP_KEY")
+    OP_AUDIT_TAG=$(ao_audit_registry_tag)
+  elif [ "$OP_LEASE" = none ] && ao_is_family "$A_provider" && ao_is_family "$OP_PROVIDER" &&
+    [ "$A_provider" != "$OP_PROVIDER" ]; then
+    # Seen here first: cross-review.sh records it at its next run.
+    OP_AUDIT=pending OP_AUDIT_FROM=registry OP_AUDIT_TRANS="$A_provider -> $OP_PROVIDER"
+  elif [ "$OP_LEASE" = none ] && [ -n "$A_change" ]; then
+    OP_AUDIT="done"
+  fi
+}
+
+# ao_audit_observe  Record a registry family change for the current row
+# (cross-review.sh only, under its lock). The baseline is the last model
+# family seen (a file-only or custom transport leaves it alone). Without a
+# lease, a move to the other family starts a pending audit; with a lease
+# the baseline just follows it (the lease audits its own moves). A row's
+# first sighting takes its baseline from a 0.2.0 cross-review client marker
+# when there is one. Then re-resolves the audit state.
+ao_audit_observe() {
+  _ao_af=$(ao_audit_file "$OP_KEY")
+  _ao_old=$AO_STATE/cross-review/$OP_KEY.client
+  if ! ao_audit_read "$OP_KEY"; then
+    A_provider=
+    ! ao_is_family "$OP_PROVIDER" || A_provider=$OP_PROVIDER
+    if [ "$OP_LEASE" = none ] && [ -r "$_ao_old" ]; then
+      read -r _ao_c <"$_ao_old" 2>/dev/null || _ao_c=
+      ! ao_is_family "${_ao_c:-}" || A_provider=$_ao_c
+    fi
+    _ao_audit_put "$_ao_af" || return 1
+  fi
+  rm -f "$_ao_old" "$AO_STATE/cross-review/$OP_KEY.switch-held"
+  if ao_is_family "$OP_PROVIDER" && [ "$OP_LEASE" != invalid ] && [ "$A_provider" != "$OP_PROVIDER" ]; then
+    if [ "$OP_LEASE" = none ] && ao_is_family "$A_provider"; then
+      A_from=$A_provider A_to=$OP_PROVIDER A_since=$(ao_utc "$AO_T_EPOCH")
+      A_change=$((${A_change:-0} + 1))
+    fi
+    A_provider=$OP_PROVIDER
+    _ao_audit_put "$_ao_af" || return 1
+  fi
+  ao_audit_resolve
+}
+
+_ao_audit_put() {
+  printf 'provider=%s\nfrom=%s\nto=%s\nchange=%s\nsince=%s\n' "$A_provider" "$A_from" "$A_to" "$A_change" "$A_since" |
+    ao_write_atomic "$1"
 }
 
 # ao_gate ACTION  Ask the optional `<hooks_dir>/gate` executable whether an

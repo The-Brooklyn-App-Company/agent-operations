@@ -28,7 +28,7 @@ AO_E_REFUSED=5
 AO_LEASE_LOCK_MAX=10
 AO_LEASE_LOCKED=
 AO_LEASE_GUARDED=
-_AO_LEASE_KEYS="operator provider session session_id instance generation host epoch state acquired heartbeat heartbeat_epoch prev_epoch prev_note prev_provider audit audit_note client_pid client_start"
+_AO_LEASE_KEYS="operator provider session session_id instance generation host epoch state acquired heartbeat heartbeat_epoch prev_epoch prev_note prev_provider audit audit_note audit_report client_pid client_start"
 
 # ---------------------------------------------------------------- basics
 
@@ -405,8 +405,10 @@ ao_markers_open() {
 # ---------------------------------------------------------------- routing
 
 # ao_lease_route  Called by ao_operator_resolve with OP_* set. When the
-# operator's home (OP_DIR) has a lease: OP_LEASE = its state, OP_AUDIT = its
-# switch-in audit state, OP_CLIENT = its provider in every state (a registry
+# operator's home (OP_DIR) has a lease: OP_LEASE = its state,
+# OP_AUDIT_LEASE = its switch-in audit state (with OP_LEASE_TRANS,
+# OP_LEASE_HEADER and OP_LEASE_TAG while pending; ao_audit_resolve merges
+# them into OP_AUDIT), OP_CLIENT = its provider in every state (a registry
 # client of file-only stays file-only), and unless released OP_NAME = its
 # session display name, OP_SID = its session id (empty when unknown).
 # OP_LEASE=none when there is no lease (registry row only, unchanged),
@@ -415,7 +417,8 @@ ao_markers_open() {
 # the lease's provider, else the registry client. Pick reviewers from it.
 ao_lease_route() {
   OP_LEASE=none
-  OP_AUDIT=-
+  OP_AUDIT_LEASE=-
+  OP_LEASE_TRANS='' OP_LEASE_HEADER='' OP_LEASE_TAG=''
   OP_EPOCH=-
   OP_PROVIDER=$OP_CLIENT
   [ -e "$OP_DIR/.operator/lease" ] || return 0
@@ -424,7 +427,12 @@ ao_lease_route() {
     OP_LEASE=invalid
     return 0
   fi
-  OP_LEASE=$L_state OP_AUDIT=$L_audit
+  OP_LEASE=$L_state OP_AUDIT_LEASE=$L_audit
+  if [ "$L_audit" = pending ]; then
+    OP_LEASE_TRANS="$L_prev_provider -> $L_provider"
+    OP_LEASE_HEADER=$(ao_audit_header "$OP_KEY")
+    OP_LEASE_TAG=lease-$L_generation-$L_epoch
+  fi
   OP_EPOCH=$L_generation-$L_epoch
   OP_PROVIDER=$L_provider
   _ao_regclient=$OP_CLIENT _ao_regname=$OP_NAME
@@ -442,6 +450,12 @@ ao_lease_route() {
   elif [ "$_ao_regclient" != "$L_provider" ] || [ "$_ao_regname" != "$L_session" ]; then
     OP_SID=
   fi
+}
+
+# ao_audit_header KEY  The first line a lease switch-in report must have,
+# from the loaded lease.
+ao_audit_header() {
+  printf '# Switch-in audit: %s, generation %s, epoch %s (%s -> %s)\n' "$1" "$L_generation" "$L_epoch" "$L_prev_provider" "$L_provider"
 }
 
 # ---------------------------------------------------------------- git

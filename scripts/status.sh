@@ -4,9 +4,13 @@
 # Usage: status.sh [--tsv] [--all]
 #
 # Columns: key, name, client, state, quiet (until date or -), inbox (pending
-# notes). State is idle_min=<n> (minutes since the session's transcript last
-# changed), no-transcript, pending (no session id yet) or unknown (the client
-# exposes no activity, e.g. file-only). Read-only: writes nothing.
+# notes), audit. State is idle_min=<n> (minutes since the session's
+# transcript last changed), no-transcript, pending (no session id yet) or
+# unknown (the client exposes no activity, e.g. file-only). Audit is the
+# switch-in audit after a move to the other model family (kit rule K-22,
+# lib/registry.sh): pending (no new work until the incoming session records
+# its report with `lease.sh audit-done`), done, or - (none seen). Read-only:
+# writes nothing.
 #
 # Options:
 #   --tsv       tab-separated, no header (for scripts)
@@ -28,9 +32,9 @@ AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 status_row() {
   [ -n "$all" ] || [ "$OP_KEY" != "$AO_ORACLE_KEY" ] || return 0
   _q=$(ao_quiet_until "$OP_KEY" "$OP_NAME")
-  if [ -n "$tsv" ]; then _fmt='%s\t%s\t%s\t%s\t%s\t%s\n'; else _fmt='%-14s %-24s %-9s %-16s %-11s %s\n'; fi
+  if [ -n "$tsv" ]; then _fmt='%s\t%s\t%s\t%s\t%s\t%s\t%s\n'; else _fmt='%-14s %-24s %-9s %-16s %-11s %-5s %s\n'; fi
   # shellcheck disable=SC2059 # the format is one of the two literals above
-  printf "$_fmt" "$OP_KEY" "$OP_NAME" "$OP_CLIENT" "$(ao_idle_state)" "${_q:--}" "$(ao_inbox_count "$OP_KEY")"
+  printf "$_fmt" "$OP_KEY" "$OP_NAME" "$OP_CLIENT" "$(ao_idle_state)" "${_q:--}" "$(ao_inbox_count "$OP_KEY")" "$OP_AUDIT"
 }
 
 main() {
@@ -45,7 +49,7 @@ main() {
     shift
   done
   ao_load --no-state
-  [ -n "$tsv" ] || printf '%-14s %-24s %-9s %-16s %-11s %s\n' KEY NAME CLIENT STATE QUIET INBOX
+  [ -n "$tsv" ] || printf '%-14s %-24s %-9s %-16s %-11s %-5s %s\n' KEY NAME CLIENT STATE QUIET INBOX AUDIT
   ao_registry_each status_row
   status_warnings
 }

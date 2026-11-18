@@ -273,6 +273,39 @@ test_warm_switch_to_other_client_needs_audit() {
   assert_eq "$(lget prev_provider)" claude
 }
 
+test_registry_audit_also_gates_the_holder() {
+  lsetup
+  acq claude Workshop
+  # cross-review.sh recorded a family change of ws before the lease existed.
+  mkdir -p "$T/state/audit"
+  printf 'provider=claude\nfrom=codex\nto=claude\nchange=1\nsince=2030-01-02T03:04:05Z\n' >"$T/state/audit/ws"
+  lease renew --instance "$TOK" --epoch 1
+  assert_has "$T/out" "REQUIRED FIRST STEP: switch-in audit (this operator moved codex -> claude)"
+  lease dispatch-begin --instance "$TOK" --epoch 1 --what deploy --pid $$
+  assert_rc 5
+  assert_has "$T/err" "switch-in audit pending (moved codex -> claude)"
+  run ask.sh new --home "$T/ops/ws" --instance "$TOK" --epoch 1 --action noop --target t --revision 1 --risk none --rollback none
+  assert_rc 5
+  assert_has "$T/err" "registry change codex -> claude"
+  lease status
+  assert_has "$T/out" "switch-in audit: pending (registry, codex -> claude)"
+  lease audit-brief --instance "$TOK" --epoch 1
+  head -n 1 "$T/out" >"$T/hdr"
+  assert_eq "$(cat "$T/hdr")" "# Switch-in audit: ws, registry change 1 at 2030-01-02T03:04:05Z (codex -> claude)"
+  mkdir -p "$T/ops/ws/audits"
+  { cat "$T/hdr"; printf 'findings: none\n'; } >"$T/ops/ws/audits/r.md"
+  git -C "$T/ops/ws" add audits/r.md && git -C "$T/ops/ws" commit -q -m audit
+  # With a lease, only the holder records it.
+  lease audit-done --report audits/r.md
+  assert_rc 2
+  lease audit-done --instance "$TOK" --epoch 1 --report audits/r.md
+  assert_rc 0
+  assert_has "$T/state/audit/ws.done" "change=1"
+  assert_eq "$(lget audit)" -
+  lease dispatch-begin --instance "$TOK" --epoch 1 --what deploy --pid $$
+  assert_rc 0
+}
+
 test_restore_starts_new_generation() {
   lsetup
   acq claude Workshop

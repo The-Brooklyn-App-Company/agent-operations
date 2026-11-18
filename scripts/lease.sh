@@ -30,10 +30,13 @@
 #           when the holder looks down).
 #   status  [--evidence]    Holder, heartbeat age, markers, mail, lock;
 #           --evidence adds the work-repo state a takeover shows.
-#   audit-brief --instance T --epoch N   The switch-in audit checklist and
-#           evidence. Required first step after a move between clients.
-#   audit-done  --instance T --epoch N --report PATH   Record the committed
-#           audit report; until then dispatch and new asks are refused.
+#   audit-brief [--instance T --epoch N]   The switch-in audit checklist,
+#           evidence and the incoming family's headless report, if written.
+#           Required first step after a move to the other model family.
+#   audit-done  [--instance T --epoch N] --report PATH   Record the committed
+#           audit report (path and commit); until then dispatch and new asks
+#           are refused. With a lease, only its holder; without one, for a
+#           registry change that cross-review.sh recorded (needs AO_PROFILE).
 #   init    Create .operator/ (inbox, markers); idempotent.
 #
 # Human verbs (refused inside an agent's tool shell and without a terminal;
@@ -51,7 +54,8 @@
 #
 # The home is --home, else $AO_OPERATOR_HOME, else the nearest directory at
 # or above $PWD with an operator.conf. The profile (AO_PROFILE) is optional
-# here; it supplies lease_stale, work_root and the Oracle inbox for alerts.
+# here; it supplies lease_stale, work_root, the Oracle inbox for alerts and
+# the state dir where registry switch-in audits are recorded.
 #
 # Exit codes: 0 ok; 1 runtime failure; 2 usage; 3 lease lock busy or stuck
 # (fail closed); 5 refused by the lease (not the holder, wrong epoch, marker
@@ -185,8 +189,8 @@ repo_state() {
 }
 
 inflight() {
-  _wr=$(ao_cfg work_root "$HOME/src")
-  _wr=$(ao_expand_path "$_wr" "$H_HOME")
+  # As core resolves it: relative to the Oracle home when a profile is loaded.
+  _wr=$(ao_expand_path "$(ao_cfg work_root "$HOME/src")" "${AO_HOME:-$H_HOME}")
   _names=$(sed -n 's/^[[:space:]]*work\.\([A-Za-z0-9._-]*\)=.*/\1/p' "$H_HOME/operator.conf" | LC_ALL=C sort -u)
   if [ -z "$_names" ]; then
     echo "- no work repos declared in operator.conf"
@@ -256,10 +260,15 @@ build_note() {
 
 # ---------------------------------------------------------------- switch-in audit
 #
-# When an operator moves between clients, the incoming family audits what
-# the outgoing family left before it takes new work. The lease carries
-# audit=pending until the holder records a committed report (audit-done);
-# meanwhile dispatch-begin and ask.sh new/reserve refuse.
+# When an operator moves to the other model family, the incoming family
+# audits what the outgoing family left before it takes new work (kit rule
+# K-22; one mechanism with cross-review.sh, see lib/registry.sh). Two
+# triggers: a lease acquire or takeover onto another client (the lease
+# carries audit=pending), or a registry family change seen by
+# cross-review.sh without a lease (<state_dir>/audit/<key>). cross-review.sh
+# writes the incoming family's headless report to audits/; the session
+# triages and commits it and audit-done records it. Meanwhile dispatch-begin,
+# dispatch-run and ask.sh new/reserve refuse.
 
 # switch_audit OLD_PROVIDER NEW_PROVIDER  Print the audit state for a new
 # holder: pending on a client change; an unfinished audit carries over.
@@ -267,13 +276,29 @@ switch_audit() {
   if [ "$1" != "$2" ] || [ "$L_audit" = pending ]; then echo pending; else echo -; fi
 }
 
+# audit_pending  Set a_kind (lease or registry), a_header, a_tag and
+# a_trans for the pending switch-in audit; false when none is pending.
+# Registry audits need the profile (its state dir); without one only the
+# lease's own audit is known.
+audit_pending() {
+  if [ -n "$L_PRESENT" ] && [ "$L_audit" = pending ]; then
+    a_kind=lease a_header=$(ao_audit_header "$H_KEY") a_tag=lease-$L_generation-$L_epoch
+    a_trans="$L_prev_provider -> $L_provider"
+  elif ao_audit_registry_pending "$H_KEY"; then
+    a_kind=registry a_header=$(ao_audit_registry_header "$H_KEY")
+    a_tag=$(ao_audit_registry_tag) a_trans="$A_from -> $A_to"
+  else
+    return 1
+  fi
+}
+
 audit_reminder() {
-  [ "$L_audit" = pending ] || return 0
-  echo "REQUIRED FIRST STEP: switch-in audit (this operator moved from $L_prev_provider to $L_provider). Run lease.sh audit-brief, audit adversarially, commit the report, then lease.sh audit-done --report PATH. No new work, dispatch or asks until then."
+  audit_pending || return 0
+  echo "REQUIRED FIRST STEP: switch-in audit (this operator moved $a_trans). Run lease.sh audit-brief, triage the incoming family's report (or write one), commit it, then lease.sh audit-done --report PATH. No new work, dispatch or asks until then."
 }
 
 audit_gate() {
-  [ "$L_audit" != pending ] || { ao_lease_unlock; refuse "switch-in audit pending (moved from $L_prev_provider to $L_provider): finish it and run lease.sh audit-done first"; }
+  ! audit_pending || { ao_lease_unlock; refuse "switch-in audit pending (moved $a_trans): finish it and run lease.sh audit-done first"; }
 }
 
 # audit_section KIND  The note's switch-in audit section.
@@ -291,17 +316,22 @@ audit_section() {
 
 do_audit_brief() {
   ao_lease_load
-  need_holder
-  cat <<EOF
-$(audit_header)
+  [ -z "$L_PRESENT" ] || need_holder
+  audit_pending || { echo "no switch-in audit pending for $H_KEY"; return 0; }
+  _base=$(ao_audit_report_base "$a_tag")
+  if [ "$a_kind" = lease ]; then _args=" --instance <token> --epoch $L_epoch"; else _args=; fi
+  cat <<BRIEF
+$a_header
 
 You are the incoming family. Review adversarially what the outgoing session
-left; trust no note without checking it against the repos. Report findings
-as fixed, rejected (with reason) or deferred (with owner), commit the report
-in this home (for example audits/$AO_T_DATE-switch-in-epoch-$L_epoch.md), then
-run: lease.sh audit-done --instance <token> --epoch $L_epoch --report <path>
+left; trust no note without checking it against the repos. cross-review.sh
+writes a headless report by the incoming family's reviewer role to
+$_base.md (see below). If it is there, triage every finding in it (fixed,
+rejected with a reason, or deferred with an owner) and add what you find
+yourself; otherwise write your own report in this home. Commit it, then run:
+lease.sh audit-done$_args --report <path>
 The report must start with the first line of this brief, exactly, and be
-committed after the handoff note.
+committed (after the handoff note, when there is one).
 
 Check, at least:
 1. Unfinished work: branches, PRs, half-applied changes, open asks, effects
@@ -316,15 +346,25 @@ Check, at least:
    paths, portability, overclaimed status).
 
 ## Evidence
-EOF
-  echo "- handoff note: HANDOFF.md at $L_prev_note (epoch $L_prev_epoch)"
-  echo "- mail: $(mail_counts)"
+BRIEF
+  _found=
+  for _r in "$H_HOME/$_base".md "$H_HOME/$_base"-*.md; do
+    [ -f "$_r" ] || continue
+    _found=1
+    echo "- headless report: ${_r#"$H_HOME"/}"
+  done
+  [ -n "$_found" ] || echo "- headless report: none yet ($_base.md; cross-review.sh writes it when a reviewer of the incoming family is configured)"
+  if [ "$a_kind" = lease ]; then
+    echo "- handoff note: HANDOFF.md at $L_prev_note (epoch $L_prev_epoch)"
+  else
+    echo "- registry change: $a_trans at $A_since"
+  fi
+  [ ! -d "$H_OP" ] || echo "- mail: $(mail_counts)"
   echo "- asks: $(ao_asks_with_status "$H_HOME/ASKS.md" open reserved held | wc -l | tr -d ' ') open, reserved or held"
   inflight
 }
 
 do_audit_done() {
-  need_token
   [ -n "$o_report" ] || ao_die "$AO_E_USAGE" "audit-done needs --report PATH (relative to the home, committed)"
   # A plain relative path inside the home: no option, pathspec magic, glob,
   # parent step or absolute path.
@@ -332,10 +372,15 @@ do_audit_done() {
     /* | -* | :* | ../* | */../* | */.. | .. | *[!A-Za-z0-9._/-]*)
       refuse "--report must be a plain path inside the home, relative to it ([A-Za-z0-9._/-])" ;;
   esac
-  lock
   ao_lease_load
-  ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
-  [ "$L_audit" = pending ] || { ao_lease_unlock; echo "no switch-in audit pending"; return 0; }
+  # With a lease, only its holder records an audit, under the lease lock.
+  if [ -n "$L_PRESENT" ]; then
+    need_token
+    lock
+    ao_lease_load
+    ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
+  fi
+  audit_pending || { ao_lease_unlock; echo "no switch-in audit pending"; return 0; }
   # Everything is read from the committed revision, never the working tree.
   _blob=$(git -C "$H_HOME" rev-parse -q --verify "HEAD:./$o_report" 2>/dev/null) || _blob=
   _mode=$(git -C "$H_HOME" ls-tree HEAD -- "./$o_report" 2>/dev/null | cut -c1-6)
@@ -346,26 +391,32 @@ do_audit_done() {
     ao_lease_unlock
     refuse "commit the report first, as a regular file: $o_report"
   }
-  [ "$(git -C "$H_HOME" cat-file blob "$_blob" | sed -n 1p)" = "$(audit_header)" ] || {
+  [ "$(git -C "$H_HOME" cat-file blob "$_blob" | sed -n 1p)" = "$a_header" ] || {
     ao_lease_unlock
-    refuse "the report must start with: $(audit_header)"
+    refuse "the report must start with: $a_header"
   }
   _sha=$(GIT_LITERAL_PATHSPECS=1 git -C "$H_HOME" log -1 --format=%H -- "$o_report")
-  if [ "$L_prev_note" != none ]; then
-    if [ -z "$_sha" ] || [ "$(git -C "$H_HOME" rev-parse "$L_prev_note" 2>/dev/null)" = "$_sha" ] ||
+  [ -n "$_sha" ] || { ao_lease_unlock; refuse "no commit found for $o_report"; }
+  if [ "$a_kind" = lease ] && [ "$L_prev_note" != none ]; then
+    if [ "$(git -C "$H_HOME" rev-parse "$L_prev_note" 2>/dev/null)" = "$_sha" ] ||
       ! git -C "$H_HOME" merge-base --is-ancestor "$L_prev_note" "$_sha" 2>/dev/null; then
       ao_lease_unlock
       refuse "the report must be committed after the handoff note $L_prev_note"
     fi
   fi
-  L_audit="done" L_audit_note=$(printf '%s' "$_sha" | cut -c1-12)
-  ao_lease_write || ao_die "$AO_E_FAIL" "cannot write $H_LEASE"
+  _short=$(printf '%s' "$_sha" | cut -c1-12)
+  if [ "$a_kind" = lease ]; then
+    L_audit="done" L_audit_note=$_short L_audit_report=$o_report
+    ao_lease_write || ao_die "$AO_E_FAIL" "cannot write $H_LEASE"
+  else
+    printf 'change=%s\nsince=%s\nreport=%s\ncommit=%s\nat=%s\n' "$A_change" "$A_since" "$o_report" "$_short" "$(ao_utc "$AO_T_EPOCH")" |
+      ao_write_atomic "$(ao_audit_file "$H_KEY" .done)" ||
+      ao_die "$AO_E_FAIL" "cannot record the audit in $(ao_audit_file "$H_KEY" .done)"
+  fi
   ao_lease_unlock
-  echo "switch-in audit recorded: $L_audit_note. New work may start."
-}
-
-audit_header() {
-  printf '# Switch-in audit: %s, generation %s, epoch %s (%s -> %s)\n' "$H_KEY" "$L_generation" "$L_epoch" "$L_prev_provider" "$L_provider"
+  echo "switch-in audit recorded ($a_kind, $a_trans): $o_report at $_short. New work may start."
+  # A registry audit may still be pending behind a lease audit.
+  ! audit_pending || echo "still pending: the $a_kind switch-in audit ($a_trans); run lease.sh audit-brief"
 }
 
 holder_id() {
@@ -619,7 +670,11 @@ do_status() {
     echo "dispatch markers: none"
   fi
   echo "mail: $(mail_counts)"
-  [ -z "$L_PRESENT" ] || echo "switch-in audit: $L_audit (note $L_audit_note)"
+  if audit_pending; then
+    echo "switch-in audit: pending ($a_kind, $a_trans)"
+  elif [ -n "$L_PRESENT" ]; then
+    echo "switch-in audit: $L_audit (report ${L_audit_report:--} at ${L_audit_note:--})"
+  fi
   if [ -d "$H_OP/lease.lock" ]; then echo "lock: present ($H_OP/lease.lock)"; else echo "lock: free"; fi
   echo "takeover: terminal-only on every client (no client validated for a fresh permission prompt; docs/handoff.md)"
   if [ -n "$o_evidence" ]; then
