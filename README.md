@@ -6,7 +6,7 @@ templates, thin skills, and POSIX sh scripts run by the OS scheduler. It
 works with Claude Code and Codex in any seat. It is not a framework, a
 daemon or an agent runtime.
 
-Version 0.3.0 draft. [Changelog](CHANGELOG.md).
+Version 0.3.0. [Changelog](CHANGELOG.md).
 
 ## Who it is for
 

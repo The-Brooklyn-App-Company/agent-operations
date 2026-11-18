@@ -5,7 +5,7 @@ with 0.2.0; 0.1.x guidance had none.
 
 ## Unreleased
 
-### 0.3.0 draft
+## 0.3.0 (2026-11-18)
 
 - **K-13, K-14, K-22, K-23, K-24, K-26, K-34:** end-to-end two-client
   [manual](MANUAL.md), exclusive owning-side routing, switch-in and bounded
@@ -31,9 +31,9 @@ with 0.2.0; 0.1.x guidance had none.
   generation/drain, job occurrences, capability evidence and complete package
   hashes, and deterministic wake/restart proof before polling-fallback retirement.
 - Full release validation and remaining live acceptance recorded in
-  [TESTING.md](TESTING.md); this draft is not a published release.
+  [TESTING.md](TESTING.md).
 
-## 0.2.1-rc1 (release candidate, unreleased)
+## 0.2.1-rc1 (release candidate; folded into 0.3.0)
 
 Adds the handoff layer between Claude Code and Codex, **experimental**,
 and makes the switch-in audit one mechanism.
