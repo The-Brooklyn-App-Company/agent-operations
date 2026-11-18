@@ -11,8 +11,11 @@
 # never put in the message, so the delivering model never sees it; the
 # receiving session reads the files itself, as data.
 #
-# File-only sessions read their inbox at turn start. For Codex, acceptance
-# by the native queue confirms submission, and resume is best-effort. A
+# File-only sessions read their inbox at turn start. Codex queue delivery is
+# on by default for rows with actual owner thread IDs; relay_codex=off keeps
+# them passive. The transport treats exit 0 as queue submission only, with
+# no guaranteed resume. One isolated live round trip is recorded in README;
+# both experimental lease-mail doorbells remain fakes only, live unrun. A
 # delivery that is not confirmed is retried on later runs, at most relay_max_attempts
 # (default 3) times in a row; then the row backs off (1 h, doubling up to
 # 24 h) and the Oracle gets one note naming the notes. A confirmed delivery
@@ -153,12 +156,8 @@ relay_failed() {
 # relay_deliver  Subshell body for one delivery: a broken transport
 # configuration exits only this subshell, never the whole relay.
 relay_deliver() {
-  _session=$OP_SID
-  if [ "$OP_CLIENT" = codex ] && [ -z "$_session" ] && [ "$OP_LEASE" = held ]; then
-    _session=$OP_NAME
-  fi
   ao_role_load "relay_$OP_CLIENT" "$OP_CLIENT" >"$out" 2>&1 &&
-    ao_role_deliver "$OP_NAME" "$_session" "$msg" "$out" "$_id"
+    ao_role_deliver "$OP_NAME" "$OP_SID" "$msg" "$out" "$_id"
 }
 
 # relay_row  Registry callback: serve one operator's inbox.
@@ -170,6 +169,9 @@ relay_row() {
       *) ao_log "$log" "to=$OP_KEY FAILED: unknown client '$OP_CLIENT'"; failures=$((failures + 1)); return 0 ;;
     esac ;;
   esac
+  # The off switch preserves notes and existing pending/backoff state.
+  # Owner resolution and the doorbell's independent opt-in remain unchanged.
+  [ "$OP_CLIENT" != codex ] || [ "$codex_mode" = queue ] || return 0
   if [ "$AO_INBOX/$OP_KEY" = "$AO_SENT" ]; then
     ao_log "$log" "to=$OP_KEY FAILED: registry key collides with the sent archive $AO_SENT"
     failures=$((failures + 1))
@@ -185,8 +187,8 @@ relay_row() {
     ao_log "$log" "to=$OP_KEY held by gate"
     return 0
   fi
-  if [ "$OP_CLIENT" = codex ] && [ -z "$OP_SID" ] && [ "$OP_LEASE" != held ]; then
-    ao_log "$log" "to=$OP_KEY held: registry has no Codex thread ID"
+  if [ "$OP_CLIENT" = codex ] && ! ao_codex_thread_addressable "$OP_SID"; then
+    ao_log "$log" "to=$OP_KEY held: owner has no addressable Codex thread ID"
     return 0
   fi
   if [ -n "$dry_run" ]; then
@@ -236,7 +238,13 @@ main() {
     esac
     shift
   done
-  ao_load
+  ao_load --no-state
+  codex_mode=$(ao_cfg relay_codex queue)
+  case $codex_mode in
+    off | queue) ;;
+    *) ao_die "$AO_E_USAGE" "relay_codex must be off or queue" ;;
+  esac
+  mkdir -p "$AO_STATE" || ao_die "$AO_E_FAIL" "cannot create state dir $AO_STATE"
   ao_lock relay || { ao_msg "another relay is running; skipping"; exit "$AO_E_BUSY"; }
   label=$(ao_cfg relay_label 'Relay (automated inbox, not from the human):')
   case $label in *"$AO_NL"*) ao_die "$AO_E_USAGE" "relay_label must be one line" ;; esac

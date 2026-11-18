@@ -109,8 +109,11 @@ A doorbell only says "you have mail". `mail.sh ring-all` (from a tick hook,
 see `examples/hooks/every/40-doorbells`) rings each holder while it has
 mail, again only when the pending set or the holder changes, or after
 `doorbell_rering_min` (60). Claude: the relay's confirmed `SendMessage` path
-with fixed text. Codex: `doorbell_codex=queue` opts into the native CLI queue
-transport; `off` remains the default. Successful enqueue is acceptance only,
+with fixed text. Both doorbells are **fakes only; live unrun**, including the
+Claude doorbell: ordinary relay proof is not doorbell acceptance. Codex:
+`doorbell_codex=queue` opts into the native CLI queue transport; `off` remains
+the default, independently of `relay_codex`. An actual owner session ID is
+required; a display name cannot substitute. Enqueue is acceptance only,
 not proof that resume succeeded or the recipient read its mail. Unsupported
 CLI versions fail; the existing `chat` slot remains the documented fallback.
 A registry `client` of `file-only` keeps

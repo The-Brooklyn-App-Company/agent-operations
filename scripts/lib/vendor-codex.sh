@@ -14,8 +14,13 @@
 #           codex-cli 0.169 on 2026-11-17; the plugin and app switches with
 #           0.169.0-alpha.11.
 # deliver:  `codex queue --thread SESSION --message POINTER --resume`.
-#           The CLI exit status confirms queue acceptance. Resume is
-#           best-effort and a failed resume can still exit 0.
+#           One live isolated existing-account/machine round trip observed on
+#           macOS, 2026-11-18, codex-cli 0.169.0-alpha.11.1: a later app turn
+#           read the archived fixture and acknowledged its exact relay ID.
+#           The configured exit-0 assumption means queue submission only;
+#           that run also warned resume failed. Resume is not guaranteed.
+#           Not a clean account/machine test. Both experimental lease-mail
+#           doorbells remain fakes only; live unrun.
 # activity: newest $CODEX_HOME/sessions/**/*<session>*.jsonl.
 
 # Global switches for every Codex run: no plugins, no apps (connectors).
@@ -69,9 +74,9 @@ vendor_codex_run() {
 
 vendor_codex_deliver() {
   _vx_thread=$2 _vx_out=$4
-  case $_vx_thread in
-    '' | -* | *"$AO_NL"* | *"$AO_TAB"*) echo "no addressable Codex thread" >"$_vx_out"; return 1 ;;
-  esac
+  ao_codex_thread_addressable "$_vx_thread" || {
+    echo "no addressable Codex thread" >"$_vx_out"; return 1
+  }
   if ! [ "$R_TIMEOUT" -gt 0 ]; then
     echo "relay_codex_timeout must be positive" >"$_vx_out"
     return 1

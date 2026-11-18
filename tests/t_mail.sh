@@ -193,14 +193,15 @@ test_doorbell_claude_carries_no_mail() {
 
 test_codex_doorbell_queues_for_the_held_session_only() {
   msetup
-  acq codex "Current Workshop"
+  lease acquire --provider codex --session "Current Workshop" --session-id sid-current
   assert_rc 0
   profile_set doorbell_codex queue
   printf 'private mailbox content\n' >"$T/body"
   srun mail.sh send ws --kind notice --from oracle/claude <"$T/body"
   run mail.sh ring-all
   assert_rc 0
-  assert_has "$FAKE_LOG" "arg: Current Workshop"
+  assert_has "$FAKE_LOG" "arg: sid-current"
+  assert_lacks "$FAKE_LOG" "Current Workshop"
   assert_has "$FAKE_LOG" "arg: --resume"
   assert_has "$FAKE_LOG" "doorbell-id: "
   assert_has "$FAKE_LOG" "stdin: eof"
@@ -210,6 +211,26 @@ test_codex_doorbell_queues_for_the_held_session_only() {
   assert_count "$IB/new" 1
   run mail.sh ring-all
   assert_eq "$(grep -c '^== codex$' "$FAKE_LOG")" 1 "no repeat for the same mail"
+}
+
+test_codex_doorbell_needs_an_actual_thread_id() {
+  msetup
+  profile_set doorbell_codex queue
+  for sid in '' - -invalid pending "$(printf 'bad\taddress')" "$(printf 'bad\naddress')"; do
+    run doorbell-codex.sh ring "Display Name" "$sid"
+    assert_rc 2
+    assert_has "$T/err" "no addressable Codex thread"
+    assert_no_file "$FAKE_LOG"
+  done
+  acq codex "Current Workshop"
+  printf 'keep this mail\n' >"$T/body"
+  srun mail.sh send ws --kind notice --from oracle/claude <"$T/body"
+  run mail.sh ring-all
+  assert_rc 0
+  assert_no_file "$FAKE_LOG"
+  assert_count "$IB/new" 1
+  assert_has "$T/state/doorbell.log" "no addressable Codex thread"
+  assert_has "$T/state/doorbell.log" "doorbell unavailable (codex)"
 }
 
 test_codex_doorbell_prefers_the_registered_id_and_reports_failure() {

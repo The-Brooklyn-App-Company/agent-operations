@@ -317,12 +317,17 @@ ao_lease_lock() {
 
 # ao_lease_guard  Take .operator/lease.guard (mkdir), held for milliseconds
 # around creating or removing the lease lock. Waits up to
-# AO_LEASE_LOCK_MAX seconds; fails if it stays taken.
+# AO_LEASE_LOCK_MAX seconds; fails closed if it cannot be acquired.
 ao_lease_guard() {
   _ao_gd=$H_OP/lease.guard
   _ao_gw=0
   while ! mkdir "$_ao_gd" 2>/dev/null; do
-    [ -d "$_ao_gd" ] || ao_die "$AO_E_FAIL" "cannot create $_ao_gd (permissions?)"
+    # A contender can fail mkdir just before the owner removes its guard.
+    # Absence alone is not a permissions failure: retry within the same
+    # bound as contention. A genuinely unwritable parent still fails fast.
+    if [ ! -d "$_ao_gd" ] && [ ! -w "$H_OP" ]; then
+      ao_die "$AO_E_FAIL" "cannot create $_ao_gd (permissions?)"
+    fi
     _ao_gw=$((_ao_gw + 1))
     [ "$_ao_gw" -le "$AO_LEASE_LOCK_MAX" ] || return 1
     sleep 1
@@ -336,7 +341,7 @@ ao_lease_unguard() {
 }
 
 _lease_guard_stuck() {
-  ao_msg "lease guard $H_OP/lease.guard stays taken: failing closed. A human checks that no lease.sh runs for this operator, then removes that directory"
+  ao_msg "lease guard $H_OP/lease.guard could not be acquired: failing closed. A human checks that no lease.sh runs for this operator, then removes that directory"
 }
 
 

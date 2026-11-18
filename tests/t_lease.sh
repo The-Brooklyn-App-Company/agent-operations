@@ -48,18 +48,71 @@ test_two_holders_cannot_both_acquire() {
   lsetup
   for round in 1 2 3 4 5; do
     rm -f "$T/ops/ws/.operator/lease"
-    "$AO_TEST_SHELL" "$SCRIPTS/lease.sh" --home "$T/ops/ws" acquire --provider claude --session A >"$T/a.out" 2>&1 &
+    "$AO_TEST_SHELL" "$SCRIPTS/lease.sh" --home "$T/ops/ws" acquire --provider claude --session A >"$T/a.out" 2>"$T/a.err" &
     pa=$!
-    "$AO_TEST_SHELL" "$SCRIPTS/lease.sh" --home "$T/ops/ws" acquire --provider codex --session B >"$T/b.out" 2>&1 &
+    "$AO_TEST_SHELL" "$SCRIPTS/lease.sh" --home "$T/ops/ws" acquire --provider codex --session B >"$T/b.out" 2>"$T/b.err" &
     pb=$!
     wait "$pa"
     ra=$?
     wait "$pb"
     rb=$?
-    wins=$(grep -l '^instance: ' "$T/a.out" "$T/b.out" | wc -l | tr -d ' ')
-    assert_eq "$wins" 1 "round $round winners"
-    case "$ra$rb" in 05 | 50) ;; *) _fail "round $round exit codes $ra $rb" ;; esac
+    # Count tokens, not just files containing one. A successful contender
+    # must be the final holder; a refusal must publish no acquisition.
+    na=$(grep -c '^instance: ' "$T/a.out")
+    nb=$(grep -c '^instance: ' "$T/b.out")
+    assert_eq "$((na + nb))" 1 "round $round tokens (A=$ra, B=$rb)"
+    case "$ra:$rb" in
+      0:5) winner=a loser=b provider=claude session=A ;;
+      5:0) winner=b loser=a provider=codex session=B ;;
+      *) _fail "round $round exit codes A=$ra B=$rb; A stderr: $(cat "$T/a.err"); B stderr: $(cat "$T/b.err")"; continue ;;
+    esac
+    assert_eq "$(cat "$T/$loser.out")" '' "round $round loser stdout"
+    assert_has "$T/$loser.err" "held by $provider"
+    assert_eq "$(cat "$T/$winner.err")" '' "round $round winner stderr"
+    assert_eq "$(lget state)" held "round $round lease state"
+    assert_eq "$(lget provider)" "$provider" "round $round lease provider"
+    assert_eq "$(lget session)" "$session" "round $round lease session"
+    token=$(sed -n 's/^instance: //p' "$T/$winner.out")
+    epoch=$(sed -n 's/^epoch: //p' "$T/$winner.out")
+    assert_eq "$epoch" 1 "round $round epoch"
+    lease check --instance "$token" --epoch "$epoch"
+    assert_rc 0
+    assert_no_file "$T/ops/ws/.operator/lease.lock"
+    assert_no_file "$T/ops/ws/.operator/lease.guard"
   done
+}
+
+
+test_acquire_retries_a_guard_removed_after_contention() {
+  lsetup
+  acq claude Workshop
+  cp "$T/ops/ws/.operator/lease" "$T/baseline"
+  GUARD_RACE_PATH=$T/ops/ws/.operator/lease.guard
+  GUARD_RACE_ONCE=$T/guard-race-injected
+  export GUARD_RACE_PATH GUARD_RACE_ONCE
+  # Model an owner removing its guard after a contender's mkdir failed,
+  # before that contender can inspect the directory. All other I/O is real.
+  cat >"$T/bin/mkdir" <<'MKDIR'
+#!/bin/sh
+if [ "$#" -eq 1 ] && [ "$1" = "$GUARD_RACE_PATH" ] && [ ! -e "$GUARD_RACE_ONCE" ]; then
+  : >"$GUARD_RACE_ONCE"
+  /bin/mkdir "$1" || exit 1
+  /bin/rmdir "$1" || exit 1
+  exit 1
+fi
+exec /bin/mkdir "$@"
+MKDIR
+  chmod +x "$T/bin/mkdir"
+  lease acquire --provider codex --session B
+  assert_rc 5
+  assert_file "$GUARD_RACE_ONCE"
+  assert_eq "$(cat "$T/out")" '' "refused contender stdout"
+  assert_has "$T/err" 'held by claude `Workshop`'
+  cmp -s "$T/baseline" "$T/ops/ws/.operator/lease" || _fail "refused contender changed the lease"
+  lease check --instance "$TOK" --epoch "$EP"
+  assert_rc 0
+  assert_no_file "$GUARD_RACE_PATH"
+  assert_no_file "$T/ops/ws/.operator/lease.lock"
 }
 
 test_release_needs_warm_note_and_bumps_epoch_on_acquire() {
@@ -473,13 +526,17 @@ test_routing_follows_the_lease() {
   assert_rc 0
   assert_count "$T/home/inbox/ws" 1
   assert_has "$T/state/relay.log" "to=ws held by gate"
-  # The held lease routes to its owning provider and session name.
-  acq codex ops-ws
+  # Status keeps the display name; delivery uses the holder's native ID.
+  lease acquire --provider codex --session ops-ws --session-id sid-ws
+  assert_rc 0
+  TOK=$(sed -n 's/^instance: //p' "$T/out")
+  EP=$(sed -n 's/^epoch: //p' "$T/out")
   run status.sh --tsv
   assert_has "$T/out" "ws${TAB}ops-ws${TAB}codex"
   run relay.sh --key ws
   assert_rc 0
-  assert_has "$FAKE_LOG" "arg: ops-ws"
+  assert_has "$FAKE_LOG" "arg: sid-ws"
+  assert_lacks "$FAKE_LOG" "arg: ops-ws"
   assert_lacks "$FAKE_LOG" "== claude"
   assert_count "$T/home/inbox/ws" 0
   lease note --instance "$TOK" --epoch 2

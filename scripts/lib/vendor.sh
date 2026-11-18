@@ -27,7 +27,9 @@
 #       answer goes to OUT_FILE, diagnostics to ERR_FILE; returns the status
 #   vendor_<client>_deliver NAME SESSION MESSAGE_FILE OUT_FILE RELAY_ID
 #       submit MESSAGE_FILE (which contains RELAY_ID) for that session;
-#       0 only on a client receipt. Codex confirms queue acceptance.
+#       0 only on a client receipt. Codex treats exit 0 as queue submission,
+#       not resume or recipient execution. One isolated live ordinary-relay
+#       round trip is recorded in README; both lease-mail doorbells are unrun.
 #       A confirmed delivery with a caveat writes `warning: ...` as the first
 #       line of OUT_FILE.
 #   vendor_<client>_activity DIR SESSION
@@ -36,11 +38,22 @@
 # functions directly, so a new harness is one new file.
 
 AO_VENDORS='claude codex custom'
-# Clients that can deliver a relay message; other rows read their inbox.
+# Clients with relay implementations; relay_codex=off can make Codex rows
+# passive in relay.sh. Other rows read their inbox.
 AO_RELAY_VENDORS='claude codex custom'
 # One argv string: Linux caps a single argument at 128 KiB (MAX_ARG_STRLEN),
 # so prompts and relay messages stay below that with room for wrappers.
 AO_ARG_MAX_BYTES=120000
+
+# ao_codex_thread_addressable ID  Reject placeholders and unsafe CLI addresses.
+# This is not a UUID-format check; native clients may use other opaque IDs.
+# Relay checks before claiming notes; doorbell and vendor share the same guard.
+ao_codex_thread_addressable() {
+  case ${1-} in
+    '' | pending | -* | *"$AO_NL"* | *"$AO_TAB"*) return 1 ;;
+  esac
+  return 0
+}
 
 # ao_vendor_use CLIENT  Source lib/vendor-CLIENT.sh once.
 ao_vendor_use() {

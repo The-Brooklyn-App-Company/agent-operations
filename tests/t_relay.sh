@@ -4,6 +4,7 @@
 #  SC2034: rc and friends are read by the harness in lib.sh.)
 # t_relay.sh - inbox notes to a pointer message, through each transport.
 . "$(dirname -- "$0")/lib.sh"
+. "$(dirname -- "$0")/lease_lib.sh"
 
 calls() { _c=$(grep -c '^== claude' "$FAKE_LOG" 2>/dev/null); echo "${_c:-0}"; }
 
@@ -245,7 +246,104 @@ codex_row() {
   printf 'gamma\tGamma Op\t%s\t%s\tcodex\n' "$T/proj/beta" "${1:-sid-g}" >>"$T/home/operators/REGISTRY.tsv"
 }
 
-test_codex_owner_gets_one_native_queue_with_only_the_pointer() {
+test_codex_explicit_off_preserves_existing_state_independently_of_doorbells() {
+  codex_row
+  profile_set relay_default codex
+  profile_set relay_codex off
+  profile_set doorbell_codex queue
+  note gamma g.md "new note"
+  mkdir -p "$T/home/inbox/gamma/.claimed/c.saved" "$T/home/inbox/sent" "$T/state/relay"
+  printf 'interrupted claim\n' >"$T/home/inbox/gamma/.claimed/c.saved/old.md"
+  printf 'archived note\n' >"$T/home/inbox/sent/old.md"
+  printf 'old.md\n' >"$T/home/inbox/gamma/.relay-pending"
+  printf '2 123 0\n' >"$T/state/relay/gamma.fail"
+  for mode in first second; do
+    run relay.sh --key gamma
+    assert_rc 0
+    assert_no_file "$FAKE_LOG"
+    assert_has "$T/home/inbox/gamma/g.md" "new note"
+    assert_has "$T/home/inbox/gamma/.claimed/c.saved/old.md" "interrupted claim"
+    assert_eq "$(cat "$T/home/inbox/gamma/.relay-pending")" old.md "pending preserved"
+    assert_eq "$(cat "$T/state/relay/gamma.fail")" '2 123 0' "backoff preserved"
+    assert_count "$T/home/inbox/sent" 1
+  done
+  profile_set relay_codex queue
+  run relay.sh --key gamma
+  assert_rc 0
+  assert_has "$FAKE_LOG" "3 new note(s) for gamma"
+  assert_no_file "$T/home/inbox/gamma/.relay-pending"
+  assert_no_file "$T/state/relay/gamma.fail"
+}
+
+test_codex_invalid_relay_mode_creates_no_state_and_preserves_custody() {
+  codex_row
+  profile_set relay_codex resume
+  profile_set state_dir "$T/not-created/state"
+  note gamma g.md "held"
+  mkdir -p "$T/home/inbox/gamma/.claimed/c.saved"
+  printf 'interrupted claim\n' >"$T/home/inbox/gamma/.claimed/c.saved/old.md"
+  printf 'old.md\n' >"$T/home/inbox/gamma/.relay-pending"
+  run relay.sh
+  assert_rc 2
+  assert_has "$T/err" "relay_codex must be off or queue"
+  assert_no_file "$T/not-created"
+  assert_no_file "$FAKE_LOG"
+  assert_has "$T/home/inbox/gamma/g.md" "held"
+  assert_eq "$(cat "$T/home/inbox/gamma/.claimed/c.saved/old.md")" 'interrupted claim' "claim preserved"
+  assert_eq "$(cat "$T/home/inbox/gamma/.relay-pending")" old.md "pending preserved"
+  assert_no_file "$T/home/inbox/sent"
+}
+
+test_codex_invalid_mode_reports_configuration_before_uncreatable_state() {
+  codex_row
+  profile_set relay_codex resume
+  # A regular file makes the configured child directory uncreatable on any UID.
+  printf 'keep blocker\n' >"$T/state-blocker"
+  profile_set state_dir "$T/state-blocker/child"
+  note gamma g.md "held"
+  run relay.sh
+  assert_rc 2
+  assert_has "$T/err" "relay_codex must be off or queue"
+  assert_lacks "$T/err" "cannot create state dir"
+  assert_eq "$(cat "$T/state-blocker")" 'keep blocker' "state blocker preserved"
+  assert_no_file "$T/state-blocker/child"
+  assert_has "$T/home/inbox/gamma/g.md" "held"
+  assert_no_file "$T/home/inbox/gamma/.claimed"
+  assert_no_file "$FAKE_LOG"
+  # A valid mode retains the existing state-creation failure contract, not busy.
+  profile_set relay_codex queue
+  run relay.sh
+  assert_rc 1
+  assert_has "$T/err" "cannot create state dir"
+  assert_lacks "$T/err" "another relay is running"
+  assert_no_file "$FAKE_LOG"
+  assert_has "$T/home/inbox/gamma/g.md" "held"
+}
+
+test_codex_held_lease_without_thread_id_holds_all_custody() {
+  lsetup
+  acq codex "Current Workshop"
+  assert_rc 0
+  # The registry's other-client ID cannot substitute for the holder's ID.
+  sed "s/^ws${TAB}Workshop${TAB}\(.*\)${TAB}-$/ws${TAB}Workshop${TAB}\1${TAB}stale-other-side-id${TAB}claude/" \
+    "$T/home/operators/REGISTRY.tsv" >"$T/reg"
+  mv "$T/reg" "$T/home/operators/REGISTRY.tsv"
+  profile_set relay_codex queue
+  note ws new.md "preserve new"
+  printf 'old.md\n' >"$T/home/inbox/ws/.relay-pending"
+  run relay.sh --key ws
+  assert_rc 0
+  assert_no_file "$FAKE_LOG"
+  assert_has "$T/state/relay.log" "held: owner has no addressable Codex thread ID"
+  assert_has "$T/home/inbox/ws/new.md" "preserve new"
+  assert_eq "$(cat "$T/home/inbox/ws/.relay-pending")" old.md "pending preserved"
+  assert_no_file "$T/home/inbox/ws/.claimed"
+}
+
+test_codex_owner_defaults_to_one_native_queue_with_only_the_pointer() {
+  # An existing Codex row with an actual thread ID needs no new profile key.
+  # The independent experimental doorbell can remain explicitly off.
+  profile_set doorbell_codex off
   codex_row
   note gamma 'queue note.md' "private note body"
   run relay.sh
@@ -272,16 +370,49 @@ test_codex_owner_gets_one_native_queue_with_only_the_pointer() {
 }
 
 test_codex_missing_owner_id_holds_the_note() {
+  profile_set relay_codex queue
   codex_row pending
   note gamma g.md "still in the inbox"
   run relay.sh
   assert_rc 0
   assert_count "$T/home/inbox/gamma" 1
   assert_no_file "$FAKE_LOG"
-  assert_has "$T/state/relay.log" "held: registry has no Codex thread ID"
+  assert_has "$T/state/relay.log" "held: owner has no addressable Codex thread ID"
+}
+
+test_codex_unsafe_registry_id_holds_notes_before_claiming() {
+  codex_row -invalid
+  note gamma g.md "keep new"
+  mkdir -p "$T/home/inbox/gamma/.claimed/c.saved"
+  printf 'keep claim\n' >"$T/home/inbox/gamma/.claimed/c.saved/old.md"
+  printf 'old.md\n' >"$T/home/inbox/gamma/.relay-pending"
+  run relay.sh --key gamma
+  assert_rc 0
+  assert_has "$T/state/relay.log" "held: owner has no addressable Codex thread ID"
+  assert_no_file "$FAKE_LOG"
+  assert_has "$T/home/inbox/gamma/g.md" "keep new"
+  assert_eq "$(cat "$T/home/inbox/gamma/.claimed/c.saved/old.md")" 'keep claim' "claim preserved"
+  assert_eq "$(cat "$T/home/inbox/gamma/.relay-pending")" old.md "pending preserved"
+  assert_no_file "$T/home/inbox/sent"
+}
+
+test_codex_held_pending_id_never_queues_or_moves_notes() {
+  lsetup
+  lease acquire --provider codex --session "Current Workshop" --session-id pending
+  assert_rc 0
+  note ws g.md "keep this note"
+  run relay.sh --key ws
+  assert_rc 0
+  assert_has "$T/state/relay.log" "held: owner has no addressable Codex thread ID"
+  assert_no_file "$FAKE_LOG"
+  assert_has "$T/home/inbox/ws/g.md" "keep this note"
+  assert_no_file "$T/home/inbox/ws/.claimed"
+  assert_no_file "$T/home/inbox/ws/.relay-pending"
+  assert_no_file "$T/home/inbox/sent"
 }
 
 test_codex_failures_preserve_pending_and_reuse_the_id() {
+  profile_set relay_codex queue
   codex_row
   note gamma g.md "deliver on retry"
   for mode in queue-failed queue-ambiguous; do
@@ -302,6 +433,7 @@ test_codex_failures_preserve_pending_and_reuse_the_id() {
 }
 
 test_codex_queue_has_a_bounded_timeout() {
+  profile_set relay_codex queue
   codex_row
   note gamma g.md "timeout"
   profile_set relay_codex_timeout 0
@@ -318,6 +450,7 @@ test_codex_queue_has_a_bounded_timeout() {
 }
 
 test_codex_missing_executable_never_falls_back_to_claude() {
+  profile_set relay_codex queue
   codex_row
   profile_set relay_codex_cmd "$T/bin/unavailable"
   note gamma g.md "unavailable"

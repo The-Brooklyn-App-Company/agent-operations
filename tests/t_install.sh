@@ -179,7 +179,22 @@ test_oracle_client_follows_the_profile_example() {
   run install.sh oracle "$T/ops/oracle" --profile-example codex-only
   assert_rc 0
   assert_has "$T/ops/oracle/operators/REGISTRY.tsv" "pending${TAB}codex"
-  assert_has "$AO_PROFILE" "relay_default=file-only"
+  assert_has "$AO_PROFILE" "relay_default=codex"
+  assert_has "$AO_PROFILE" "relay_codex=queue"
+  # A fresh Codex-only home queues after adding an actual app-thread ID.
+  sed "s/pending${TAB}codex/sid-installed${TAB}codex/" \
+    "$T/ops/oracle/operators/REGISTRY.tsv" >"$T/reg"
+  mv "$T/reg" "$T/ops/oracle/operators/REGISTRY.tsv"
+  # The shipped scheduled PATH must never select a real CLI in this fixture.
+  printf 'state_dir=%s\nrelay_codex_cmd=%s\n' "$T/state" "$T/bin/codex" >>"$AO_PROFILE"
+  mkdir -p "$T/ops/oracle/inbox/oracle"
+  printf 'fixture\n' >"$T/ops/oracle/inbox/oracle/setup.md"
+  run relay.sh --key oracle
+  assert_rc 0
+  assert_has "$FAKE_LOG" "arg: sid-installed"
+  assert_count "$T/ops/oracle/inbox/sent" 1
+  assert_no_file "$T/ops/oracle/inbox/oracle/setup.md"
+  assert_no_file "$T/ops/oracle/inbox/oracle/.relay-pending"
 }
 
 test_commits_only_what_it_created() {

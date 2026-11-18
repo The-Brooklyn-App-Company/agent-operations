@@ -109,7 +109,8 @@ Unknown keys warn; keys starting with `x_` are free for local hooks.
 | `daily_hour` | `6` | Daily hooks run from this hour |
 | `weekly_day`, `weekly_hour` | `5`, `6` | Weekly hooks and cross-reviews run from this day and hour, catching up later that ISO week |
 | `hook_timeout` | `900` | Seconds per hook |
-| `relay_default` | `claude` | Client for registry rows without one |
+| `relay_default` | `claude` | Client for registry rows without one (`codex` in the Codex-only profile) |
+| `relay_codex` | `queue` | Codex rows queue pointers to actual owner thread IDs (one isolated live round trip observed; evidence below); `off` leaves inbox, claimed and pending state untouched. Independent of `doorbell_codex` |
 | `relay_label` | `Relay (automated inbox, not from the human):` | First line of every relayed message |
 | `relay_max_attempts` | `3` | Failed deliveries in a row before the row backs off and the Oracle is told |
 | `relay_workdir` | `oracle_home` | Working directory for delivery runs |
@@ -130,7 +131,7 @@ Unknown keys warn; keys starting with `x_` are free for local hooks.
 | `reviewer` | `review-run.sh`, and cross-review for rows on other clients |
 | `reviewer_claude`, `reviewer_codex` | Per-family reviewers (client fixed by the name): `cross-review.sh` reviews Claude operators with `reviewer_codex` and Codex operators with `reviewer_claude`; a family counts as configured when its `_model` is set |
 | `implementer_claude`, `implementer_codex` | Per-seat implementer preferences, read by agents when they delegate; the scripts do not run them |
-| `relay_claude`, `relay_custom` | Relay transports (client fixed by the name) |
+| `relay_claude`, `relay_codex`, `relay_custom` | Relay settings (client fixed by the name); Codex relay defaults to `relay_codex=queue`; `off` makes it passive. The Codex doorbell uses these settings with its separate opt-in; its live path remains unrun |
 
 Every role takes the same fields:
 
@@ -163,16 +164,24 @@ only call the role interface, so adding a harness touches nothing else.
 | Client | run | deliver | activity |
 | --- | --- | --- | --- |
 | `claude` | `claude -p --restricted`, no session persistence, read-only tools, no tool servers or hooks | Headless run with only `ListAgents` and `SendMessage` calls `SendMessage` once; confirmed from the event stream with `jq` (below) | `<session>.jsonl` under `$CLAUDE_CONFIG_DIR/projects/<dir-slug>/`, else the newest transcript there |
-| `codex` | `codex exec --ephemeral -s read-only`, every configured tool server off | None in 0.2.0: the session reads its inbox | Newest `$CODEX_HOME/sessions/**/*<session>*.jsonl` |
+| `codex` | `codex exec --ephemeral -s read-only`, every configured tool server off | Default `relay_codex=queue` (set `off` for passive pickup): `codex queue --thread <actual-session-id> --message <pointer> --resume`. One isolated live round trip observed; no guaranteed resume (evidence below) | Newest `$CODEX_HOME/sessions/**/*<session>*.jsonl` |
 | `custom` | `<cmd> run <workdir> <prompt> <out>` | `<cmd> deliver <name> <session> <message> <relay-id>` | `<cmd> activity <dir> <session>` (optional) |
 | `file-only` | n/a | Nothing: the session reads its inbox at turn start | n/a |
 
-Verified on macOS on 2026-11-17 with Claude Code 2.1.322 and codex-cli
-0.169: relay delivery to a named desktop session, worker and review runs.
+Verified on macOS on 2026-11-17: Claude Code 2.1.322 relay delivery to a
+named desktop session; codex-cli 0.169 worker and review runs. One live isolated
+ordinary Codex relay round trip was observed on macOS on 2026-11-18 with
+codex-cli 0.169.0-alpha.11.1: the recipient read the archived fixture and
+acknowledged its exact relay ID in a later app turn. This used an existing
+account/machine, not a clean account or machine. The queue implementation treats
+exit 0 as submission only; that run also reported a failed resume. Resume is
+not guaranteed. Both experimental lease-mail doorbells remain **fakes only;
+live unrun**. Verify the installed CLI and recipient readback independently.
+A display name is never a Codex thread address: absent an actual owner session ID, relay holds
+all notes in place and the Codex doorbell is unavailable.
 All runs close stdin, run under a hard timeout, and pass the prompt as one
 argument (120000-byte cap, under Linux's 128 KiB per-argument limit).
-Delivered is not read: report a relayed message as delivered, not as acted
-on.
+Submission, recipient readback and action are separate stages (K-10).
 
 **Relay trust boundary.** Whatever can write an inbox can put a file in
 front of a session, so the relay never puts note text in front of a model:
@@ -295,14 +304,22 @@ is not proof of restore safety. See [the manual](../MANUAL.md).
 
 ## Codex queue settings
 
-A registry row's `client=codex` selects native queue delivery to its existing
-session ID (the lease holder overrides the row when enabled). File-only rows
-remain passive; the codex-only profile keeps that conservative default until
-the owner verifies local transport. No second provider is called for the row.
+A registry row's `client=codex` selects native queue delivery by default to its
+actual session ID (the lease holder overrides the row when enabled). Set
+`relay_codex=off` to preserve inbox, interrupted claims and pending state for
+passive pickup; individual file-only rows also remain passive. A missing actual
+owner session ID holds notes, including under a lease. Display names never
+substitute for IDs. No second provider is called for the row. One live isolated
+ordinary relay round trip was observed; see [Clients](#clients) for its date,
+version and existing-account/machine limits. This does not verify either
+experimental lease-mail doorbell; both remain fakes only, live unrun.
 `relay_codex_cmd` selects the installed CLI and `relay_codex_timeout` is a positive
 hard limit (default 30 seconds). No model role is needed to enqueue a pointer.
 `doorbell_codex=queue` separately opts in to the experimental lease-mail doorbell;
-its default is `off`. Success means queued, not resumed/read/executed. An absent
+its default is `off`, independently of relay mode. The queue implementation
+treats exit 0 as queue submission only, not resumed/read/executed; the observed
+live run returned 0 with a resume-failed warning. Resume is not guaranteed.
+Verify the installed CLI and recipient acknowledgement separately. An absent
 CLI/off doorbell can use the existing unavailable-transport chat fallback;
 a failed queue call is a delivery failure, not an automatic second route.
 Retries preserve the relay ID, but an ambiguous timeout can duplicate a pointer;

@@ -17,8 +17,19 @@ with 0.2.0; 0.1.x guidance had none.
   preserve unique commits and dirty/private artifacts before exclusions or cleanup.
 - **K-16, K-27, K-29:** repo-local `worktrees.noindex` creation helper with a
   verified sticky macOS backup exclusion; no new broad writable roots.
-- **K-10, K-23, K-28:** native Codex queue relay and deterministic PR watcher;
-  transport acceptance, fixture tests and installed runtime proof stay distinct.
+- **K-10, K-23, K-28:** native Codex queue relay and deterministic PR
+  watcher; transport acceptance, fixture tests and installed runtime proof stay
+  distinct. One isolated ordinary Codex relay round trip was observed on macOS,
+  2026-11-18, codex-cli 0.169.0-alpha.11.1, using an existing account/machine;
+  resume is not guaranteed. Both lease-mail doorbells are fakes only; live unrun.
+- **K-10, K-28, K-34 upgrade from 0.2.0:** Codex rows with actual owner thread
+  IDs now queue pointers by default (`relay_codex=queue`). Set `relay_codex=off`
+  for passive inbox pickup; existing inbox/claimed/pending state is preserved
+  while off. Missing IDs hold notes; display names are never thread addresses.
+  The experimental Codex doorbell remains separately opt-in and default off.
+- **K-10, K-13, K-24, K-34:** dated unshipped manual designs for ownership
+  generation/drain, job occurrences, capability evidence and complete package
+  hashes, and deterministic wake/restart proof before polling-fallback retirement.
 - Full release validation and remaining live acceptance recorded in
   [TESTING.md](TESTING.md); this draft is not a published release.
 

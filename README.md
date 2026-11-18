@@ -49,6 +49,11 @@ Overlays hold deltas only: a parameter, an added rule, or
   operator; a digest goes to the Oracle.
 - **Mail is a notification, never authority.** The relay tells a session
   where its new notes are; it never puts note text in front of a model.
+- **Codex relay queues by default** for Codex rows with actual thread IDs.
+  Set `relay_codex=off` for passive pickup. One live isolated round trip was
+  observed on an existing macOS account/machine (versions and limits below);
+  resume is not guaranteed. `doorbell_codex=queue` is a separate opt-in,
+  still fakes only; live unrun.
 - **No AI attribution** in commits or messages unless you turn it on.
 
 ## Quick start
@@ -102,15 +107,16 @@ Highest stage reached for each piece, with the client, version and date.
 | Claude `--restricted` delivery run with only `ListAgents`, `SendMessage` | Proven, Claude Code 2.1.322 | 2026-11-17 |
 | `worker-run.sh` and `review-run.sh` on Claude | Fakes only | |
 | `cross-review.sh` | Switch-in report by a real Codex reviewer, sandboxed; weekly review: fakes only | codex-cli 0.169.0-alpha.11, 2026-11-17 |
-| `install.sh` | Sandbox: fresh empty home, oracle + operator + check + status + timers render | 2026-11-17; not yet a separate clean machine |
+| `install.sh` | Fresh isolated HOME with real client binaries for version checks, Oracle + embedded operator install/home checks, and real macOS worktree helper passed; no sign-in | Claude Code 2.1.322, codex-cli 0.169.0-alpha.11.1, 2026-11-18; not a separate clean machine/account |
 | `install.sh sync`, `status.sh --drift` | Fakes only (test suite); not yet run against a real two-client setup | |
 | launchd unit | Rendered by `install.sh`; loading it is your step | |
 | systemd units, Linux hosts | **Untested** | |
-| Codex relay delivery | Native CLI queue transport; acceptance is not receiver execution | New routing tests and live deployment acceptance tracked in [TESTING.md](TESTING.md) |
+| Codex relay delivery | Live isolated kit relay → existing native app thread → recipient acknowledgement, macOS; negative cases use fakes | codex-cli 0.169.0-alpha.11.1, 2026-11-18; queue/resume warning observed before a later recipient turn; not a fresh account/machine |
 | **Experimental:** lease, standby redirect, forward, cold takeover, asks ledger ([handoff](docs/handoff.md)) | Test suite; sandboxed end-to-end with both real CLIs, headless, `file-only` registry (validation table in [handoff](docs/handoff.md#per-client-validation)) | Claude Code 2.1.322, codex-cli 0.169.0-alpha.11, 2026-11-17. **Not yet** the live test on a real operator ([TESTING.md](TESTING.md)) |
 | **Experimental:** switch-in audit gate (`audit=pending` until `lease.sh audit-done` records the committed report) | Lease path end-to-end in the sandbox above, report by a real reviewer; registry path: fakes only | 2026-11-17 |
 | **Experimental:** human takeover, `settle`, `unlock` on a terminal | Driven through a pseudo-terminal (`script(1)`) only; a human at a real terminal and the clients' interactive permission prompts are **unverified** | |
-| **Experimental:** doorbells | See opt-in transport settings and limitations in [handoff](docs/handoff.md); live acceptance remains separately required | |
+| **Experimental:** Claude doorbell | Fakes only; live unrun | See [handoff](docs/handoff.md); ordinary Claude relay proof does not verify the doorbell |
+| **Experimental:** Codex doorbell | Fakes only; live unrun | Separate `doorbell_codex=queue` opt-in, default `off`; see [handoff](docs/handoff.md) |
 | `examples/tracker-linear` | **Untested** sketch | |
 
 ## Repository layout

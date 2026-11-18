@@ -171,7 +171,7 @@ AO_KNOWN_KEYS='oracle_home oracle_key registry quiet_list inbox_dir sent_dir
 state_dir hooks_dir path
 watchdog_days watchdog_hours watchdog_idle_min watchdog_realert_min
 daily_hour weekly_day weekly_hour hook_timeout
-relay_default relay_label relay_max_attempts relay_workdir work_root
+relay_default relay_codex relay_label relay_max_attempts relay_workdir work_root
 drift_rules drift_files drift_repo_files drift_min_words drift_prompt
 drift_prompt_extra drift_workdir drift_to
 review_family cross_review cross_review_timeout cross_review_per_run

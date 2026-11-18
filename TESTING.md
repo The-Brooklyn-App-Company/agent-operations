@@ -1,41 +1,62 @@
-# v0.3.0 draft validation
+# v0.3.0 validation
 
-Release remains maintainer-owned. The records below separate deterministic tests,
-isolated installs and installed-client acceptance. Do not mark pending items green.
+Release remains maintainer-owned. Evidence below separates deterministic tests,
+actual installed CLI use, an existing-account live recipient, and unrun paths.
 
 | Check | Evidence / result |
 | --- | --- |
-| Fresh Oracle install plus home check | PASS, November 18, 2026: isolated temporary HOME and AO_PROFILE for claude-only, codex-only, both and custom templates; four install exit 0 and four home-check exit 0; no models/network |
-| Full sh/dash test suite | PASS: all 13 test files under sh and dash; 274 cases per shell. Full suite plus final changed-file regression pass, no models/network |
-| Kit links/skills and shellcheck | PASS scripts/check.sh kit and full shellcheck; exit 0 |
-| Local denylist privacy scan | PASS local uncommitted denylist scan; no findings |
-| Independent privacy-only read | PASS final public-only independent read; prior attribution finding fixed; final documentation additions reviewed separately |
-| Technical review | PASS independent technical review, clean round 3; maintainer cross-family review PENDING |
-| New worktree helper | PASS: 10 cases per shell including nonempty-container custody guard; isolated draft seat excluded on actual macOS host |
-| Native Codex delivery | PASS fake queue/owner routing and opt-in doorbell fixtures; live clean-machine kit queue/resume/readback remains unrun |
-| PR watcher | PASS: 17 cases per shell for baseline/change/failure/recovery/state custody. Live bundled GraphQL polling unrun; windows and no-closure coverage explicit |
-| Clean separate-machine install | NOT RUN for any profile; isolated HOME tests above are narrower |
-| Planned next-day provider switch-back | PENDING: prepare COLD HANDOFF notes; after the live test record provider versions, exact lease/registry change, resume-from-files, one pointer/readback and dormant-side suppression. Release need not claim this unrun test complete; follow-up corrections require a patch |
+| Final stable-code suite | PASS: all 13 files under sh/dash, 279 cases per shell; final relay/mail/tick/install regressions add three distinct cases per shell, giving 282 final cases per shell across the two invocations |
+| Repaired acquisition race | PASS: 50 independent dash invocations × five races = 250 races, plus five sh races; exactly one winner and one refused loser in each race, emitted token matches final lease |
+| Deterministic guard regression | FAILS before repair with a false permissions error; PASSES after repair under sh and dash. Real unwritable parent still fails promptly; persistent creation failure remains bounded and fail-closed |
+| Fresh Oracle profile templates | PASS: four isolated HOME/profile installs and home checks for claude-only, codex-only, both and custom; no models/network in these template tests |
+| Real-binary clean-HOME proof | PASS, macOS November 18, 2026: real Claude Code 2.1.322 and codex-cli 0.169.0-alpha.11.1 version-only calls, Oracle and embedded operator install/home checks, real worktree helper and exclusion readback; no sign-in or model calls in this phase |
+| Ordinary Codex relay | LIVE recipient read/ack observed: installed isolated kit profile → real CLI queue → existing native app thread → exact archived-fixture/relay-ID acknowledgement. Recipient turns use the existing Codex subscription |
+| Experimental lease-mail doorbells | FAKES ONLY; LIVE UNRUN for both Claude and Codex. Ordinary relay proof does not verify either doorbell |
+| PR watcher | PASS fake cases for baseline/change/error/recovery/state custody; live bundled GraphQL polling unrun, bounded windows/no-closure coverage explicit |
+| Worktree helper | PASS fake failure/custody tests plus actual macOS scratch canonical repo and excluded child; temporary filesystem exclusion is not proof of backup restore |
+| Independent technical fix review | CLEAN fresh independent same-family, different-model final review in two rounds; routing, guard repair and both final configuration P2 fixes verified. Maintainer release authority remains |
+| Kit links/skills, shellcheck, whitespace | PASS final kit links/skills, full shellcheck and whitespace checks |
+| Local privacy scan / independent privacy read | PASS deterministic local scan and independent public-only review of all 19 changed files; no findings. Private denylist stays outside this public checkout |
+| Separate clean machine/user account | NOT RUN. Installed binary and existing-account app proof above are narrower |
+| Planned next-day switch-back | PENDING live lease/routing/job-custody/readback test; source-file recovery and paused-state acceptance must not be inferred from a plan |
 
-## Final result record
+## Lease failure disposition
 
-The draft is based on `17281d5`; enclosing Git history identifies the committed
-review artifact. No source changed after the final code review. The full
-`tests/run.sh` invocation and final `tests/run.sh tests/t_jobs.sh
-tests/t_pr_watch.sh tests/t_worktree.sh tests/t_install.sh` regression invocation
-both exited 0. Together they cover all 13 test files and 274 distinct cases per
-shell, including the final job comparison and watcher-error repairs. Repeated
-changed-file checks are not extra distinct tests.
+An earlier independent full run reported one failure in the two-acquirer test
+under dash, then two 40-case lease reruns passed. That original failure retained
+no contender streams. New instrumented stress reproduced three failures in the
+28th dash invocation: each race still had one winner, but a losing process
+returned a permissions error rather than the normal refusal. No double holder
+or losing token was observed.
 
-Independent technical review settled three findings: existing nonempty backup
-container custody, durable watcher failure/recovery deduplication, and literal
-numeric-looking owner/cadence identity. The third bounded round was clean.
-Review was same-family with a fresh independent context; maintainer cross-family
-review still gates integration/publication. The privacy-only pass has no private
-source context; its final doc delta and deterministic gates are recorded in this table.
+The guard directory could disappear after a failed atomic `mkdir` and before
+its existence check, so transient contention was mistaken for denied access.
+The repair retries that vanished-guard window within the existing bound, keeps
+real unwritable-parent failure prompt, and never removes another holder's guard.
+The new deterministic regression fails before and passes after the repair.
+Strict winner/token/final-lease and no-loser-output assertions remain; no return
+code was broadened merely to make stress green. The final 250 dash plus five
+sh races all passed on unchanged source hashes. This is bounded tested evidence,
+not a claim that every possible interleaving is proven safe.
 
-Queue acceptance, recipient reading, runtime deployment and human acceptance
-are separate stages (K-10).
+## Live proof limits and cleanup
+
+The transport command was explicitly bound to the actual installed Codex binary.
+The portable profile's HOME-relative Oracle path was explicitly bound to the
+absolute isolated fixture home when the delivery phase used the normal existing
+app context. No credential was copied into the fresh HOME. The queue command
+returned a resume warning; a later actual recipient turn independently read and
+acknowledged the fixture. Its success is not inferred from the CLI status alone.
+The disposable app thread was archived, its linked seat was removed without
+force, and owned temporary roots were removed after preserving private evidence.
+No real lane route, grant, scheduled job, service or account was changed.
+
+The default-on Codex relay and explicit `relay_codex=off` are both fixture-tested,
+including custody preservation and actual-session-ID requirements. Both lease
+mail doorbells remain separately opt-in/unrun live. Native job application,
+capability rendering/doctor, managed-app reconciliation and lifecycle adapters
+are dated design/roadmap items, not shipped automation. Enclosing Git history
+identifies the returned review artifact; maintainer approval gates publication.
 
 ---
 
@@ -141,6 +162,20 @@ prints `no drift`. Expect nothing overwritten and one commit per home.
 
 ## What this does not test
 
-Doorbells reaching a live session (the Claude doorbell uses the relay's
-confirmed `SendMessage`; Codex has none by default), the interactive
+Experimental lease-mail doorbells reaching a live session (both are fakes
+only; the ordinary registry relay has separate live evidence above), the interactive
 permission prompt of either client, multi-machine use, automatic failover.
+
+## Complete final test coverage
+
+`tests/run.sh` passed all 13 files under both shells after the guard repair:
+279 cases per shell. The last two review fixes affected relay startup validation
+and addressability only; the subsequent command
+`tests/run.sh tests/t_relay.sh tests/t_mail.sh tests/t_tick.sh tests/t_install.sh`
+passed 97 cases per shell, including three additional relay cases. Two existing
+lease-routing functions were also rerun successfully per shell. Together these
+cover 282 distinct final cases per shell; duplicate reruns are not extra tests.
+Unchanged long-running lease cases were not needlessly replayed for relay-only
+input validation changes. All functional edits were complete before final review.
+The final staged whitespace, kit links/skills, full shellcheck and private local
+privacy scan results are required before the review commit is returned.

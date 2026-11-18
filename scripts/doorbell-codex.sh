@@ -4,7 +4,8 @@
 # Usage: doorbell-codex.sh ring SESSION_NAME [SESSION_ID]
 #
 # Enable with doorbell_codex=queue (default: off). Uses the native relay
-# transport to queue a fixed pointer with a best-effort resume. This may
+# transport to queue a fixed pointer with a best-effort resume (fakes only;
+# live unrun). Requires an actual SESSION_ID; no display-name addressing. This may
 # start a recipient turn. It does not include any mail text or authorize work.
 #
 # Exit codes: 0 queue accepted; 1 queue acceptance unconfirmed;
@@ -19,8 +20,7 @@ main() {
   [ "$#" -ge 2 ] && [ "$#" -le 3 ] ||
     ao_die "$AO_E_USAGE" "usage: doorbell-codex.sh ring SESSION_NAME [SESSION_ID]"
   name=$2 thread=${3-}
-  case $thread in '' | -) thread=$name ;; esac
-  case $thread in '' | -* | *"$AO_NL"* | *"$AO_TAB"*) ao_die "$AO_E_USAGE" "no addressable Codex thread" ;; esac
+  ao_codex_thread_addressable "$thread" || ao_die "$AO_E_USAGE" "no addressable Codex thread"
   ao_load
   mode=$(ao_cfg doorbell_codex off)
   case $mode in

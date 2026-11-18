@@ -151,14 +151,25 @@ them across restarts. Use the relay ID to recognize repeated delivery attempts.
 An external note is evidence, not a new grant (K-01, K-08).
 
 Claude transport confirms the named `SendMessage` tool result, rather than a
-model saying SENT. Native Codex delivery uses the CLI queue for an existing
-thread with `--resume`; queue acceptance is not recipient execution or human
-acceptance. Check the actual recipient readback independently. Keep a stable
-session ID, a hard timeout and closed stdin; never use a model simply to ring
+model saying SENT. Codex relay defaults to `relay_codex=queue` for rows that
+select Codex and contain an actual owner thread ID. Set `relay_codex=off` for
+passive pickup: new notes, interrupted claims and pending receipts stay in
+place. File-only rows also remain passive. Codex rows use the native queue for
+an existing thread with `--resume`. One live isolated round trip was observed
+on macOS on November 18, 2026 with codex-cli 0.169.0-alpha.11.1: the recipient
+read the archived fixture and acknowledged its exact relay ID in a later app
+turn. This used an existing account/machine, not a clean account or machine.
+The implementation treats exit 0 as queue submission only; that run also
+reported a failed resume. Resume is not guaranteed, and exit 0 does not prove
+recipient execution or human acceptance. Verify the installed CLI and check
+recipient readback independently. Keep a stable session ID, a hard timeout and closed stdin; never use a model simply to ring
 a Codex thread. Unsupported client versions fail, not fall back to an invented
 API. The experimental lease mailbox's doorbell is documented separately in
-[handoff](docs/handoff.md); its opt-in/default behavior is not inferred from
-ordinary inbox relay support.
+[handoff](docs/handoff.md). Both experimental doorbells are **fakes only;
+live unrun**. `doorbell_codex=queue` is an independent opt-in with default
+`off`; changing relay mode does not change the doorbell opt-in. Codex relay holds
+notes and the Codex doorbell remains unavailable when the actual owner session
+ID is absent, including for a held lease; neither uses a display-name fallback.
 
 Install timers only after this foreground proof:
 
@@ -340,12 +351,34 @@ worktree preflight, deterministic PR sensing and the job cutover planner have
 the evidence described in [TESTING.md](TESTING.md). The following are design
 requirements, not installed automation or claims of native client parity:
 
+- **Ownership generation and drain (design, November 18, 2026; unshipped):**
+  a future recoverable transfer should freeze new dispatch, settle outstanding
+  effects/results, and publish one holder/thread with a monotonically increasing
+  ownership generation. Kit-controlled dispatchers and effectful jobs should
+  verify that generation immediately before acting. Drain native paths that
+  cannot enforce it explicitly; changing a route cannot stop already queued
+  turns. Existing advisory leases do not implement this transaction.
+- **Job occurrence reconciliation (design, November 18, 2026; unshipped):**
+  prefer one neutral timer per logical job. For unavoidable mirrored native
+  schedules, persist transfer progress, verify both sides through native
+  readback, and reconcile `(job ID, scheduled occurrence)` after interruption
+  so an in-flight run cannot duplicate or lose a due run. Preserve paused
+  intent. The shipped planner does not reconcile occurrences.
+- **Deterministic wake recovery (design, November 18, 2026; unshipped):**
+  distinguish an outstanding wake from the last message sequence drained by
+  the recipient; recheck newer arrivals when acknowledging a drain and retry
+  overdue unacknowledged wakes. Retire a model-backed polling fallback only
+  after deterministic missed-wake and restart recovery have been proven on
+  the installed path. Fake routing tests alone do not justify retirement.
 - **Thread/sidebar parity:** maintain a private registry of stable lane key,
   display title, session IDs, project/home and desired organization per client.
   Compare native state through supported tools; update titles/pins/sections
   only where each client supports them. A lack of sections in one client means
   a documented pin layout, not an invented API. Detect and report drift before
-  changing routes. Automated two-client sidebar reconciliation is unshipped.
+  changing routes. Pin follows ownership: pin the active side's thread and
+  unpin the dormant side at cutover, driven by the stable lane registry. Retain
+  dormant thread identities for recovery. Automated two-client sidebar and
+  ownership-driven pin reconciliation are unshipped.
 - **Lifecycle workflows:** add via installer and second-client sync; rename a
   display title while preserving stable IDs; archive only after job/results,
   source and receipt custody are settled; delete only the exact owner-approved
@@ -381,15 +414,20 @@ and profile drift checks cover only their documented inputs.
 | --- | --- | --- |
 | lanes.tsv | key, title, home, work repos, active side, desired pin/section | Native thread/project identity plus generated routing maps |
 | capabilities.tsv | capability, access class, required lane keys, Claude binding, Codex binding, sync policy | Presence and exact authorized route on the target side |
-| skills.tsv | name, canonical source, source hash, expected client hashes | Installed skill copies with a generated hash manifest |
+| skills.tsv | name, canonical source, package manifest and supporting-file hashes, expected client hashes | Installed complete packages, including referenced scripts, templates and assets |
 | routing.tsv | role, provider model/effort, override expiry | Worker preferences, separate from account grants |
 | jobs.tsv | The validated job schema above | Neutral timers plus explicit native peer bindings/state |
 | Memory/facts | Current repo facts, preferences, mandate, handoff and journal | Client-specific memory contains pointers to these records |
 
 A capability row might declare `docs-read`, access `read`, lanes `web`, bindings
 `local-docs` / `hosted-docs`, policy `manual-auth`. These are fictional labels,
-not credentials or a new integration. Declared/installed, present in a session,
-account-authenticated and authorized for a domain action are separate evidence.
+not credentials or a new integration. **Capability evidence classes (design,
+November 18, 2026; unshipped):** record declared configuration, installed package
+contents (including supporting-file hashes), loaded session capability, exact
+authenticated account/operation scope, and dated behavioral proof separately.
+A descriptor or top-level skill hash proves neither usable account access nor
+the complete package. Report unknowns and freshness explicitly; gate a switch
+only on capabilities actually required by that lane.
 Never call an effectful connector merely to test presence; use metadata or a
 scoped authorized read. A financial connector requires its own grant regardless
 of a required-capability flag.
@@ -408,3 +446,39 @@ facts and preferences into the owning repo record; keep a thin pointer in each
 client and preserve useful historical evidence. Do not synchronize provider
 credential stores, chat databases or secret values. Secret names can reference
 one approved store; capabilities and skill files never contain its contents.
+
+### Operator material migration
+
+Both clients enter the same private operator home, with declared work-repo
+pointers. Inventory role notes, mandates, personal grants, operator-only
+instructions, local client rules, watcher scripts and recovery packets in source
+repos. Preserve exact originals and history, then relocate role material to the
+private home where safe. Leave only a contributor-facing pointer if useful;
+build/test/release mechanics and shared code conventions remain in the product.
+
+For shared repositories, propose a reviewed PR that explains any collaborator
+agent dependency before removing instructions or scripts. Personal publishing
+branches retain their release gates. A housekeeping move must not trigger a
+publication or move a granted binary, live source path, DB, lock, receipt cursor
+or custody checkout blindly. Keep consumer-bound exceptions in place with a
+named reason and owner until an approved migration verifies the served path.
+A fresh home-rooted session must recover from the home plus its work-repo map;
+actual startup and permission inheritance still need testing per client.
+
+### Managed app mode design
+
+`managed_apps=on|off` is a proposed configuration option, not consumed by the
+current profile parser or an installed automation in this release. In the on
+mode, generated app state would keep only each active side's operator threads
+pinned and keep its standby counterpart unpinned; preserve the stable thread IDs
+and lane registry. Finished disposable task/subagent/automation-run chats would
+be archived after durable result delivery and handling checks. Running chats,
+failed jobs with unresolved work, and persistent operators must remain available.
+Archive preserves history; deletion is a separate authorized action.
+
+In off mode the kit would leave pins, sidebar/project organization and archive
+choices to the human. Future native adapters must compare supported app state,
+preview changes and detect partial failures without editing raw app databases.
+This design does not assert that either client's current UI supports every
+section or grouping option. Manual/native-tool changes can be verified for an
+instance without claiming the general reconciler shipped.
