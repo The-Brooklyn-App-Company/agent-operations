@@ -18,7 +18,7 @@
 # one line per mismatch with its fix (key, kind, detail, fix); nothing when
 # all agree. Kinds: home (missing home), pointer (AGENTS.md or CLAUDE.md
 # missing or not importing AGENTS.md), settings (settings/handoff.md
-# missing), client (an operator has no session name for a client others
+# missing), config (operator.conf missing), client (an operator has no session name for a client others
 # use), name (registry, operator.conf and lease name the session
 # differently), key (operator.conf key differs from the registry key),
 # session (a registered session id with no transcript), lease (unreadable),
@@ -87,10 +87,15 @@ drift_row() {
   fi
   [ -f "$_h/settings/handoff.md" ] || drift settings "settings/handoff.md missing" "install.sh sync <client>, then apply it to each client yourself"
   _conf=$_h/operator.conf
-  if [ -f "$_conf" ]; then
+  if [ ! -f "$_conf" ]; then
+    drift config "operator.conf missing: no session names, no lease" "install.sh sync <client>"
+  else
     _k=$(ao_conf_get "$_h" key) || _k=
-    [ -z "$_k" ] || [ "$_k" = "$OP_KEY" ] ||
+    if [ -z "$_k" ]; then
+      drift key "operator.conf has no key= line" "add key=$OP_KEY to $_conf"
+    elif [ "$_k" != "$OP_KEY" ]; then
       drift key "operator.conf says key=$_k, the registry says $OP_KEY (renamed?)" "make them agree: rename the registry row or the key= line (and the inbox folder)"
+    fi
     for _c in $clients; do
       _sn=$(ao_conf_get "$_h" "session.$_c") || _sn=
       if [ -z "$_sn" ]; then

@@ -304,6 +304,11 @@ test_registry_audit_also_gates_the_holder() {
   assert_eq "$(lget audit)" -
   lease dispatch-begin --instance "$TOK" --epoch 1 --what deploy --pid $$
   assert_rc 0
+  # A completion cut down to its change number proves nothing.
+  printf 'change=1\n' >"$T/state/audit/ws.done"
+  lease dispatch-begin --instance "$TOK" --epoch 1 --what deploy --pid $$
+  assert_rc 5
+  assert_has "$T/err" "unreadable or invalid"
 }
 
 test_invalid_audit_record_fails_closed() {

@@ -100,8 +100,15 @@ EOF
 }
 
 asks_clean() {
-  [ ! -f "$ASKS" ] || ao_git_clean "$H_HOME" ASKS.md ||
-    { ao_lease_unlock; refuse "ASKS.md has uncommitted changes; commit or restore it first"; }
+  if git -C "$H_HOME" cat-file -e HEAD:./ASKS.md 2>/dev/null; then
+    if [ ! -f "$ASKS" ] || ! ao_git_clean "$H_HOME" ASKS.md; then
+      ao_lease_unlock
+      refuse "ASKS.md has uncommitted changes or was deleted; commit or restore it first"
+    fi
+  elif [ -e "$ASKS" ]; then
+    ao_lease_unlock
+    refuse "ASKS.md is untracked; commit it or move it aside first"
+  fi
 }
 
 # asks_restore  Put ASKS.md back to HEAD after a failed commit.
@@ -144,10 +151,16 @@ do_new() {
   no_audit_pending
   asks_clean
   asks_init
-  _n=$(awk -F'|' -v k="$H_KEY" '
+  # The next number after every id this operator ever used: in ASKS.md and
+  # in the Oracle's committed approvals, so an id (and its approval) is
+  # never reused.
+  _n=$({
+    awk -F'|' '{ print $2 }' "$ASKS"
+    git -C "$AO_HOME" show HEAD:./APPROVALS.tsv 2>/dev/null | awk -F'\t' '!/^#/ { print $1 }'
+  } | awk -v k="$H_KEY" '
     function t(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
-    { id = t($2); if (index(id, k "-") == 1) { n = substr(id, length(k) + 2); if (n ~ /^[0-9]+$/ && n + 0 > m) m = n + 0 } }
-    END { print m + 1 }' "$ASKS")
+    { id = t($0); if (index(id, k "-") == 1) { n = substr(id, length(k) + 2); if (n ~ /^[0-9]+$/ && n + 0 > m) m = n + 0 } }
+    END { print m + 1 }')
   _id=$H_KEY-$_n
   printf '| %s | %s | %s | %s | %s | %s | %s | %s | open |\n' "$_id" "$L_generation" "$L_epoch" \
     "$o_action" "$o_target" "$o_revision" "$o_risk" "$o_rollback" >>"$ASKS" || ao_die "$AO_E_FAIL" "cannot write $ASKS"

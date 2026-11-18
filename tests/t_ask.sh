@@ -76,6 +76,23 @@ test_full_flow_used_once() {
   assert_rc 5
 }
 
+test_a_deleted_ledger_never_reuses_an_id() {
+  setup_ask
+  approve
+  reserve
+  run ask.sh "done" ws-1 --home "$T/ops/ws" --instance "$WTOK" --epoch "$WEP" --marker "$MK"
+  assert_eq "$(status_of ws-1)" used
+  rm "$T/ops/ws/ASKS.md"
+  ask new --action merge --target org/app#42 --revision abc123 --risk low --rollback "git revert"
+  assert_rc 5
+  assert_has "$T/err" "ASKS.md has uncommitted changes or was deleted"
+  # Even with the deletion committed, the next id follows the approvals.
+  git -C "$T/ops/ws" rm -q ASKS.md && git -C "$T/ops/ws" commit -q -m "drop asks"
+  ask new --action merge --target org/app#42 --revision abc123 --risk low --rollback "git revert"
+  assert_rc 0
+  assert_has "$T/out" "ask: ws-2"
+}
+
 test_only_the_oracle_holder_approves() {
   setup_ask
   run ask.sh approve "$ID" --home "$T/home" --instance "$WTOK" --epoch "$WEP" --words yes

@@ -80,8 +80,11 @@ and makes the switch-in audit one mechanism.
 - A registry switch-in audit with a real reviewer (fakes only), and the
   weekly cross-review on real clients.
 - In the Codex sandbox, `dispatch-begin --pid` cannot read process state
-  and kit verbs that commit fail (`.git` is read-only under
-  `workspace-write`).
+  and committing fails (`.git` is read-only under `workspace-write`).
+- `install.sh sync` and `status.sh --drift` against a real two-client
+  setup (fakes only so far).
+- A forward whose run dies after publishing and before marking it sent is
+  sent again by a later run (a duplicate notification, never a lost turn).
 
 ## 0.2.0 (2026-11-17)
 

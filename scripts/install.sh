@@ -427,7 +427,10 @@ inst_sync_row() {
   inst_render "$TPL/home/settings/handoff.md" "$_rh/settings/handoff.md"
   _sname=$v_name
   _conf=$_rh/operator.conf
-  if ! inst_exists "$_conf"; then
+  if [ -L "$_conf" ] || { inst_exists "$_conf" && [ ! -f "$_conf" ]; }; then
+    ao_warn "$v_key: $_conf is a link or not a regular file; not touched. Add 'session.$v_sync=$v_name' yourself"
+    failures=$((failures + 1))
+  elif ! inst_exists "$_conf"; then
     # The Oracle home has none from install.sh oracle; the lease layer and
     # the drift check read the session names from it.
     v_client=$OP_PROVIDER
@@ -451,8 +454,12 @@ inst_sync_row() {
       inst_append "$_conf" "session.$v_sync=$v_name"
     fi
   fi
-  # An embedded home is committed with the Oracle home.
-  case $_rh/ in "$AO_HOME"/*) ;; *) inst_commit "$_rh" "Sync operator home $v_key for $v_sync (Agent Operations $kit_version)" ;; esac
+  # A home inside the Oracle home's repository is committed with it; any
+  # other home in its own repository.
+  _top=$(git -C "$_rh" rev-parse --show-toplevel 2>/dev/null) && _top=$(CDPATH='' cd -- "$_top" && pwd -P) || _top=
+  if [ -z "$_top" ] || [ "$_top" != "$oracle_top" ]; then
+    inst_commit "$_rh" "Sync operator home $v_key for $v_sync (Agent Operations $kit_version)"
+  fi
   printf '%s\t%s\t%s\t%s\n' "$v_key" "$_rh" "$_sname" "$OP_LEASE" >>"$sync_steps"
 }
 
@@ -477,6 +484,7 @@ inst_sync() {
     ao_lock install || ao_die "$AO_E_USAGE" "another install.sh is running; try again"
   fi
   inst_kit_facts
+  oracle_top=$(git -C "$AO_HOME" rev-parse --show-toplevel 2>/dev/null) && oracle_top=$(CDPATH='' cd -- "$oracle_top" && pwd -P) || oracle_top=
   sync_steps=$(ao_tmp steps)
   ao_registry_each inst_sync_row
   inst_commit "$AO_HOME" "Sync operator homes for $v_sync"

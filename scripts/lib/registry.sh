@@ -118,20 +118,23 @@ EOF
 # closed.
 ao_audit_read() {
   A_provider='' A_from='' A_to='' A_change='' A_since='' A_done=''
+  _ao_d_change='' _ao_d_since='' _ao_d_report='' _ao_d_commit='' _ao_d_at=''
   [ -n "${AO_STATE:-}" ] || return 1
   _ao_af=$(ao_audit_file "$1")
   [ -e "$_ao_af" ] || return 1
   _ao_kv_snapshot "$_ao_af" "provider from to change since" A_ || return 2
   if [ -e "$_ao_af.done" ]; then
-    _ao_kv_snapshot "$_ao_af.done" change _ao_d_ || return 2
-    # shellcheck disable=SC2154 # set by _ao_kv_snapshot
+    _ao_kv_snapshot "$_ao_af.done" "change since report commit at" _ao_d_ || return 2
     A_done=$_ao_d_change
-    ao_is_uint "$A_done" || return 2
+    ao_is_uint "$A_done" && [ -n "$_ao_d_report" ] && [ -n "$_ao_d_at" ] || return 2
+    case $_ao_d_commit in '' | *[!0-9a-f]*) return 2 ;; esac
   fi
   [ -z "$A_provider" ] || ao_is_family "$A_provider" || return 2
   [ -n "$A_change" ] || return 0
   ao_is_uint "$A_change" && ao_is_family "$A_from" && ao_is_family "$A_to" || return 2
   case $A_since in '' | *[!0-9TZ:-]*) return 2 ;; esac
+  # A completion of this change must name this change's time too.
+  [ "$A_done" != "$A_change" ] || [ "$_ao_d_since" = "$A_since" ] || return 2
 }
 
 # ao_audit_registry_pending KEY  True while a recorded registry switch-in

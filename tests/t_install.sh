@@ -278,6 +278,14 @@ test_sync_leaves_a_dirty_operator_conf_alone() {
   assert_has "$w/operator.conf" "note=local edit"
   assert_eq "$(tail -n 1 "$w/operator.conf")" "session.codex=Web"
   git -C "$w" diff --quiet HEAD || _fail "uncommitted after sync"
+  # A linked operator.conf is never written through.
+  run install.sh operator api --name Api
+  mv "$T/ops/api/operator.conf" "$T/api.conf"
+  ln -s "$T/api.conf" "$T/ops/api/operator.conf"
+  run install.sh sync codex
+  assert_rc 1
+  assert_has "$T/err" "operator.conf is a link or not a regular file; not touched"
+  assert_lacks "$T/api.conf" "session.codex"
   # The Oracle home gets an operator.conf with both session names.
   assert_has "$T/ops/oracle/operator.conf" "key=oracle"
   assert_has "$T/ops/oracle/operator.conf" "session.claude=Oracle"

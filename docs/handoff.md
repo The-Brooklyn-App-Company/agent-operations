@@ -331,6 +331,9 @@ prefix_rule(pattern=["scripts/lease.sh", ["unlock", "settle"]], decision="forbid
   (the lease is left unchanged).
 - One machine per operator; multi-machine leases, automatic failover and
   crash-safe resume are later work.
+- `mail.sh forward` prefers a duplicate to a lost turn: a run that dies
+  after publishing but before marking the text sent lets a later run send
+  it again.
 - For a home without `.operator/`, writing the headless report and
   `audit-done` are not serialized: a report written in the same moment as
   `audit-done` records another report is left for the next weekly review.
