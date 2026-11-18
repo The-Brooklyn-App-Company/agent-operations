@@ -151,10 +151,14 @@ do_forward() {
   mkdir -p "$H_OP/forwarded" || ao_die "$AO_E_FAIL" "cannot create $H_OP/forwarded"
   if [ -d "$_mark" ]; then
     _age=$(($(date +%s) - $(ao_mtime "$_mark")))
-    if [ "$_age" -lt 86400 ]; then
+    if [ ! -e "$_mark/sent" ] && [ "$_age" -lt 60 ]; then
+      echo "being forwarded by another run; not sent again"
+      return 0
+    elif [ -e "$_mark/sent" ] && [ "$_age" -lt 86400 ]; then
       echo "already forwarded (identical text within 24 h); not sent again"
       return 0
     fi
+    # Expired, or left by a run that died before publishing: send again.
     rm -rf "$_mark"
   fi
   # mkdir is atomic: of two concurrent forwards of one turn, one sends.
@@ -163,6 +167,7 @@ do_forward() {
     rm -rf "$_mark"
     ao_die "$AO_E_FAIL" "not forwarded: cannot publish in $H_OP/inbox"
   fi
+  : >"$_mark/sent" || ao_warn "forwarded, but could not mark $_mark as sent"
   echo "forwarded: $_id to the holder ($L_provider \`$L_session\`)"
   if [ -n "${AO_REGISTRY:-}" ]; then
     ring_key "$H_KEY" || true

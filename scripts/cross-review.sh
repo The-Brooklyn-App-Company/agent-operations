@@ -248,6 +248,23 @@ cr_still_pending() {
 # to its home (never over an existing file) and tell the operator.
 cr_switch_report() {
   _tag=$OP_AUDIT_TAG
+  # The final check and the publication hold the home's lease lock, as
+  # lease.sh audit-done does, so a report never appears after audit-done
+  # looked for one.
+  if [ -d "$OP_DIR/.operator" ]; then
+    H_OP=$OP_DIR/.operator H_KEY=$OP_KEY
+    ao_lease_lock || {
+      ao_log "$AO_STATE/cross-review.log" "FAILED key=$OP_KEY kind=switch lease lock busy or stuck"
+      return 1
+    }
+  fi
+  cr_switch_publish
+  _rc=$?
+  ao_lease_unlock
+  return "$_rc"
+}
+
+cr_switch_publish() {
   cr_still_pending "$_tag"
   case $? in
     0) ;;
@@ -390,6 +407,7 @@ main() {
   esac
   [ "$_mode" = on ] || [ -z "$dry_run" ] || exit 0
   ao_lock cross-review || { ao_msg "another cross-review is running; skipping"; exit "$AO_E_BUSY"; }
+  trap 'ao_lease_unlock; ao_cleanup' EXIT
   if [ "$_mode" = off ]; then
     ao_registry_each cr_observe_row
     exit 0

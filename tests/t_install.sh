@@ -248,7 +248,7 @@ test_drift_names_renames_pins_and_stale_ids() {
   mv "$T/reg" "$T/ops/oracle/operators/REGISTRY.tsv"
   sed -i.bak 's/^key=web$/key=webapp/' "$w/operator.conf"
   sed -i.bak '/^session.codex=/d' "$w/operator.conf"
-  sed -i.bak 's/^version: .*/version: 0.1.0/' "$T/ops/oracle/KIT.local.md"
+  sed -i.bak 's/^version: .*/version: 0.1.0/; s/^commit: .*/commit: abc1234/' "$T/ops/oracle/KIT.local.md"
   sed -i.bak 's/, version [^)]*)/, version 0.1.0)/' "$w/AGENTS.md"
   run status.sh --drift
   assert_rc 1
@@ -259,6 +259,29 @@ test_drift_names_renames_pins_and_stale_ids() {
   assert_has "$T/out" "web: session: registered session id sid-gone has no claude transcript"
   assert_has "$T/out" "web: pin: AGENTS.md cites kit version 0.1.0, this checkout is $(cat "$KIT_DIR/VERSION")"
   assert_has "$T/out" "oracle: pin: KIT.local.md pins kit 0.1.0"
+  assert_has "$T/out" "oracle: pin: KIT.local.md pins commit abc1234"
+}
+
+test_sync_leaves_a_dirty_operator_conf_alone() {
+  oracle_home
+  run install.sh operator web --name Web
+  w=$T/ops/web
+  printf 'note=local edit' >>"$w/operator.conf"
+  run install.sh sync codex
+  assert_rc 1
+  assert_has "$T/err" "operator.conf has uncommitted changes or is untracked; not touched"
+  assert_lacks "$w/operator.conf" "session.codex"
+  # Committed, without a final newline: the new line is not glued on.
+  git -C "$w" commit -q -am "local edit"
+  run install.sh sync codex
+  assert_rc 0
+  assert_has "$w/operator.conf" "note=local edit"
+  assert_eq "$(tail -n 1 "$w/operator.conf")" "session.codex=Web"
+  git -C "$w" diff --quiet HEAD || _fail "uncommitted after sync"
+  # The Oracle home gets an operator.conf with both session names.
+  assert_has "$T/ops/oracle/operator.conf" "key=oracle"
+  assert_has "$T/ops/oracle/operator.conf" "session.claude=Oracle"
+  assert_has "$T/ops/oracle/operator.conf" "session.codex=Oracle"
 }
 
 test_skills_are_linked_never_replaced() {

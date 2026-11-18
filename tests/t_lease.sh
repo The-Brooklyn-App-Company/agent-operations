@@ -321,6 +321,14 @@ test_invalid_audit_record_fails_closed() {
   assert_rc 5
   run status.sh --tsv
   assert_eq "$(awk -F'\t' '$1 == "ws" { print $7 }' "$T/out")" invalid
+  # An empty or truncated record is invalid too, never "no audit".
+  : >"$T/state/audit/ws"
+  lease dispatch-begin --instance "$TOK" --epoch 1 --what deploy --pid $$
+  assert_rc 5
+  printf 'provider=claude\n' >"$T/state/audit/ws"
+  lease dispatch-begin --instance "$TOK" --epoch 1 --what deploy --pid $$
+  assert_rc 5
+  assert_has "$T/err" "unreadable or invalid"
 }
 
 test_first_lease_on_the_other_family_is_a_switch() {
@@ -333,13 +341,33 @@ test_first_lease_on_the_other_family_is_a_switch() {
   assert_eq "$(lget prev_provider)" claude
 }
 
+test_first_lease_reads_a_020_client_marker() {
+  lsetup
+  mkdir -p "$T/state/cross-review"
+  echo claude >"$T/state/cross-review/ws.client"
+  acq codex ops-ws
+  assert_eq "$(lget audit)" pending
+  assert_eq "$(lget prev_provider)" claude
+}
+
+test_takeover_refuses_a_deleted_asks_file() {
+  lsetup
+  acq claude Workshop
+  printf '# asks\n' >"$T/ops/ws/ASKS.md"
+  git -C "$T/ops/ws" add ASKS.md && git -C "$T/ops/ws" commit -q -m asks
+  rm "$T/ops/ws/ASKS.md"
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_eq "$rc" 5 "rc"
+  assert_has "$T/out" "ASKS.md has uncommitted changes (or was deleted)"
+}
+
 test_takeover_refuses_uncommitted_note_files() {
   lsetup
   acq claude Workshop
   printf 'draft\n' >"$T/ops/ws/HANDOFF.md"
   with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
   assert_eq "$rc" 5 "rc"
-  assert_has "$T/out" "HANDOFF.md is untracked or has uncommitted changes"
+  assert_has "$T/out" "HANDOFF.md is untracked"
   assert_eq "$(cat "$T/ops/ws/HANDOFF.md")" draft
   assert_eq "$(lget epoch)" 1
 }

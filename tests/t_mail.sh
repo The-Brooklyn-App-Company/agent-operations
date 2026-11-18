@@ -149,6 +149,21 @@ test_ring_all_rate_limited_and_codex_falls_back() {
   assert_lacks "$FAKE_LOG" "== codex"
 }
 
+test_forward_after_a_crash_before_publishing_is_sent() {
+  msetup
+  acq claude Workshop
+  printf 'please look\n' >"$T/body"
+  sum=$( (sha256sum 2>/dev/null || shasum -a 256) <"$T/body" | cut -d' ' -f1)
+  # A run died after reserving the text and before publishing it.
+  mkdir -p "$T/ops/ws/.operator/forwarded/$sum"
+  touch -t "$(date -r $(($(date +%s) - 120)) +%Y%m%d%H%M.%S 2>/dev/null || date -d @$(($(date +%s) - 120)) +%Y%m%d%H%M.%S)" "$T/ops/ws/.operator/forwarded/$sum"
+  srun mail.sh forward --via codex --home "$T/ops/ws" <"$T/body"
+  assert_rc 0
+  assert_has "$T/out" "forwarded:"
+  srun mail.sh forward --via codex --home "$T/ops/ws" <"$T/body"
+  assert_has "$T/out" "already forwarded"
+}
+
 test_ring_skips_operators_without_a_holder() {
   msetup
   printf 'one\n' >"$T/body"; srun mail.sh send ws --kind notice --from oracle/claude <"$T/body"

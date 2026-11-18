@@ -388,11 +388,12 @@ headless_reports() {
   done | LC_ALL=C sort -u
 }
 
-# triaged  True when the report on stdin has a non-empty Triage section
-# other than the placeholder cross-review.sh writes.
+# triaged  True when the last Triage section of the report on stdin (the
+# one cross-review.sh writes for the session) is non-empty and not the
+# placeholder.
 triaged() {
   awk '
-    /^## Triage[[:space:]]*$/ { in_t = 1; next }
+    /^## Triage[[:space:]]*$/ { in_t = 1; ok = 0; next }
     /^## / { in_t = 0 }
     in_t && NF && $0 != "(the incoming session fills this in)" { ok = 1 }
     END { exit !ok }'
@@ -516,9 +517,14 @@ do_acquire() {
     L_prev_epoch=0 L_prev_note=none L_prev_provider=- L_audit=- L_audit_note=-
     # A first lease on the other family than the one cross-review.sh last
     # saw is a switch too (needs the profile's state dir).
-    if ao_audit_read "$H_KEY" && ao_is_family "$A_provider" && ao_is_family "$o_provider" &&
-      [ "$A_provider" != "$o_provider" ]; then
-      L_audit=pending L_prev_provider=$A_provider
+    _base=
+    ao_audit_read "$H_KEY"
+    case $? in
+      0) _base=$A_provider ;;
+      1) _base=$(ao_audit_legacy "$H_KEY") ;;
+    esac
+    if ao_is_family "$_base" && ao_is_family "$o_provider" && [ "$_base" != "$o_provider" ]; then
+      L_audit=pending L_prev_provider=$_base
     fi
   fi
   if [ -n "$_replay" ]; then
@@ -755,9 +761,12 @@ takeover_ok() {
   # takeover rewrites these and restores them from HEAD if its commit
   # fails: uncommitted work in them would be lost.
   for _f in HANDOFF.md ASKS.md; do
-    [ -e "$H_HOME/$_f" ] || continue
-    if ! git -C "$H_HOME" cat-file -e "HEAD:./$_f" 2>/dev/null || ! ao_git_clean "$H_HOME" "$_f"; then
-      refuse "$_f is untracked or has uncommitted changes: commit it or move it aside first (takeover rewrites it)"
+    if git -C "$H_HOME" cat-file -e "HEAD:./$_f" 2>/dev/null; then
+      if [ ! -e "$H_HOME/$_f" ] || ! ao_git_clean "$H_HOME" "$_f"; then
+        refuse "$_f has uncommitted changes (or was deleted): commit them first (takeover rewrites it)"
+      fi
+    elif [ -e "$H_HOME/$_f" ]; then
+      refuse "$_f is untracked: commit it or move it aside first (takeover rewrites it)"
     fi
   done
 }

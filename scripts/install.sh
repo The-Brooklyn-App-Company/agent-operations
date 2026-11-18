@@ -420,24 +420,50 @@ inst_sync_row() {
   inst_dir "$_rh/settings"
   inst_render "$_agents" "$_rh/AGENTS.md"
   inst_render "$TPL/home/CLAUDE.md" "$_rh/CLAUDE.md"
-  if [ -f "$_rh/CLAUDE.md" ] && ! grep -qx '@AGENTS.md' "$_rh/CLAUDE.md"; then
+  if [ -f "$_rh/CLAUDE.md" ] && ! grep -qxF '@AGENTS.md' "$_rh/CLAUDE.md"; then
     ao_warn "$v_key: $_rh/CLAUDE.md does not import @AGENTS.md; add that line yourself"
   fi
   inst_render "$TPL/home/settings/README.md" "$_rh/settings/README.md"
   inst_render "$TPL/home/settings/handoff.md" "$_rh/settings/handoff.md"
   _sname=$v_name
-  if [ -f "$_rh/operator.conf" ]; then
+  _conf=$_rh/operator.conf
+  if ! inst_exists "$_conf"; then
+    # The Oracle home has none from install.sh oracle; the lease layer and
+    # the drift check read the session names from it.
+    v_client=$OP_PROVIDER
+    ao_is_family "$v_client" || v_client=$v_sync
+    inst_render "$TPL/home/operator.conf" "$_conf"
+    v_client=$v_sync
+    [ "$OP_PROVIDER" = "$v_sync" ] || ! ao_is_family "$OP_PROVIDER" || inst_append "$_conf" "session.$v_sync=$v_name"
+  else
     _have=$(ao_conf_get "$_rh" "session.$v_sync") || _have=
     if [ -n "$_have" ]; then
       _sname=$_have
-      printf 'keep    %s (session.%s=%s)\n' "$_rh/operator.conf" "$v_sync" "$_have"
+      printf 'keep    %s (session.%s=%s)\n' "$_conf" "$v_sync" "$_have"
+    elif ! inst_conf_clean "$_rh"; then
+      ao_warn "$v_key: $_conf has uncommitted changes or is untracked; not touched. Add 'session.$v_sync=$v_name' yourself"
+      failures=$((failures + 1))
     else
-      inst_append "$_rh/operator.conf" "session.$v_sync=$v_name"
+      # Never glue the new line onto a last line without a newline.
+      if [ -z "$dry_run" ] && [ -s "$_conf" ] && [ -n "$(tail -c 1 "$_conf")" ]; then
+        printf '\n' >>"$_conf"
+      fi
+      inst_append "$_conf" "session.$v_sync=$v_name"
     fi
   fi
   # An embedded home is committed with the Oracle home.
   case $_rh/ in "$AO_HOME"/*) ;; *) inst_commit "$_rh" "Sync operator home $v_key for $v_sync (Agent Operations $kit_version)" ;; esac
   printf '%s\t%s\t%s\t%s\n' "$v_key" "$_rh" "$_sname" "$OP_LEASE" >>"$sync_steps"
+}
+
+# inst_conf_clean HOME  True when HOME/operator.conf has no uncommitted
+# change (or HOME is not in a git repository): appending to it then commits
+# only the new line.
+inst_conf_clean() {
+  git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  GIT_LITERAL_PATHSPECS=1 git -C "$1" ls-files --error-unmatch -- operator.conf >/dev/null 2>&1 &&
+    GIT_LITERAL_PATHSPECS=1 git -C "$1" diff --quiet HEAD -- operator.conf &&
+    GIT_LITERAL_PATHSPECS=1 git -C "$1" diff --cached --quiet HEAD -- operator.conf
 }
 
 inst_sync() {

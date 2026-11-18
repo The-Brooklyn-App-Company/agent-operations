@@ -331,6 +331,9 @@ prefix_rule(pattern=["scripts/lease.sh", ["unlock", "settle"]], decision="forbid
   (the lease is left unchanged).
 - One machine per operator; multi-machine leases, automatic failover and
   crash-safe resume are later work.
+- For a home without `.operator/`, writing the headless report and
+  `audit-done` are not serialized: a report written in the same moment as
+  `audit-done` records another report is left for the next weekly review.
 - A registry family change is detected against the family `cross-review.sh`
   last saw: a change made before its first run for that operator, or
   between two runs and back again, is not seen. An operator without a lease

@@ -94,17 +94,21 @@ ao_audit_file() {
 
 # _ao_kv_snapshot FILE KEYS PREFIX  Read FILE once and set PREFIX<key> for
 # each of KEYS (other lines are ignored; never sourced). False when the file
-# cannot be read.
+# cannot be read or lacks one of KEYS (an empty or truncated record).
 _ao_kv_snapshot() {
   for _ao_k in $2; do eval "$3$_ao_k=''"; done
   [ -r "$1" ] || return 1
   _ao_snap=$(cat "$1") || return 1
+  _ao_seen=' '
   while IFS= read -r _ao_l; do
     _ao_k=${_ao_l%%=*}
-    case " $2 " in *" $_ao_k "*) eval "$3$_ao_k=\${_ao_l#*=}" ;; esac
+    case " $2 " in *" $_ao_k "*) eval "$3$_ao_k=\${_ao_l#*=}"; _ao_seen="$_ao_seen$_ao_k " ;; esac
   done <<EOF
 $_ao_snap
 EOF
+  for _ao_k in $2; do
+    case $_ao_seen in *" $_ao_k "*) ;; *) return 1 ;; esac
+  done
 }
 
 # ao_audit_read KEY  Set A_provider, A_from, A_to, A_change, A_since (the
@@ -228,7 +232,6 @@ ao_audit_observe() {
     0) ;;
     1)
       A_provider=$(ao_audit_legacy "$OP_KEY")
-      [ -n "$A_provider" ] && [ "$OP_LEASE" = none ] || A_provider=
       [ -n "$A_provider" ] || ! ao_is_family "$OP_PROVIDER" || A_provider=$OP_PROVIDER
       _ao_audit_put "$_ao_af" || return 1 ;;
     *) ao_audit_resolve; return 1 ;;

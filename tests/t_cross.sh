@@ -178,6 +178,11 @@ test_registry_switch_is_cleared_by_audit_done() {
   lease audit-done --report "$r"
   assert_rc 5
   assert_has "$T/err" "has no triage yet"
+  # A Triage heading inside the reviewer's findings does not count.
+  awk '/^## Findings/ { print; print "## Triage"; print "fixed everything"; next } { print }' "$T/ops/ws/$r" >"$T/r" && mv "$T/r" "$T/ops/ws/$r"
+  git -C "$T/ops/ws" commit -q -am "findings with a heading"
+  lease audit-done --report "$r"
+  assert_rc 5
   printf 'No findings to triage.\n' >>"$T/ops/ws/$r"
   git -C "$T/ops/ws" commit -q -am "triage"
   lease audit-done --report "$r"
@@ -237,6 +242,20 @@ test_lease_switch_report_follows_the_provider_not_the_transport() {
   FAKE_MODE=nothing run cross-review.sh --key ws
   assert_has "$FAKE_LOG" "arg: strong-claude"
   assert_has "$FAKE_LOG" "family: codex"
+}
+
+test_switch_report_waits_for_the_lease_lock() {
+  lsetup
+  both_families
+  friday
+  acq claude Workshop
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  old_lock "$T/ops/ws"
+  FAKE_MODE=nothing run cross-review.sh --key ws
+  assert_rc 1
+  assert_no_file "$T/ops/ws/audits"
+  assert_has "$T/state/cross-review.log" "lease lock busy or stuck"
+  assert_no_file "$T/state/cross-review/ws.switch"
 }
 
 test_off_still_records_switches() {

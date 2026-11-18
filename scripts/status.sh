@@ -82,7 +82,7 @@ drift_row() {
   [ -f "$_h/AGENTS.md" ] || drift pointer "AGENTS.md missing (Codex reads it; CLAUDE.md imports it)" "install.sh sync <client>"
   if [ ! -f "$_h/CLAUDE.md" ]; then
     drift pointer "CLAUDE.md missing (Claude Code reads it)" "install.sh sync claude"
-  elif ! grep -qx '@AGENTS.md' "$_h/CLAUDE.md"; then
+  elif ! grep -qxF '@AGENTS.md' "$_h/CLAUDE.md"; then
     drift pointer "CLAUDE.md does not import @AGENTS.md: the two clients read different instructions" "add the line @AGENTS.md to $_h/CLAUDE.md"
   fi
   [ -f "$_h/settings/handoff.md" ] || drift settings "settings/handoff.md missing" "install.sh sync <client>, then apply it to each client yourself"
@@ -129,6 +129,15 @@ drift_main() {
   _pin=$(sed -n 's/^version: *//p' "$AO_HOME/KIT.local.md" 2>/dev/null | head -n 1)
   [ -z "$_pin" ] || [ -z "$kit_version" ] || [ "$_pin" = "$kit_version" ] ||
     drift pin "KIT.local.md pins kit $_pin, this checkout is $kit_version" "read CHANGELOG.md, then update version: and commit: in $AO_HOME/KIT.local.md (or check out the pinned kit)"
+  _pc=$(sed -n 's/^commit: *//p' "$AO_HOME/KIT.local.md" 2>/dev/null | head -n 1)
+  _kit=$AO_SCRIPTS/..
+  case $_pc in '' | unknown | *[!0-9a-f]*) ;; *)
+    if _head=$(git -C "$_kit" rev-parse -q --verify HEAD 2>/dev/null); then
+      _full=$(git -C "$_kit" rev-parse -q --verify "$_pc^{commit}" 2>/dev/null) || _full=
+      [ "$_full" = "$_head" ] ||
+        drift pin "KIT.local.md pins commit $_pc, this checkout is at $(printf '%s' "$_head" | cut -c1-12)" "read the kit's log since the pin, then update commit: (and version:) in $AO_HOME/KIT.local.md"
+    fi ;;
+  esac
   [ -n "$tsv" ] || [ "$drifted" -gt 0 ] || echo "no drift"
   [ "$drifted" -eq 0 ] || exit "$AO_E_FAIL"
 }
