@@ -89,6 +89,15 @@ Record every step's result (pass, fail, surprise) in the operator's notes.
   (`claude --version`, `codex --version`), so the validation table in
   docs/handoff.md can be dated.
 
+## 3. Second client and drift
+
+On your real setup, read-only first: `$K/scripts/status.sh --drift` lists
+what differs between the clients. Then `$K/scripts/install.sh --dry-run
+sync codex` (or `claude`) shows what would be added; run it without
+`--dry-run`, start and name each session as printed, apply
+`settings/handoff.md` yourself, and rerun `status.sh --drift` until it
+prints `no drift`. Expect nothing overwritten and one commit per home.
+
 ## What this does not test
 
 Doorbells reaching a live session (the Claude doorbell uses the relay's

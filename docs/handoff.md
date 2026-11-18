@@ -202,6 +202,32 @@ for every lease state and `OP_PROVIDER`, the owning family, also when the
 transport is `file-only`; `cross-review.sh` picks every reviewer from
 `OP_PROVIDER`, so the weekly direction follows a handoff at once.
 
+## Bring a second client up to date, recover from drift
+
+When the second client (say Codex beside Claude Code) joins, or after the
+two have drifted apart:
+
+1. `scripts/install.sh --dry-run sync codex`, then without `--dry-run`. For
+   every registry row it adds only what is missing: `AGENTS.md` (Codex
+   reads it), `CLAUDE.md` importing it (Claude Code), `settings/README.md`
+   and `settings/handoff.md`, and `session.codex=<name>` in
+   `operator.conf`; it commits each home and never overwrites. A missing
+   home is reported, not created.
+2. Follow the steps it prints: start a Codex session in each home and name
+   it as printed. Without a lease the registry row keeps pointing at the
+   first client; with one, the new session is the standby until a release
+   or a takeover.
+3. Apply `settings/handoff.md` to each client yourself.
+4. `scripts/status.sh --drift` compares the registry, the lease holders,
+   each home's instruction pointers and `operator.conf`, and the kit pin,
+   and prints each mismatch with its fix: a missing home or pointer, an
+   operator one client does not know, a renamed session or key, a stale
+   session id, a pin behind this kit checkout. It exits 1 while anything
+   drifts; rerun it until it prints `no drift`.
+
+Moving an operator to the other client is a separate step (registry
+`client` column, or the lease); a switch-in audit follows either way.
+
 ## Per-client validation
 
 Engineering validation of launch identity and the takeover prompt, headless

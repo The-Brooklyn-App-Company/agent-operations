@@ -344,6 +344,18 @@ test_takeover_refuses_uncommitted_note_files() {
   assert_eq "$(lget epoch)" 1
 }
 
+test_drift_compares_the_lease_holder() {
+  lsetup
+  acq codex ops-ws-new
+  run status.sh --drift
+  assert_rc 1
+  assert_has "$T/out" 'ws: name: the lease holder is codex "ops-ws-new", operator.conf session.codex="ops-ws"'
+  printf 'garbage\n' >"$T/ops/ws/.operator/lease"
+  run status.sh --drift --tsv
+  assert_rc 1
+  assert_has "$T/out" "ws${TAB}lease${TAB}"
+}
+
 test_restore_starts_new_generation() {
   lsetup
   acq claude Workshop

@@ -7,6 +7,7 @@
 #        install.sh [--dry-run] operator KEY [--embedded | --home DIR]
 #                   [--name NAME] [--client CLIENT]
 #                   [--owns URL]... [--contributes URL]...
+#        install.sh [--dry-run] sync CLIENT
 #        install.sh [--dry-run] skills --target DIR
 #        install.sh [--dry-run] timers [--launchd | --systemd]
 #
@@ -31,6 +32,15 @@
 #           worktree at
 #           <work_root>/.worktrees/KEY/<repo> on branch KEY/main. Refuses a
 #           repository another local operator already owns.
+# sync      Needs the profile. Brings every registry row up to date for
+#           CLIENT (claude or codex), typically a second client: each
+#           existing home gets what is missing of AGENTS.md (read by Codex),
+#           CLAUDE.md (`@AGENTS.md`, read by Claude Code),
+#           settings/README.md and settings/handoff.md (patterns for both
+#           clients), and a `session.CLIENT=` line in operator.conf (the
+#           registry name, unless one is there); then it prints, per
+#           operator, how to start and name the CLIENT session. A missing
+#           home is reported, never created. Check with status.sh --drift.
 # skills    Links each kit skill into DIR (a client's skills folder); an
 #           existing entry that is not this kit's link is reported, never
 #           replaced.
@@ -335,6 +345,7 @@ inst_operator() {
   inst_render "$TPL/home/MANDATE.md" "$home/MANDATE.md"
   inst_render "$TPL/home/NOTES.md" "$home/NOTES.md"
   inst_render "$TPL/home/settings/README.md" "$home/settings/README.md"
+  inst_render "$TPL/home/settings/handoff.md" "$home/settings/handoff.md"
   [ -n "$embedded" ] || inst_render "$TPL/home/gitignore.template" "$home/.gitignore"
   conf=$home/operator.conf
   if inst_exists "$conf"; then
@@ -390,6 +401,71 @@ Next, by hand:
   2. Write its mandate in $home/MANDATE.md from your own words.
   3. Apply $home/settings/README.md to the client yourself.
   4. Check: $AO_SCRIPTS/check.sh home $home
+EOF
+}
+
+# ---------------------------------------------------------------- sync
+
+# inst_sync_row  Registry callback: bring one home up to date for $v_sync.
+inst_sync_row() {
+  v_key=$OP_KEY v_name=$OP_NAME v_client=$v_sync v_team=none
+  _rh=$OP_DIR
+  if [ ! -d "$_rh" ]; then
+    ao_warn "$v_key: home $_rh not found; create it (install.sh operator $v_key --home $_rh) or remove the row"
+    failures=$((failures + 1))
+    return 0
+  fi
+  _agents=$TPL/home/AGENTS.md
+  [ "$v_key" != "$AO_ORACLE_KEY" ] || _agents=$TPL/oracle/AGENTS.md
+  inst_dir "$_rh/settings"
+  inst_render "$_agents" "$_rh/AGENTS.md"
+  inst_render "$TPL/home/CLAUDE.md" "$_rh/CLAUDE.md"
+  if [ -f "$_rh/CLAUDE.md" ] && ! grep -qx '@AGENTS.md' "$_rh/CLAUDE.md"; then
+    ao_warn "$v_key: $_rh/CLAUDE.md does not import @AGENTS.md; add that line yourself"
+  fi
+  inst_render "$TPL/home/settings/README.md" "$_rh/settings/README.md"
+  inst_render "$TPL/home/settings/handoff.md" "$_rh/settings/handoff.md"
+  _sname=$v_name
+  if [ -f "$_rh/operator.conf" ]; then
+    _have=$(ao_conf_get "$_rh" "session.$v_sync") || _have=
+    if [ -n "$_have" ]; then
+      _sname=$_have
+      printf 'keep    %s (session.%s=%s)\n' "$_rh/operator.conf" "$v_sync" "$_have"
+    else
+      inst_append "$_rh/operator.conf" "session.$v_sync=$v_name"
+    fi
+  fi
+  # An embedded home is committed with the Oracle home.
+  case $_rh/ in "$AO_HOME"/*) ;; *) inst_commit "$_rh" "Sync operator home $v_key for $v_sync (Agent Operations $kit_version)" ;; esac
+  printf '%s\t%s\t%s\t%s\n' "$v_key" "$_rh" "$_sname" "$OP_LEASE" >>"$sync_steps"
+}
+
+inst_sync() {
+  [ $# -eq 1 ] || ao_die "$AO_E_USAGE" "usage: install.sh sync claude|codex"
+  case $1 in claude | codex) v_sync=$1 ;; *) ao_die "$AO_E_USAGE" "sync needs a client: claude or codex" ;; esac
+  ao_load --no-state
+  # shellcheck disable=SC1091 # followed from the scripts and checked itself
+  . "$AO_SCRIPTS/lib/registry.sh"
+  if [ -z "$dry_run" ]; then
+    mkdir -p "$AO_STATE" || ao_die "$AO_E_FAIL" "cannot create $AO_STATE"
+    ao_lock install || ao_die "$AO_E_USAGE" "another install.sh is running; try again"
+  fi
+  inst_kit_facts
+  sync_steps=$(ao_tmp steps)
+  ao_registry_each inst_sync_row
+  inst_commit "$AO_HOME" "Sync operator homes for $v_sync"
+  printf '\nNext, by hand, for each operator on %s:\n' "$v_sync"
+  while IFS="$AO_TAB" read -r _k _h _n _l; do
+    printf '  %s: start a %s session in %s and name it "%s".\n' "$_k" "$v_sync" "$_h" "$_n"
+    if [ "$_l" = none ]; then
+      printf '      It is the second session: the registry row stays as it is until you move %s\n      to %s (change the client column; a switch-in audit follows).\n' "$_k" "$v_sync"
+    else
+      printf '      %s has a lease: the new session is the standby until a release or takeover\n      (lease.sh --home %s status).\n' "$_k" "$_h"
+    fi
+  done <"$sync_steps"
+  cat <<EOF
+  Then apply settings/handoff.md in each home to $v_sync yourself, and check:
+  $AO_SCRIPTS/status.sh --drift
 EOF
 }
 
@@ -479,6 +555,7 @@ main() {
   case $cmd in
     oracle) inst_kit_facts; inst_oracle "$@" ;;
     operator) inst_operator "$@" ;;
+    sync) inst_sync "$@" ;;
     skills) inst_skills "$@" ;;
     timers) inst_timers "$@" ;;
     -h | --help) ao_usage; exit 0 ;;

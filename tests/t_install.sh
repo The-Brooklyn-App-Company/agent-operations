@@ -194,6 +194,73 @@ test_commits_only_what_it_created() {
   assert_eq "$(git -C "$T/ops/oracle" diff --cached --name-only)" "private.txt" "still staged"
 }
 
+test_sync_brings_a_second_client_up_to_date() {
+  oracle_home
+  run install.sh operator web --name Web
+  assert_rc 0
+  w=$T/ops/web
+  rm "$w/CLAUDE.md" "$w/settings/handoff.md"
+  git -C "$w" commit -q -am "lose pointers"
+  printf 'x\tX\t%s\tpending\tclaude\n' "$T/ops/gone" >>"$T/ops/oracle/operators/REGISTRY.tsv"
+  run status.sh --drift
+  assert_rc 1
+  assert_has "$T/out" "web: pointer: CLAUDE.md missing"
+  assert_has "$T/out" "web: settings: settings/handoff.md missing"
+  assert_has "$T/out" "x: home: home $T/ops/gone not found"
+  run install.sh --dry-run sync codex
+  assert_rc 1
+  assert_has "$T/out" "would create  $w/CLAUDE.md"
+  assert_has "$T/out" "would append  $w/operator.conf: session.codex=Web"
+  assert_no_file "$w/CLAUDE.md"
+  run install.sh sync codex
+  assert_rc 1
+  assert_has "$T/err" "x: home $T/ops/gone not found"
+  assert_eq "$(cat "$w/CLAUDE.md")" "@AGENTS.md"
+  assert_has "$w/settings/handoff.md" "lease.sh*takeover*"
+  assert_has "$w/settings/handoff.md" "$KIT_DIR/scripts/lease.sh"
+  assert_has "$w/operator.conf" "session.codex=Web"
+  assert_has "$T/out" 'web: start a codex session in '"$w"' and name it "Web".'
+  assert_has "$T/out" "status.sh --drift"
+  git -C "$w" diff --quiet HEAD || _fail "sync left the home uncommitted"
+  assert_file "$T/ops/oracle/settings/handoff.md"
+  # A second run changes nothing.
+  run install.sh sync codex
+  assert_has "$T/out" "keep    $w/operator.conf (session.codex=Web)"
+  # Drift: only the missing home is left.
+  run status.sh --drift --tsv
+  assert_rc 1
+  assert_eq "$(cut -f 1,2 "$T/out" | tr '\t\n' ': ')" "x:home "
+}
+
+test_drift_names_renames_pins_and_stale_ids() {
+  oracle_home
+  run install.sh operator web --name Web
+  run install.sh operator api --name Api
+  run install.sh sync codex
+  w=$T/ops/web
+  run status.sh --drift
+  assert_rc 0
+  assert_has "$T/out" "clients in use: claude codex"
+  assert_has "$T/out" "no drift"
+  # A renamed session, a renamed key, a stale id, a pin behind, a client
+  # the operator lacks.
+  sed "s/^web${TAB}Web${TAB}\(.*\)${TAB}pending/web${TAB}Web Ops${TAB}\1${TAB}sid-gone/" "$T/ops/oracle/operators/REGISTRY.tsv" >"$T/reg"
+  mv "$T/reg" "$T/ops/oracle/operators/REGISTRY.tsv"
+  sed -i.bak 's/^key=web$/key=webapp/' "$w/operator.conf"
+  sed -i.bak '/^session.codex=/d' "$w/operator.conf"
+  sed -i.bak 's/^version: .*/version: 0.1.0/' "$T/ops/oracle/KIT.local.md"
+  sed -i.bak 's/, version [^)]*)/, version 0.1.0)/' "$w/AGENTS.md"
+  run status.sh --drift
+  assert_rc 1
+  assert_has "$T/out" 'web: name: registry names the claude session "Web Ops", operator.conf session.claude="Web"'
+  assert_has "$T/out" "web: key: operator.conf says key=webapp"
+  assert_has "$T/out" "web: client: no session name for codex"
+  assert_has "$T/out" "fix: install.sh sync codex"
+  assert_has "$T/out" "web: session: registered session id sid-gone has no claude transcript"
+  assert_has "$T/out" "web: pin: AGENTS.md cites kit version 0.1.0, this checkout is $(cat "$KIT_DIR/VERSION")"
+  assert_has "$T/out" "oracle: pin: KIT.local.md pins kit 0.1.0"
+}
+
 test_skills_are_linked_never_replaced() {
   fresh
   mkdir -p "$T/skills/review-handoff"

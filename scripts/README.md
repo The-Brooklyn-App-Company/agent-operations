@@ -9,13 +9,13 @@ and exit codes.
 
 | Script | Job |
 | --- | --- |
-| `install.sh` | Create the Oracle home, operator homes, skill links and the tick unit; `--dry-run` lists everything first |
+| `install.sh` | Create the Oracle home, operator homes, skill links and the tick unit; `sync <client>` brings every home up to date for a second client; `--dry-run` lists everything first |
 | `tick.sh` | Scheduled heartbeat: stall watchdog, period hooks, then the relay |
 | `relay.sh` | Move new inbox notes to the archive and tell the session, with a pointer, never the note text |
 | `worker-run.sh` | One cheap read-only worker job; result to an inbox unless `NOTHING` |
 | `review-run.sh` | One independent review pass by a reviewer role |
 | `cross-review.sh` | Weekly review of every operator by the other model family (from `OP_PROVIDER`), and the switch-in audit report after a move to the other family ([K-22](../kit/KIT.md), [handoff](../docs/handoff.md#switch-in-audit)) |
-| `status.sh` | One line per operator: activity, quiet list, inbox depth, switch-in audit; profile warnings |
+| `status.sh` | One line per operator: activity, quiet list, inbox depth, switch-in audit; profile warnings; `--drift` reports mismatches between the clients with their fixes |
 | `inbox-put.sh` | Atomic note into an inbox, for hooks and adapters |
 | `check.sh` | Links, duplicate rule text, skill shape, home layout, privacy scan |
 | `drift-check.sh` | Weekly audit: `check.sh dupes` plus a worker pass with `drift-prompt.md` |

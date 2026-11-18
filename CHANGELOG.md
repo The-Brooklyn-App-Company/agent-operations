@@ -46,6 +46,12 @@ and makes the switch-in audit one mechanism.
 - `doorbell-codex.sh` is always unavailable (exit 2; the chat slot is the
   fallback): 0.2.0 has no Codex delivery transport. `doorbell_codex` is
   reserved; `off` is the only value.
+- `install.sh sync <client>` brings every registry row up to date for a
+  second client (instruction pointers, settings patterns including the new
+  `settings/handoff.md`, a `session.<client>` name) and prints the per-
+  operator steps; `status.sh --drift` reports mismatches across clients
+  (registry, lease holders, pointers, `operator.conf`, kit pin) with a fix
+  each, exit 1 while anything drifts (K-14, K-15).
 - Codex runs pass `--disable plugins --disable apps`: a plugin's tool
   servers cannot be switched off by name, and the attempt made every Codex
   run fail at configuration load on machines with such plugins (K-27).

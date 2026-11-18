@@ -101,6 +101,7 @@ Highest stage reached for each piece, with the client, version and date.
 | `worker-run.sh` and `review-run.sh` on Claude | Fakes only | |
 | `cross-review.sh` | Switch-in report by a real Codex reviewer, sandboxed; weekly review: fakes only | codex-cli 0.169.0-alpha.11, 2026-11-17 |
 | `install.sh` | Sandbox: fresh empty home, oracle + operator + check + status + timers render | 2026-11-17; not yet a separate clean machine |
+| `install.sh sync`, `status.sh --drift` | Fakes only (test suite); not yet run against a real two-client setup | |
 | launchd unit | Rendered by `install.sh`; loading it is your step | |
 | systemd units, Linux hosts | **Untested** | |
 | Codex relay delivery | **Not supported** in 0.2.0: Codex sessions read their inbox | |
