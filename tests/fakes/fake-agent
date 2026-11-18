@@ -25,7 +25,13 @@
 name=${0##*/}
 # `codex mcp list --json`: the configured tool servers ($FAKE_MCP, JSON; the
 # word `fail` makes the listing fail). Not logged: it is plumbing.
-if [ "$name" = codex ] && [ "${1-}" = mcp ]; then
+# Leading `--disable FEATURE` / `--enable FEATURE` switches are skipped.
+_skip='' _sub=''
+for _x in "$@"; do
+  if [ -n "$_skip" ]; then _skip=''; continue; fi
+  case $_x in --disable | --enable) _skip=1 ;; *) _sub=$_x; break ;; esac
+done
+if [ "$name" = codex ] && [ "$_sub" = mcp ]; then
   case ${FAKE_MCP:-} in
     fail) echo "fake: cannot read config" >&2; exit 1 ;;
     '') echo '[{"name":"trade","enabled":true},{"name":"ui","enabled":false}]' ;;

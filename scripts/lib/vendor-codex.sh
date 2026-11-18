@@ -4,14 +4,21 @@
 # vendor-codex.sh - Codex CLI behind the vendor interface (see vendor.sh).
 #
 # run:      `codex exec --ephemeral -s read-only`, final message via -o. The
-#           read-only sandbox does not cover tool (MCP) servers, so every
-#           server the Codex configuration lists (`codex mcp list --json`)
-#           is switched off, plus any named in <role>_mcp_disable. If the
-#           list cannot be read (no jq, an error, an unexpected name) the run
-#           fails closed. Verified with codex-cli 0.169 on 2026-11-17.
+#           read-only sandbox does not cover tool (MCP) servers, plugins or
+#           apps, so plugins and apps are switched off (`--disable plugins
+#           --disable apps`; a plugin's own servers cannot be switched off by
+#           name), and every server the remaining configuration lists
+#           (`codex mcp list --json`) is switched off, plus any named in
+#           <role>_mcp_disable. If the list cannot be read (no jq, an error,
+#           an unexpected name) the run fails closed. Verified with
+#           codex-cli 0.169 on 2026-11-17; the plugin and app switches with
+#           0.169.0-alpha.11.
 # deliver:  none in 0.2.0. Registry rows on codex read their inbox at turn
 #           start; the relay leaves their notes in place.
 # activity: newest $CODEX_HOME/sessions/**/*<session>*.jsonl.
+
+# Global switches for every Codex run: no plugins, no apps (connectors).
+_VX_OFF='--disable plugins --disable apps'
 
 # _vendor_codex_mcp_args WORKDIR  Print `-c mcp_servers.<name>.enabled=false` words
 # for every configured server and every server in <role>_mcp_disable, or
@@ -20,7 +27,8 @@ _vendor_codex_mcp_args() {
   command -v jq >/dev/null 2>&1 || { echo "jq is required to list Codex tool servers" >&2; return 1; }
   # Listed from the run's own directory, so project configuration counts.
   AO_RUN_DIR=$1
-  _vx_list=$(ao_timeout 60 "$R_CMD" mcp list --json 2>/dev/null)
+  # shellcheck disable=SC2086 # fixed words
+  _vx_list=$(ao_timeout 60 "$R_CMD" $_VX_OFF mcp list --json 2>/dev/null)
   _vx_rc=$?
   AO_RUN_DIR=
   [ "$_vx_rc" -eq 0 ] || {
@@ -48,7 +56,8 @@ _vendor_codex_mcp_args() {
 vendor_codex_run() {
   _vx_dir=$1 _vx_out=$3 _vx_err=$4 _vx_prompt=$2
   _vx_off=$(_vendor_codex_mcp_args "$_vx_dir" 2>"$_vx_err") || return "$AO_E_USAGE"
-  set -- "$R_CMD" exec --ephemeral --skip-git-repo-check -s read-only -C "$_vx_dir" -o "$_vx_out"
+  # shellcheck disable=SC2086 # fixed words
+  set -- "$R_CMD" $_VX_OFF exec --ephemeral --skip-git-repo-check -s read-only -C "$_vx_dir" -o "$_vx_out"
   [ -z "$R_MODEL" ] || set -- "$@" -m "$R_MODEL"
   [ -z "$R_EFFORT" ] || set -- "$@" -c "model_reasoning_effort=\"$R_EFFORT\""
   # Names are validated to [A-Za-z0-9_-] above, so splitting is safe.
