@@ -1,4 +1,4 @@
-# Continuity across clients: lease, mailboxes, approvals, takeover
+# Handoff across clients: lease, mailboxes, approvals, takeover
 
 > **EXPERIMENTAL.** This layer is shipped to be hardened by live use on one
 > low-risk operator. It gives routing, a redirect from the wrong side and a
@@ -47,6 +47,9 @@ replaced atomically under `mkdir .operator/lease.lock`.
 | `audit`, `audit_note` | Switch-in audit state (`pending`, `done`) and its report commit |
 | `client_pid`, `client_start` | The holder's client process where the client exposes one (Claude Code); liveness evidence only |
 
+A process counts as running while it exists and is not a zombie; a stopped
+(paused) process counts as running.
+
 **Every turn starts with `lease.sh renew --instance T --epoch N`.** Exit 5
 means "you are the standby". Holder verbs always present the token and the
 epoch; a display-name match never counts.
@@ -54,6 +57,8 @@ epoch; a display-name match never counts.
 **Locks.** No script breaks a lock. A lock older than 10 s makes every verb
 fail closed (exit 3) and tells the Oracle once; the human runs `lease.sh
 unlock --timers-off --sessions-stopped` after checking that nothing runs.
+`unlock` removes only the lock it showed: if the lock was replaced while the
+human confirmed, it refuses and leaves the new one.
 
 **Dispatch markers.** Before any effect, `dispatch-begin` validates the
 holder and creates the marker in one step under the lock; `dispatch-end`

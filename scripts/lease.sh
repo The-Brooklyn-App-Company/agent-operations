@@ -326,26 +326,33 @@ EOF
 do_audit_done() {
   need_token
   [ -n "$o_report" ] || ao_die "$AO_E_USAGE" "audit-done needs --report PATH (relative to the home, committed)"
-  case $o_report in /* | ../* | */../* | */.. | ..) refuse "--report must be a path inside the home, relative to it" ;; esac
-  _rp=$H_HOME/$o_report
-  [ ! -L "$_rp" ] || refuse "--report must be a regular file, not a link"
-  [ -f "$_rp" ] && [ -s "$_rp" ] || refuse "report not found or empty: $_rp"
-  if ! git -C "$H_HOME" ls-files --error-unmatch -- "$o_report" >/dev/null 2>&1 || ! ao_git_clean "$H_HOME" "$o_report"; then
-    refuse "commit the report first: $o_report"
-  fi
-  _sha=$(git -C "$H_HOME" log -1 --format=%H -- "$o_report")
+  # A plain relative path inside the home: no option, pathspec magic, glob,
+  # parent step or absolute path.
+  case $o_report in
+    /* | -* | :* | ../* | */../* | */.. | .. | *[!A-Za-z0-9._/-]*)
+      refuse "--report must be a plain path inside the home, relative to it ([A-Za-z0-9._/-])" ;;
+  esac
   lock
   ao_lease_load
   ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
   [ "$L_audit" = pending ] || { ao_lease_unlock; echo "no switch-in audit pending"; return 0; }
-  # Bound to this handoff: the brief's first line (key, generation, epoch,
-  # transition), committed after the handoff note.
-  [ "$(sed -n 1p "$_rp")" = "$(audit_header)" ] || {
+  # Everything is read from the committed revision, never the working tree.
+  _blob=$(git -C "$H_HOME" rev-parse -q --verify "HEAD:./$o_report" 2>/dev/null) || _blob=
+  _mode=$(git -C "$H_HOME" ls-tree HEAD -- "./$o_report" 2>/dev/null | cut -c1-6)
+  case $_mode in
+    100644 | 100755) [ -n "$_blob" ] ;;
+    *) false ;;
+  esac || {
+    ao_lease_unlock
+    refuse "commit the report first, as a regular file: $o_report"
+  }
+  [ "$(git -C "$H_HOME" cat-file blob "$_blob" | sed -n 1p)" = "$(audit_header)" ] || {
     ao_lease_unlock
     refuse "the report must start with: $(audit_header)"
   }
+  _sha=$(GIT_LITERAL_PATHSPECS=1 git -C "$H_HOME" log -1 --format=%H -- "$o_report")
   if [ "$L_prev_note" != none ]; then
-    if [ "$(git -C "$H_HOME" rev-parse "$L_prev_note" 2>/dev/null)" = "$_sha" ] ||
+    if [ -z "$_sha" ] || [ "$(git -C "$H_HOME" rev-parse "$L_prev_note" 2>/dev/null)" = "$_sha" ] ||
       ! git -C "$H_HOME" merge-base --is-ancestor "$L_prev_note" "$_sha" 2>/dev/null; then
       ao_lease_unlock
       refuse "the report must be committed after the handoff note $L_prev_note"
@@ -506,6 +513,7 @@ do_dispatch_end() {
   ao_is_name "$o_marker" || ao_die "$AO_E_USAGE" "dispatch-end needs --marker ID"
   lock
   ao_lease_load
+  ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
   _mf=$H_OP/markers/$o_marker
   [ -f "$_mf" ] || { ao_lease_unlock; refuse "no open marker $o_marker"; }
   [ "$(ao_marker_get "$_mf" instance)" = "$(ao_token_hash "$o_instance")" ] &&
@@ -531,29 +539,31 @@ do_note() {
 
 do_release() {
   need_token
+  # Under the lock from the first check to the lease write, so a stuck lock
+  # refuses before anything is committed.
+  lock
   ao_lease_load
   if [ -n "$L_PRESENT" ] && [ "$L_state" = released ] && [ "$L_prev_epoch" = "$o_epoch" ] &&
     [ "$L_instance" = "$(ao_token_hash "$o_instance")" ]; then
+    ao_lease_unlock
     echo "released: $H_KEY epoch $o_epoch (already); note $L_prev_note"
     return 0
   fi
-  need_holder
-  ! markers_present || refuse "a dispatch marker is open (an effect may be in flight): finish it, or have the human settle it, before releasing"
+  ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
+  ! markers_present || { ao_lease_unlock; refuse "a dispatch marker is open (an effect may be in flight): finish it, or have the human settle it, before releasing"; }
   _hdr=$(handoff_header)
   _he=$(printf '%s\n' "$_hdr" | sed -n 's/^epoch: *\([0-9][0-9]*\) .*/\1/p')
   _hk=$(printf '%s\n' "$_hdr" | sed -n 's/.*kind: *\([a-z]*\).*/\1/p')
-  [ "$_he" = "$L_epoch" ] && [ "$_hk" = warm ] ||
+  [ "$_he" = "$L_epoch" ] && [ "$_hk" = warm ] || {
+    ao_lease_unlock
     refuse "HANDOFF.md must start with 'epoch: $L_epoch ... kind: warm' (lease.sh note prints a template)"
+  }
   ao_git_commit "$H_HOME" "handoff: $H_KEY epoch $L_epoch (warm)" HANDOFF.md ||
     ao_die "$AO_E_FAIL" "cannot commit HANDOFF.md; lease unchanged"
   ao_git_clean "$H_HOME" HANDOFF.md || ao_die "$AO_E_FAIL" "HANDOFF.md differs from HEAD; lease unchanged"
   _sha=$(git -C "$H_HOME" log -1 --format=%h -- HANDOFF.md)
   [ -n "$_sha" ] || ao_die "$AO_E_FAIL" "HANDOFF.md has no commit; lease unchanged"
   _ao_crash release-after-commit
-  lock
-  ao_lease_load
-  ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
-  ! markers_present || { ao_lease_unlock; refuse "a dispatch marker appeared; not releasing"; }
   L_state=released L_prev_epoch=$L_epoch L_prev_note=$_sha
   ao_lease_write || ao_die "$AO_E_FAIL" "cannot write $H_LEASE"
   ao_lease_unlock
@@ -608,7 +618,7 @@ do_status() {
   echo "mail: $(mail_counts)"
   [ -z "$L_PRESENT" ] || echo "switch-in audit: $L_audit (note $L_audit_note)"
   if [ -d "$H_OP/lease.lock" ]; then echo "lock: present ($H_OP/lease.lock)"; else echo "lock: free"; fi
-  echo "takeover: terminal-only on every client (no client validated for a fresh permission prompt; docs/continuity.md)"
+  echo "takeover: terminal-only on every client (no client validated for a fresh permission prompt; docs/handoff.md)"
   if [ -n "$o_evidence" ]; then
     echo "work repos:"
     inflight | sed 's/^/  /'
@@ -709,16 +719,35 @@ do_settle() {
   echo "settled: $o_marker ($o_outcome)"
 }
 
+# lock_identity DIR  Print the lock directory's inode, recorded pid and
+# mtime: what unlock confirms is what it removes.
+lock_identity() {
+  # shellcheck disable=SC2012 # one known path; ls -di is the portable inode read
+  _li=$(ls -di "$1" 2>/dev/null | awk '{ print $1 }') || return 1
+  [ -n "$_li" ] || return 1
+  printf '%s %s %s\n' "$_li" "$(cat "$1/pid" 2>/dev/null || echo nopid)" "$(ao_mtime "$1" 2>/dev/null)"
+}
+
 do_unlock() {
   human_only
   [ -n "$o_timers_off" ] && [ -n "$o_sessions_stopped" ] ||
     refuse "unlock needs --timers-off --sessions-stopped: stop the tick and every session of this operator first"
   _lk=$H_OP/lease.lock
   [ -d "$_lk" ] || { echo "no lease lock"; return 0; }
+  _id0=$(lock_identity "$_lk") || refuse "the lock changed while reading it; look again"
   _lp=$(cat "$_lk/pid" 2>/dev/null) || _lp=
-  [ -z "$_lp" ] || ! kill -0 "$_lp" 2>/dev/null || refuse "the lock's process (pid $_lp) is still running"
+  [ -z "$_lp" ] || [ "$(ao_proc_state "$_lp")" = dead ] || refuse "the lock's process (pid $_lp) is still running"
   confirm_tty "unlock $H_KEY"
-  rm -rf "$_lk" "$_lk.reported" || ao_die "$AO_E_FAIL" "cannot remove $_lk"
+  # Set the confirmed lock aside by an atomic rename, then make sure what
+  # moved is the lock that was confirmed; a replacement goes back.
+  [ "$(lock_identity "$_lk")" = "$_id0" ] || refuse "the lock was replaced while you confirmed; nothing removed. Look again"
+  _aside=$H_OP/.unlocked.$$
+  mv "$_lk" "$_aside" 2>/dev/null || refuse "the lock was taken or removed meanwhile; nothing removed"
+  if [ "$(lock_identity "$_aside")" != "$_id0" ]; then
+    mv "$_aside" "$_lk" 2>/dev/null || ao_warn "a newer lock was set aside at $_aside; move it back to $_lk by hand"
+    refuse "the lock was replaced while you confirmed; nothing removed"
+  fi
+  rm -rf "$_aside" "$_lk.reported" || ao_die "$AO_E_FAIL" "cannot remove $_aside"
   echo "unlocked. Now check: lease.sh status (open markers are unresolved effects) and ASKS.md."
 }
 

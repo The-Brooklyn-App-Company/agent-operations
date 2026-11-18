@@ -16,7 +16,7 @@ usage, environment and exit codes.
 | `inbox-put.sh` | Atomic note into an inbox, for hooks and adapters |
 | `check.sh` | Duplicate rule text, skill shape, privacy scan |
 | `drift-check.sh` | Weekly audit: `check.sh dupes` plus a worker pass with `drift-prompt.md` |
-| `lease.sh` | **Experimental.** Advisory lease per operator: holder, standby, takeover ([continuity](../docs/continuity.md)) |
+| `lease.sh` | **Experimental.** Advisory lease per operator: holder, standby, takeover ([handoff](../docs/handoff.md)) |
 | `mail.sh` | **Experimental.** File mailboxes in each home; `ring-all` for a tick hook |
 | `doorbell-claude.sh`, `doorbell-codex.sh` | **Experimental.** "You have mail", never the mail |
 | `ask.sh` | **Experimental.** Asks and the approvals ledger, bound to the lease |
@@ -103,7 +103,7 @@ keys warn; keys starting with `x_` are free for local hooks.
 | `secrets` | `os` | Secrets slot: `os` (macOS keychain; libsecret on Linux), `none`, or an adapter path called as `<adapter> get <name>` |
 | `tracker`, `chat`, `githost`, `ci` | `none` | Integration slots, recorded for agents and adapters; the scripts do not read them yet |
 | `attribution` | `none` | AI attribution in commits: `none` or `disclose`; read by agents, not scripts |
-| `lease_stale`, `work_root`, `doorbell_codex`, `doorbell_rering_min` | `4h`, `~/src`, `off`, `60` | Experimental lease layer (see [continuity](../docs/continuity.md)) |
+| `lease_stale`, `work_root`, `doorbell_codex`, `doorbell_rering_min` | `4h`, `~/src`, `off`, `60` | Experimental lease layer (see [handoff](../docs/handoff.md)) |
 
 **Roles.** Each role is a prefix: `worker`, `reviewer`, and one relay
 transport per client, `relay_claude`, `relay_codex`, `relay_custom`. Every

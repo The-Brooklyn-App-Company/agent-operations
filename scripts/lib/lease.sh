@@ -96,13 +96,14 @@ ao_proc_state() {
     _ao_ps=$(ao_proc_start "$1")
     [ -z "$_ao_ps" ] || [ "$_ao_ps" = "$2" ] || { echo dead; return; }
   fi
-  case $(ps -o stat= -p "$1" 2>/dev/null) in *T*) echo stopped ;; *) echo live ;; esac
+  # A zombie (exited, not yet reaped) has run its course: dead.
+  case $(ps -o stat= -p "$1" 2>/dev/null) in *Z*) echo dead ;; *T*) echo stopped ;; *) echo live ;; esac
 }
 
 # ao_client_pid PROVIDER  Print "PID START" of the client process that runs
 # this command, where the client exposes it, else nothing. Claude Code sets
 # CLAUDE_PID for tool commands (observed, not documented; see
-# docs/continuity.md). Codex exposes no process id.
+# docs/handoff.md). Codex exposes no process id.
 ao_client_pid() {
   case $1 in
     claude)
@@ -380,7 +381,7 @@ ao_lease_route() {
   OP_LEASE=$L_state OP_AUDIT=$L_audit
   OP_EPOCH=$L_generation-$L_epoch
   OP_PROVIDER=$L_provider
-  _ao_regclient=$OP_CLIENT
+  _ao_regclient=$OP_CLIENT _ao_regname=$OP_NAME
   # The client is reported for every state (the outgoing provider while
   # released, the incoming one while assigned), so callers that pick a
   # reviewer from the opposite family follow a handoff at once. Only a held
@@ -388,11 +389,11 @@ ao_lease_route() {
   [ "$OP_CLIENT" = file-only ] || OP_CLIENT=$L_provider
   [ "$L_state" != released ] || return 0
   OP_NAME=$L_session
-  # The lease's session id when it has one; else the registry's, which
-  # belongs to the same client only when the registry names that client.
+  # The lease's session id when it has one; else the registry's, but only
+  # when the registry row names the same client and the same session.
   if [ "$L_session_id" != - ]; then
     OP_SID=$L_session_id
-  elif [ "$_ao_regclient" != "$L_provider" ]; then
+  elif [ "$_ao_regclient" != "$L_provider" ] || [ "$_ao_regname" != "$L_session" ]; then
     OP_SID=
   fi
 }
@@ -405,17 +406,18 @@ ao_git_commit() {
   _ao_gh=$1 _ao_gm=$2
   shift 2
   git -C "$_ao_gh" rev-parse --git-dir >/dev/null 2>&1 || { ao_msg "$_ao_gh is not in a git repository"; return 1; }
-  git -C "$_ao_gh" add -- "$@" || return 1
-  if git -C "$_ao_gh" diff --cached --quiet HEAD -- "$@" 2>/dev/null; then
+  # Paths are literal, never pathspec magic or globs.
+  GIT_LITERAL_PATHSPECS=1 git -C "$_ao_gh" add -- "$@" || return 1
+  if GIT_LITERAL_PATHSPECS=1 git -C "$_ao_gh" diff --cached --quiet HEAD -- "$@" 2>/dev/null; then
     return 0
   fi
-  git -C "$_ao_gh" commit -q -m "$_ao_gm" --only -- "$@" >/dev/null || return 1
+  GIT_LITERAL_PATHSPECS=1 git -C "$_ao_gh" commit -q -m "$_ao_gm" --only -- "$@" >/dev/null || return 1
 }
 
 # ao_git_clean HOME FILE  True when FILE has no uncommitted change.
 ao_git_clean() {
-  git -C "$1" diff --quiet HEAD -- "$2" 2>/dev/null &&
-    git -C "$1" diff --cached --quiet HEAD -- "$2" 2>/dev/null
+  GIT_LITERAL_PATHSPECS=1 git -C "$1" diff --quiet HEAD -- "$2" 2>/dev/null &&
+    GIT_LITERAL_PATHSPECS=1 git -C "$1" diff --cached --quiet HEAD -- "$2" 2>/dev/null
 }
 
 # ---------------------------------------------------------------- asks

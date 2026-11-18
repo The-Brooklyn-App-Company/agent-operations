@@ -167,7 +167,7 @@ do_approve() {
   if ! ao_is_uint "${o_id##*-}" || ! ao_is_name "$_key"; then
     ao_die "$AO_E_USAGE" "ask ids look like <key>-<n>"
   fi
-  _expiry=$(expiry_of "$o_expires_in")
+  _expiry=$(expiry_of "$o_expires_in") || exit "$AO_E_USAGE"
   # The operator's ask, as committed.
   _ophome=
   _want=$_key
@@ -241,9 +241,10 @@ do_reserve() {
   no_audit_pending
   asks_clean
   _row=$(ao_ask_row "$ASKS" "$o_id") || { ao_lease_unlock; refuse "no ask $o_id in ASKS.md"; }
-  IFS=$AO_TAB read -r _ _gen _ep _act _tgt _rev _ _ _st <<EOF
-$_row
-EOF
+  # cut keeps empty fields in place (read with IFS=tab would shift them).
+  _gen=$(printf '%s\n' "$_row" | cut -f2) _ep=$(printf '%s\n' "$_row" | cut -f3)
+  _act=$(printf '%s\n' "$_row" | cut -f4) _tgt=$(printf '%s\n' "$_row" | cut -f5)
+  _rev=$(printf '%s\n' "$_row" | cut -f6) _st=$(printf '%s\n' "$_row" | cut -f9)
   [ "$_st" = open ] || { ao_lease_unlock; refuse "ask $o_id is $_st: an approval is used once"; }
   [ "$_gen" = "$L_generation" ] && [ "$_ep" = "$L_epoch" ] || {
     ao_lease_unlock
@@ -252,9 +253,13 @@ EOF
   _apps=$(approvals_rows "$o_id")
   [ -n "$_apps" ] || { ao_lease_unlock; refuse "no committed approval row for $o_id in the Oracle's APPROVALS.tsv"; }
   [ "$(printf '%s\n' "$_apps" | wc -l | tr -d ' ')" -eq 1 ] || { ao_lease_unlock; refuse "more than one approval row for $o_id: ambiguous, ask the human"; }
-  IFS=$AO_TAB read -r _ _agen _aep _aact _atgt _arev _aexp _ <<EOF
-$_apps
-EOF
+  printf '%s\n' "$_apps" | awk -F'\t' 'NF == 8 && $2 != "" && $3 ~ /^[0-9]+$/ && $7 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/ { ok = 1 } END { exit !ok }' || {
+    ao_lease_unlock
+    refuse "the approval row for $o_id is malformed (8 tab-separated fields, a UTC expiry): ask the human"
+  }
+  _agen=$(printf '%s\n' "$_apps" | cut -f2) _aep=$(printf '%s\n' "$_apps" | cut -f3)
+  _aact=$(printf '%s\n' "$_apps" | cut -f4) _atgt=$(printf '%s\n' "$_apps" | cut -f5)
+  _arev=$(printf '%s\n' "$_apps" | cut -f6) _aexp=$(printf '%s\n' "$_apps" | cut -f7)
   [ "$_agen" = "$L_generation" ] && [ "$_aep" = "$L_epoch" ] || {
     ao_lease_unlock
     refuse "the approval for $o_id is for generation $_agen epoch $_aep, not the current lease: dead"

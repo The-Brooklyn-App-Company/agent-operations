@@ -526,4 +526,93 @@ test_failed_publish_is_not_reported_as_sent() {
   assert_lacks "$T/out" "sent:"
 }
 
+test_rejected_launch_cannot_end_a_marker() {
+  lsetup
+  sleep 60 &
+  first=$!
+  CLAUDECODE=1 CLAUDE_PID=$first acq claude Workshop
+  sleep 60 &
+  w=$!
+  CLAUDECODE=1 CLAUDE_PID=$first lease dispatch-begin --instance "$TOK" --epoch 1 --what deploy --pid "$w"
+  mk=$(sed -n 's/^marker: //p' "$T/out")
+  CLAUDECODE=1 CLAUDE_PID=$$ lease dispatch-end --instance "$TOK" --epoch 1 --marker "$mk"
+  assert_rc 5
+  assert_file "$T/ops/ws/.operator/markers/$mk"
+  kill "$first" "$w"
+}
+
+test_zombie_dispatcher_counts_as_dead() {
+  lsetup
+  acq claude Workshop
+  # The child exits but its parent never reaps it: a zombie.
+  sh -c 'sleep 2 & echo $! >"$1"; exec sleep 30' sh "$T/zpid" &
+  parent=$!
+  i=0
+  while [ ! -s "$T/zpid" ] && [ "$i" -lt 5 ]; do sleep 1; i=$((i + 1)); done
+  z=$(cat "$T/zpid")
+  lease dispatch-begin --instance "$TOK" --epoch "$EP" --what publish --pid "$z"
+  assert_rc 0
+  mk=$(sed -n 's/^marker: //p' "$T/out")
+  sleep 3
+  lease status
+  assert_has "$T/out" "dead (pid $z)"
+  lease dispatch-end --instance "$TOK" --epoch "$EP" --marker "$mk"
+  assert_rc 5
+  kill "$parent"
+}
+
+test_audit_report_must_be_a_committed_literal_path() {
+  lsetup
+  acq claude Workshop
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  acq codex ops-ws
+  lease audit-brief --instance "$TOK" --epoch 2
+  head -n 1 "$T/out" >"$T/hdr"
+  # An untracked file with the right header, named like pathspec magic.
+  cp "$T/hdr" "$T/ops/ws/:(glob)**"
+  printf 'x\n' >"$T/ops/ws/later.txt"
+  git -C "$T/ops/ws" add later.txt && git -C "$T/ops/ws" commit -q -m later
+  lease audit-done --instance "$TOK" --epoch 2 --report ':(glob)**'
+  assert_rc 5
+  cp "$T/hdr" "$T/ops/ws/untracked.md"
+  lease audit-done --instance "$TOK" --epoch 2 --report untracked.md
+  assert_rc 5
+  assert_eq "$(lget audit)" pending
+}
+
+test_unlock_refuses_a_replaced_lock() {
+  lsetup
+  acq claude Workshop
+  old_lock "$T/ops/ws"
+  # While the human is typing, a live process takes a fresh lock.
+  (sleep 0.5 2>/dev/null || sleep 1; rm -rf "$T/ops/ws/.operator/lease.lock"; mkdir "$T/ops/ws/.operator/lease.lock"; echo $$ >"$T/ops/ws/.operator/lease.lock/pid") &
+  with_tty "unlock ws" lease.sh --home "$T/ops/ws" unlock --timers-off --sessions-stopped
+  wait
+  assert_eq "$rc" 5 "rc"
+  assert_has "$T/out" "replaced"
+  assert_eq "$(cat "$T/ops/ws/.operator/lease.lock/pid")" "$$"
+}
+
+test_release_with_stuck_lock_commits_nothing() {
+  lsetup
+  acq claude Workshop
+  lease note --instance "$TOK" --epoch 1
+  cp "$T/out" "$T/ops/ws/HANDOFF.md"
+  head0=$(git -C "$T/ops/ws" rev-parse HEAD)
+  old_lock "$T/ops/ws"
+  lease release --instance "$TOK" --epoch 1
+  assert_rc 3
+  assert_eq "$(git -C "$T/ops/ws" rev-parse HEAD)" "$head0"
+}
+
+test_same_client_other_session_does_not_inherit_the_session_id() {
+  lsetup
+  printf 'cx\tOldThread\t%s\tsid-old\tcodex\n' "$T/ops/cx" >>"$T/home/operators/REGISTRY.tsv"
+  mkdir -p "$T/ops/cx"
+  printf 'key=cx\n' >"$T/ops/cx/operator.conf"
+  git_init "$T/ops/cx"
+  acq codex NewThread "$T/ops/cx"
+  assert_eq "$(resolve cx sid)" "client=codex provider=codex lease=held audit=- name=NewThread sid="
+}
+
 ao_test_main "$0"

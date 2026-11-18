@@ -278,4 +278,18 @@ test_second_launch_cannot_act_as_holder() {
   kill "$first"
 }
 
+test_bad_expiry_and_malformed_rows_are_refused() {
+  setup_ask
+  run ask.sh approve "$ID" --home "$T/home" --instance "$OTOK" --epoch "$OEP" --words yes --expires-in invalid
+  assert_rc 2
+  assert_no_file "$T/home/APPROVALS.tsv"
+  # A committed row with an empty expiry (columns would shift if misparsed).
+  printf '# h\nws-1\t%s\t%s\tmerge\torg/app#42\tabc123\t\tyes\n' "$(lget generation "$T/ops/ws")" "$WEP" >"$T/home/APPROVALS.tsv"
+  git -C "$T/home" add APPROVALS.tsv && git -C "$T/home" commit -q -m forged
+  reserve
+  assert_rc 5
+  assert_has "$T/err" "malformed"
+  assert_eq "$(status_of ws-1)" open
+}
+
 ao_test_main "$0"

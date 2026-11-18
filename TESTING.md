@@ -1,7 +1,7 @@
 # Testing the experimental handoff layer
 
 The lease, mailboxes, approvals ledger and takeover
-([docs/continuity.md](docs/continuity.md)) are **experimental**. This page
+([docs/handoff.md](docs/handoff.md)) are **experimental**. This page
 says how to test them: the automated suite, then a live test on one
 low-risk operator. Nothing here sends anything outside your machine.
 
@@ -31,7 +31,7 @@ K=~/src/agent-operations; H=~/ops/demo; cd "$H"
 
 1. `.operator/` must be git-ignored in the home: `git check-ignore -q .operator/lease && echo ok`.
 2. Apply the settings patterns from
-   [continuity.md#settings-patterns-apply-them-yourself](docs/continuity.md#settings-patterns-apply-them-yourself)
+   [handoff.md#settings-patterns-apply-them-yourself](docs/handoff.md#settings-patterns-apply-them-yourself)
    to both clients (Claude Code deny rules; Codex rules file).
 3. `$K/scripts/lease.sh init` and `$K/scripts/lease.sh status` (expect
    `lease: none`).
@@ -75,7 +75,7 @@ Record every step's result (pass, fail, surprise) in the operator's notes.
   generation).
 - Report: which steps passed, any surprise, and the client versions
   (`claude --version`, `codex --version`), so the validation table in
-  docs/continuity.md can be dated.
+  docs/handoff.md can be dated.
 
 ## What this does not test
 
