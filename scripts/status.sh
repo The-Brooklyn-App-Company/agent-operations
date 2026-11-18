@@ -9,8 +9,8 @@
 # unknown (the client exposes no activity, e.g. file-only). Audit is the
 # switch-in audit after a move to the other model family (kit rule K-22,
 # lib/registry.sh): pending (no new work until the incoming session records
-# its report with `lease.sh audit-done`), done, or - (none seen). Read-only:
-# writes nothing.
+# its report with `lease.sh audit-done`), done, invalid (its record cannot
+# be read: a human inspects it) or - (none seen). Read-only: writes nothing.
 #
 # Options:
 #   --tsv       tab-separated, no header (for scripts)

@@ -227,16 +227,20 @@ cr_review() {
   ao_log "$AO_STATE/cross-review.log" "done key=$OP_KEY kind=$1 role=$role"
 }
 
-# cr_still_pending TAG  True while the switch-in audit TAG is still
-# pending (the session may have recorded its own report meanwhile).
+# cr_still_pending TAG  Return 0 while the switch-in audit TAG is still
+# pending, 1 when it is confirmed over (the session recorded its own report
+# meanwhile, or a newer change replaced it), 2 when the state cannot be read.
 cr_still_pending() {
   case $1 in
     lease-*)
-      ao_lease_read "$OP_DIR/.operator/lease" && [ "$L_audit" = pending ] &&
-        [ "lease-$L_generation-$L_epoch" = "$1" ] ;;
+      ao_lease_read "$OP_DIR/.operator/lease"
+      case $? in 0) ;; 1) return 1 ;; *) return 2 ;; esac
+      [ "$L_audit" = pending ] && [ "lease-$L_generation-$L_epoch" = "$1" ] || return 1 ;;
     registry-*)
-      ao_audit_registry_pending "$OP_KEY" && [ "$(ao_audit_registry_tag)" = "$1" ] ;;
-    *) false ;;
+      ao_audit_registry_pending "$OP_KEY" || return 1
+      [ -z "$A_invalid" ] || return 2
+      [ "$(ao_audit_registry_tag)" = "$1" ] || return 1 ;;
+    *) return 2 ;;
   esac
 }
 
@@ -244,10 +248,16 @@ cr_still_pending() {
 # to its home (never over an existing file) and tell the operator.
 cr_switch_report() {
   _tag=$OP_AUDIT_TAG
-  if ! cr_still_pending "$_tag"; then
-    cr_record switch "not written: the audit was recorded meanwhile"
-    return 0
-  fi
+  cr_still_pending "$_tag"
+  case $? in
+    0) ;;
+    1)
+      cr_record switch "not written: the audit was recorded or replaced meanwhile"
+      return 0 ;;
+    *)
+      ao_log "$AO_STATE/cross-review.log" "FAILED key=$OP_KEY kind=switch cannot read the audit state"
+      return 1 ;;
+  esac
   _base=$(ao_audit_report_base "$_tag")
   _args=
   [ "$OP_AUDIT_FROM" != lease ] || _args=' --instance <token> --epoch <n>'
@@ -303,21 +313,30 @@ cr_row() {
     printf '%s\n' "$AO_T_WEEK" | ao_write_atomic "$_wf"
     return 0
   fi
-  if [ "$OP_AUDIT" = pending ] && [ -z "$OP_AUDIT_TAG" ]; then
+  if [ "$OP_AUDIT" = invalid ]; then
+    ao_log "$AO_STATE/cross-review.log" "SKIPPED key=$OP_KEY kind=switch: audit record unreadable or invalid"
+    [ -z "$dry_run" ] || printf 'would skip the switch-in audit of %s: its record is unreadable or invalid\n' "$OP_KEY"
+  elif [ "$OP_AUDIT" = pending ] && [ -z "$OP_AUDIT_TAG" ]; then
     [ -z "$dry_run" ] || printf 'would record a switch-in audit of %s (%s)\n' "$OP_KEY" "$OP_AUDIT_TRANS"
   elif [ "$OP_AUDIT" = pending ] && [ -n "$(cr_opposite "$OP_PROVIDER")" ]; then
     # One report per pending change. Without a reviewer of the incoming
-    # family it waits, noted once a week, while the weekly review goes on.
+    # family it waits, noted once a week, until one is configured; after
+    # three failures it waits for the next week. The weekly review goes on.
     _stag=$OP_AUDIT_TAG
-    if [ "$(cat "$state/$OP_KEY.switch" 2>/dev/null)" != "$_stag" ] &&
-      [ "$(cat "$state/$OP_KEY.switch-wait" 2>/dev/null)" != "$_stag $AO_T_WEEK" ]; then
+    _wait=$(cat "$state/$OP_KEY.switch-wait" 2>/dev/null) || _wait=
+    case $_wait in
+      "$_stag $AO_T_WEEK skipped") ! cr_pick switch || _wait= ;;
+      "$_stag $AO_T_WEEK "*) ;;
+      *) _wait= ;;
+    esac
+    if [ "$(cat "$state/$OP_KEY.switch" 2>/dev/null)" != "$_stag" ] && [ -z "$_wait" ]; then
       cr_review switch 30 "switch-$_stag-$AO_T_WEEK"
       case $cr_last in
         done)
           [ -n "$dry_run" ] || printf '%s\n' "$_stag" | ao_write_atomic "$state/$OP_KEY.switch"
           return 0 ;;
         failed) return 0 ;;
-        *) [ -n "$dry_run" ] || printf '%s %s\n' "$_stag" "$AO_T_WEEK" | ao_write_atomic "$state/$OP_KEY.switch-wait" ;;
+        *) [ -n "$dry_run" ] || printf '%s %s %s\n' "$_stag" "$AO_T_WEEK" "$cr_last" | ao_write_atomic "$state/$OP_KEY.switch-wait" ;;
       esac
     fi
   fi

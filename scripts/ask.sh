@@ -75,6 +75,7 @@ no_audit_pending() {
   [ "$L_audit" != pending ] || { ao_lease_unlock; refuse "switch-in audit pending: finish it (lease.sh audit-brief, audit-done) before new work"; }
   if ao_audit_registry_pending "$H_KEY"; then
     ao_lease_unlock
+    [ -z "$A_invalid" ] || refuse "switch-in audit record $(ao_audit_file "$H_KEY") is unreadable or invalid: failing closed; a human must inspect it"
     refuse "switch-in audit pending (registry change $A_from -> $A_to): finish it (lease.sh audit-brief, audit-done) before new work"
   fi
 }

@@ -306,6 +306,44 @@ test_registry_audit_also_gates_the_holder() {
   assert_rc 0
 }
 
+test_invalid_audit_record_fails_closed() {
+  lsetup
+  acq claude Workshop
+  mkdir -p "$T/state/audit"
+  printf 'provider=claude\nfrom=codex\nto=claude\nchange=one\nsince=2030-01-02T03:04:05Z\n' >"$T/state/audit/ws"
+  lease dispatch-begin --instance "$TOK" --epoch 1 --what deploy --pid $$
+  assert_rc 5
+  assert_has "$T/err" "unreadable or invalid"
+  run ask.sh new --home "$T/ops/ws" --instance "$TOK" --epoch 1 --action noop --target t --revision 1 --risk none --rollback none
+  assert_rc 5
+  assert_has "$T/err" "unreadable or invalid"
+  lease audit-done --instance "$TOK" --epoch 1 --report HANDOFF.md
+  assert_rc 5
+  run status.sh --tsv
+  assert_eq "$(awk -F'\t' '$1 == "ws" { print $7 }' "$T/out")" invalid
+}
+
+test_first_lease_on_the_other_family_is_a_switch() {
+  lsetup
+  mkdir -p "$T/state/audit"
+  printf 'provider=claude\nfrom=\nto=\nchange=\nsince=\n' >"$T/state/audit/ws"
+  acq codex ops-ws
+  assert_has "$T/out" "REQUIRED FIRST STEP: switch-in audit (this operator moved claude -> codex)"
+  assert_eq "$(lget audit)" pending
+  assert_eq "$(lget prev_provider)" claude
+}
+
+test_takeover_refuses_uncommitted_note_files() {
+  lsetup
+  acq claude Workshop
+  printf 'draft\n' >"$T/ops/ws/HANDOFF.md"
+  with_tty "takeover ws 1" lease.sh --home "$T/ops/ws" takeover --expect-epoch 1 --holder-stopped --provider codex --session ops-ws
+  assert_eq "$rc" 5 "rc"
+  assert_has "$T/out" "HANDOFF.md is untracked or has uncommitted changes"
+  assert_eq "$(cat "$T/ops/ws/HANDOFF.md")" draft
+  assert_eq "$(lget epoch)" 1
+}
+
 test_restore_starts_new_generation() {
   lsetup
   acq claude Workshop

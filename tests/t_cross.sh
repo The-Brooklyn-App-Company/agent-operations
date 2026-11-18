@@ -168,6 +168,18 @@ test_registry_switch_is_cleared_by_audit_done() {
   lease audit-done --report audits/other.md
   assert_rc 5
   assert_has "$T/err" "the report must start with: # Switch-in audit: ws, registry change 1 at"
+  # Its own report does not count while the headless one exists.
+  { sed -n 1p "$T/ops/ws/$r"; echo 'my own audit'; } >"$T/ops/ws/audits/mine.md"
+  git -C "$T/ops/ws" add audits && git -C "$T/ops/ws" commit -q -m "own report"
+  lease audit-done --report audits/mine.md
+  assert_rc 5
+  assert_has "$T/err" "a headless report exists for this switch"
+  # The headless report needs its triage first.
+  lease audit-done --report "$r"
+  assert_rc 5
+  assert_has "$T/err" "has no triage yet"
+  printf 'No findings to triage.\n' >>"$T/ops/ws/$r"
+  git -C "$T/ops/ws" commit -q -am "triage"
   lease audit-done --report "$r"
   assert_rc 0
   assert_has "$T/out" "switch-in audit recorded (registry, claude -> codex): $r at"
@@ -211,6 +223,7 @@ test_lease_switch_report_follows_the_provider_not_the_transport() {
   lease audit-brief --instance "$TOK" --epoch 2
   assert_eq "$(sed -n 1p "$T/out")" "$(sed -n 1p "$T/ops/ws/$r")"
   assert_has "$T/out" "headless report: $r"
+  printf 'Deferred (owner: ws): prune NOTES.md next week.\n' >>"$T/ops/ws/$r"
   git -C "$T/ops/ws" add audits && git -C "$T/ops/ws" commit -q -m "switch-in audit"
   lease audit-done --instance "$TOK" --epoch 2 --report "$r"
   assert_rc 0
@@ -270,9 +283,11 @@ test_switch_audit_needs_the_incoming_family() {
   assert_eq "$(calls claude)" 1 "only the weekly review, no audit by the outgoing family"
   assert_no_file "$T/proj/alpha/audits"
   assert_eq "$(audit_of alpha)" pending
-  # Once a reviewer of the incoming family exists, the audit runs.
+  run cross-review.sh --key alpha
+  assert_eq "$(calls claude)" 1 "waiting: no second attempt this week"
+  # Once a reviewer of the incoming family exists, the audit runs, the
+  # same week.
   profile_set reviewer_codex_model strong-codex
-  AO_NOW=$(epoch_of "2026-11-27 09:00")
   FAKE_MODE=nothing run cross-review.sh --key alpha
   assert_has "$FAKE_LOG" "arg: strong-codex"
   assert_file "$(ls "$T/proj/alpha/audits"/switch-in-registry-*.md)"

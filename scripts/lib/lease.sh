@@ -418,7 +418,7 @@ ao_markers_open() {
 ao_lease_route() {
   OP_LEASE=none
   OP_AUDIT_LEASE=-
-  OP_LEASE_TRANS='' OP_LEASE_HEADER='' OP_LEASE_TAG=''
+  OP_LEASE_TRANS='' OP_LEASE_HEADER='' OP_LEASE_TAG='' OP_LEASE_PREV=-
   OP_EPOCH=-
   OP_PROVIDER=$OP_CLIENT
   [ -e "$OP_DIR/.operator/lease" ] || return 0
@@ -427,7 +427,7 @@ ao_lease_route() {
     OP_LEASE=invalid
     return 0
   fi
-  OP_LEASE=$L_state OP_AUDIT_LEASE=$L_audit
+  OP_LEASE=$L_state OP_AUDIT_LEASE=$L_audit OP_LEASE_PREV=${L_prev_provider:--}
   if [ "$L_audit" = pending ]; then
     OP_LEASE_TRANS="$L_prev_provider -> $L_provider"
     OP_LEASE_HEADER=$(ao_audit_header "$OP_KEY")

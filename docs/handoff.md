@@ -190,7 +190,12 @@ leftover worktrees and branches, and drift between notes and reality.
 `audit-done` reads only the committed revision: the report must be a
 regular file in the home, start with the brief's first line exactly (key,
 generation and epoch, or the numbered registry change, and the transition),
-and, for a lease, be committed after the handoff note. A registry change
+and, for a lease, be committed after the handoff note. When a headless
+report exists for that switch, it is the one to record, and only with a
+non-empty Triage section. An audit record that cannot be read or parsed
+fails closed (`status.sh` shows `invalid`) until a human fixes it. A first
+lease on the other family than the one cross-review last saw is a switch
+too. A registry change
 recorded before a lease existed still gates the lease holder until it is
 recorded. The resolver (`ao_operator_resolve`) reports the lease's client
 for every lease state and `OP_PROVIDER`, the owning family, also when the
@@ -212,7 +217,7 @@ moves that client to the fallback.
 | Deny rule blocks the takeover command | **Yes**: `deny: Bash(*lease.sh takeover*)` beat a matching allow rule (live, headless); `Bash(*lease.sh*takeover*)` also denied `lease.sh --home DIR takeover` (live, headless, 0.2.1-rc1) | **Partial**: an execpolicy `prefix_rule(..., decision="forbidden")` matches exact leading tokens (offline `codex execpolicy check`); an absolute path or a `bash -c` wrapper did not match |
 | "Ask" rule | Headless: not granted, acts as a deny (live) | `decision="prompt"` evaluates (offline) |
 | Fresh, uncached prompt showing the full command, every time | **Unverified** (interactive UI; cannot be shown headless) | **Unverified**; approvals can be remembered for a session |
-| Kit verbs that commit (`release`, `ask.sh`, `audit-done`) from a tool command | Work (git through Bash) | **Blocked** under `workspace-write`: `.git` is read-only (`index.lock: Operation not permitted`, live). The human approves an escalation, or the operator runs with a writable `.git` |
+| Committing from a tool command (`release`, `ask.sh`, `takeover`, and the audit report before `audit-done`, which itself only reads git) | Work (git through Bash) | **Blocked** under `workspace-write`: `.git` is read-only (`index.lock: Operation not permitted`, live). The human approves an escalation, or the operator runs with a writable `.git` |
 
 **What the kit does with this.** Identity on both clients is the random
 instance token (no client id is launch-private). On Claude Code the lease

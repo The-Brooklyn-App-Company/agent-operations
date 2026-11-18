@@ -92,33 +92,64 @@ ao_audit_file() {
   printf '%s/audit/%s%s\n' "$AO_STATE" "$1" "${2-}"
 }
 
-# ao_kv_get FILE KEY  Print KEY's value from a flat key=value file.
-ao_kv_get() {
+# _ao_kv_snapshot FILE KEYS PREFIX  Read FILE once and set PREFIX<key> for
+# each of KEYS (other lines are ignored; never sourced). False when the file
+# cannot be read.
+_ao_kv_snapshot() {
+  for _ao_k in $2; do eval "$3$_ao_k=''"; done
   [ -r "$1" ] || return 1
-  sed -n "s/^$2=//p" "$1" | head -n 1
+  _ao_snap=$(cat "$1") || return 1
+  while IFS= read -r _ao_l; do
+    _ao_k=${_ao_l%%=*}
+    case " $2 " in *" $_ao_k "*) eval "$3$_ao_k=\${_ao_l#*=}" ;; esac
+  done <<EOF
+$_ao_snap
+EOF
 }
 
 # ao_audit_read KEY  Set A_provider, A_from, A_to, A_change, A_since (the
-# record) and A_done (the change= of the last recorded audit). False without
-# a record or without a state dir.
+# record) and A_done (the change= of the last recorded audit), each file
+# read once. Returns 0 when read, 1 when there is no record (or no state
+# dir), 2 when a record exists but is unreadable or invalid: callers fail
+# closed.
 ao_audit_read() {
   A_provider='' A_from='' A_to='' A_change='' A_since='' A_done=''
   [ -n "${AO_STATE:-}" ] || return 1
   _ao_af=$(ao_audit_file "$1")
-  [ -r "$_ao_af" ] || return 1
-  A_provider=$(ao_kv_get "$_ao_af" provider)
-  A_from=$(ao_kv_get "$_ao_af" from)
-  A_to=$(ao_kv_get "$_ao_af" to)
-  A_change=$(ao_kv_get "$_ao_af" change)
-  A_since=$(ao_kv_get "$_ao_af" since)
-  A_done=$(ao_kv_get "$_ao_af.done" change 2>/dev/null) || A_done=
-  return 0
+  [ -e "$_ao_af" ] || return 1
+  _ao_kv_snapshot "$_ao_af" "provider from to change since" A_ || return 2
+  if [ -e "$_ao_af.done" ]; then
+    _ao_kv_snapshot "$_ao_af.done" change _ao_d_ || return 2
+    # shellcheck disable=SC2154 # set by _ao_kv_snapshot
+    A_done=$_ao_d_change
+    ao_is_uint "$A_done" || return 2
+  fi
+  [ -z "$A_provider" ] || ao_is_family "$A_provider" || return 2
+  [ -n "$A_change" ] || return 0
+  ao_is_uint "$A_change" && ao_is_family "$A_from" && ao_is_family "$A_to" || return 2
+  case $A_since in '' | *[!0-9TZ:-]*) return 2 ;; esac
 }
 
 # ao_audit_registry_pending KEY  True while a recorded registry switch-in
-# audit is pending for KEY (A_* set).
+# audit is pending for KEY (A_* set), and also when its record cannot be
+# trusted (A_invalid=1): fail closed.
 ao_audit_registry_pending() {
-  ao_audit_read "$1" && [ -n "$A_change" ] && [ "$A_change" != "$A_done" ]
+  A_invalid=''
+  ao_audit_read "$1"
+  case $? in
+    0) [ -n "$A_change" ] && [ "$A_change" != "$A_done" ] ;;
+    1) return 1 ;;
+    *) A_invalid=1 ;;
+  esac
+}
+
+# ao_audit_legacy KEY  Print the client a 0.2.0 cross-review marker
+# remembers for KEY when it is a family, else nothing.
+ao_audit_legacy() {
+  _ao_lf=${AO_STATE:-/nonexistent}/cross-review/$1.client
+  [ -r "$_ao_lf" ] || return 0
+  read -r _ao_c <"$_ao_lf" 2>/dev/null || return 0
+  ! ao_is_family "${_ao_c:-}" || printf '%s\n' "$_ao_c"
 }
 
 # ao_audit_registry_tag  The stable id of the recorded registry change (A_*).
@@ -139,7 +170,8 @@ ao_audit_registry_header() {
 }
 
 # ao_audit_resolve  Called by ao_operator_resolve after ao_lease_route. Sets
-#   OP_AUDIT         pending, done or - (none recorded)
+#   OP_AUDIT         pending, done, invalid (a record that cannot be
+#                    trusted: a human inspects it) or - (none recorded)
 #   OP_AUDIT_FROM    lease or registry (which trigger), or -
 #   OP_AUDIT_TRANS   FROM -> TO of the pending change, or empty
 #   OP_AUDIT_HEADER  the first line its report must have (empty while a
@@ -154,7 +186,19 @@ ao_audit_resolve() {
     OP_AUDIT_HEADER=$OP_LEASE_HEADER OP_AUDIT_TAG=$OP_LEASE_TAG
     return 0
   fi
-  ao_audit_read "$OP_KEY" || return 0
+  ao_audit_read "$OP_KEY"
+  case $? in
+    0) ;;
+    1)
+      # No record yet: a 0.2.0 marker still gives a baseline to compare.
+      _ao_c=$(ao_audit_legacy "$OP_KEY")
+      if [ "$OP_LEASE" = none ] && [ -n "$_ao_c" ] && ao_is_family "$OP_PROVIDER" &&
+        [ "$_ao_c" != "$OP_PROVIDER" ]; then
+        OP_AUDIT=pending OP_AUDIT_FROM=registry OP_AUDIT_TRANS="$_ao_c -> $OP_PROVIDER"
+      fi
+      return 0 ;;
+    *) OP_AUDIT=invalid OP_AUDIT_FROM=registry; return 0 ;;
+  esac
   if [ -n "$A_change" ] && [ "$A_change" != "$A_done" ]; then
     OP_AUDIT=pending OP_AUDIT_FROM=registry OP_AUDIT_TRANS="$A_from -> $A_to"
     OP_AUDIT_HEADER=$(ao_audit_registry_header "$OP_KEY")
@@ -163,33 +207,35 @@ ao_audit_resolve() {
     [ "$A_provider" != "$OP_PROVIDER" ]; then
     # Seen here first: cross-review.sh records it at its next run.
     OP_AUDIT=pending OP_AUDIT_FROM=registry OP_AUDIT_TRANS="$A_provider -> $OP_PROVIDER"
-  elif [ "$OP_LEASE" = none ] && [ -n "$A_change" ]; then
+  elif [ "$OP_AUDIT" = - ] && [ -n "$A_change" ]; then
     OP_AUDIT="done"
   fi
 }
 
 # ao_audit_observe  Record a registry family change for the current row
 # (cross-review.sh only, under its lock). The baseline is the last model
-# family seen (a file-only or custom transport leaves it alone). Without a
-# lease, a move to the other family starts a pending audit; with a lease
-# the baseline just follows it (the lease audits its own moves). A row's
-# first sighting takes its baseline from a 0.2.0 cross-review client marker
-# when there is one. Then re-resolves the audit state.
+# family seen (a file-only or custom transport leaves it alone). A move to
+# the other family starts a pending audit, unless a lease audits that very
+# move (its previous provider is the baseline); otherwise the baseline just
+# follows. A row's first sighting takes its baseline from a 0.2.0
+# cross-review client marker when there is one. An invalid record is never
+# overwritten (returns 1). Then re-resolves the audit state.
 ao_audit_observe() {
   _ao_af=$(ao_audit_file "$OP_KEY")
   _ao_old=$AO_STATE/cross-review/$OP_KEY.client
-  if ! ao_audit_read "$OP_KEY"; then
-    A_provider=
-    ! ao_is_family "$OP_PROVIDER" || A_provider=$OP_PROVIDER
-    if [ "$OP_LEASE" = none ] && [ -r "$_ao_old" ]; then
-      read -r _ao_c <"$_ao_old" 2>/dev/null || _ao_c=
-      ! ao_is_family "${_ao_c:-}" || A_provider=$_ao_c
-    fi
-    _ao_audit_put "$_ao_af" || return 1
-  fi
+  ao_audit_read "$OP_KEY"
+  case $? in
+    0) ;;
+    1)
+      A_provider=$(ao_audit_legacy "$OP_KEY")
+      [ -n "$A_provider" ] && [ "$OP_LEASE" = none ] || A_provider=
+      [ -n "$A_provider" ] || ! ao_is_family "$OP_PROVIDER" || A_provider=$OP_PROVIDER
+      _ao_audit_put "$_ao_af" || return 1 ;;
+    *) ao_audit_resolve; return 1 ;;
+  esac
   rm -f "$_ao_old" "$AO_STATE/cross-review/$OP_KEY.switch-held"
   if ao_is_family "$OP_PROVIDER" && [ "$OP_LEASE" != invalid ] && [ "$A_provider" != "$OP_PROVIDER" ]; then
-    if [ "$OP_LEASE" = none ] && ao_is_family "$A_provider"; then
+    if ao_is_family "$A_provider" && [ "$OP_LEASE_PREV" != "$A_provider" ]; then
       A_from=$A_provider A_to=$OP_PROVIDER A_since=$(ao_utc "$AO_T_EPOCH")
       A_change=$((${A_change:-0} + 1))
     fi

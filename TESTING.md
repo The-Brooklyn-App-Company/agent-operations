@@ -3,7 +3,10 @@
 The lease, mailboxes, approvals ledger and takeover
 ([docs/handoff.md](docs/handoff.md)) are **experimental**. This page
 says how to test them: the automated suite, then a live test on one
-low-risk operator. Nothing here sends anything outside your machine.
+low-risk operator. The automated suite sends nothing outside your machine;
+the live test uses your two clients (their own model requests), one
+headless review in step 13, and, if your profile's `chat` slot is set, a
+doorbell fallback notification through it.
 
 ## 1. Automated suite (no models, no network)
 
@@ -41,8 +44,9 @@ K=~/src/agent-operations; H=~/ops/demo; cd "$H"
    client>`, and forward a direct human message only with `mail.sh forward
    --via <your client>`. Then run `mail.sh claim`."
 5. For a Codex session, either allow it to commit in the home (approve the
-   escalation when asked) or expect `release`, `ask.sh` and `audit-done` to
-   fail there: its `workspace-write` sandbox makes `.git` read-only.
+   escalation when asked) or expect `release`, `ask.sh` and committing the
+   audit report to fail there: its `workspace-write` sandbox makes `.git`
+   read-only.
 
 Record every step's result (pass, fail, surprise) in the operator's notes.
 

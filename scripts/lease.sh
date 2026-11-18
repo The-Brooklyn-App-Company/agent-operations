@@ -285,8 +285,13 @@ audit_pending() {
     a_kind=lease a_header=$(ao_audit_header "$H_KEY") a_tag=lease-$L_generation-$L_epoch
     a_trans="$L_prev_provider -> $L_provider"
   elif ao_audit_registry_pending "$H_KEY"; then
-    a_kind=registry a_header=$(ao_audit_registry_header "$H_KEY")
-    a_tag=$(ao_audit_registry_tag) a_trans="$A_from -> $A_to"
+    if [ -n "$A_invalid" ]; then
+      a_kind=invalid a_header='' a_tag=''
+      a_trans="unknown: the audit record $(ao_audit_file "$H_KEY") is unreadable or invalid (failing closed; a human must inspect it)"
+    else
+      a_kind=registry a_header=$(ao_audit_registry_header "$H_KEY")
+      a_tag=$(ao_audit_registry_tag) a_trans="$A_from -> $A_to"
+    fi
   else
     return 1
   fi
@@ -298,7 +303,10 @@ audit_reminder() {
 }
 
 audit_gate() {
-  ! audit_pending || { ao_lease_unlock; refuse "switch-in audit pending (moved $a_trans): finish it and run lease.sh audit-done first"; }
+  audit_pending || return 0
+  ao_lease_unlock
+  [ "$a_kind" != invalid ] || refuse "switch-in audit $a_trans"
+  refuse "switch-in audit pending (moved $a_trans): finish it and run lease.sh audit-done first"
 }
 
 # audit_section KIND  The note's switch-in audit section.
@@ -318,6 +326,7 @@ do_audit_brief() {
   ao_lease_load
   [ -z "$L_PRESENT" ] || need_holder
   audit_pending || { echo "no switch-in audit pending for $H_KEY"; return 0; }
+  [ "$a_kind" != invalid ] || refuse "switch-in audit $a_trans"
   _base=$(ao_audit_report_base "$a_tag")
   if [ "$a_kind" = lease ]; then _args=" --instance <token> --epoch $L_epoch"; else _args=; fi
   cat <<BRIEF
@@ -364,6 +373,31 @@ BRIEF
   inflight
 }
 
+# headless_reports REV BASE  Print each home-relative path of a headless
+# report for BASE (BASE.md, BASE-N.md) committed at REV or present in the
+# working tree.
+headless_reports() {
+  {
+    GIT_LITERAL_PATHSPECS=1 git -C "$H_HOME" ls-tree --name-only "$1" -- "$(dirname -- "$2")/" 2>/dev/null
+    for _f in "$H_HOME/$2".md "$H_HOME/$2"-*.md; do [ ! -f "$_f" ] || printf '%s\n' "${_f#"$H_HOME"/}"; done
+  } | while IFS= read -r _f; do
+    case $_f in "$2".md) printf '%s\n' "$_f" ;; "$2"-*.md)
+      _n=${_f#"$2"-}; _n=${_n%.md}
+      ! ao_is_uint "$_n" || printf '%s\n' "$_f" ;;
+    esac
+  done | LC_ALL=C sort -u
+}
+
+# triaged  True when the report on stdin has a non-empty Triage section
+# other than the placeholder cross-review.sh writes.
+triaged() {
+  awk '
+    /^## Triage[[:space:]]*$/ { in_t = 1; next }
+    /^## / { in_t = 0 }
+    in_t && NF && $0 != "(the incoming session fills this in)" { ok = 1 }
+    END { exit !ok }'
+}
+
 do_audit_done() {
   [ -n "$o_report" ] || ao_die "$AO_E_USAGE" "audit-done needs --report PATH (relative to the home, committed)"
   # A plain relative path inside the home: no option, pathspec magic, glob,
@@ -372,18 +406,22 @@ do_audit_done() {
     /* | -* | :* | ../* | */../* | */.. | .. | *[!A-Za-z0-9._/-]*)
       refuse "--report must be a plain path inside the home, relative to it ([A-Za-z0-9._/-])" ;;
   esac
+  # Under the lease lock whenever the home has .operator/, so no acquire
+  # slips in between the check and the record; with a lease, only its
+  # holder records an audit.
+  [ ! -d "$H_OP" ] || lock
   ao_lease_load
-  # With a lease, only its holder records an audit, under the lease lock.
   if [ -n "$L_PRESENT" ]; then
     need_token
-    lock
-    ao_lease_load
     ao_lease_holder "$o_instance" "$o_epoch" || { ao_lease_unlock; standby; }
   fi
   audit_pending || { ao_lease_unlock; echo "no switch-in audit pending"; return 0; }
-  # Everything is read from the committed revision, never the working tree.
-  _blob=$(git -C "$H_HOME" rev-parse -q --verify "HEAD:./$o_report" 2>/dev/null) || _blob=
-  _mode=$(git -C "$H_HOME" ls-tree HEAD -- "./$o_report" 2>/dev/null | cut -c1-6)
+  [ "$a_kind" != invalid ] || { ao_lease_unlock; refuse "switch-in audit $a_trans"; }
+  # Everything is read from one committed revision, never the working tree.
+  _head=$(git -C "$H_HOME" rev-parse -q --verify HEAD 2>/dev/null) || _head=
+  [ -n "$_head" ] || { ao_lease_unlock; refuse "$H_HOME has no commit to read the report from"; }
+  _blob=$(git -C "$H_HOME" rev-parse -q --verify "$_head:./$o_report" 2>/dev/null) || _blob=
+  _mode=$(git -C "$H_HOME" ls-tree "$_head" -- "./$o_report" 2>/dev/null | cut -c1-6)
   case $_mode in
     100644 | 100755) [ -n "$_blob" ] ;;
     *) false ;;
@@ -395,7 +433,21 @@ do_audit_done() {
     ao_lease_unlock
     refuse "the report must start with: $a_header"
   }
-  _sha=$(GIT_LITERAL_PATHSPECS=1 git -C "$H_HOME" log -1 --format=%H -- "$o_report")
+  # The incoming family's headless report, when there is one for this
+  # switch, is the report to record, and only once it is triaged.
+  _base=$(ao_audit_report_base "$a_tag")
+  _hl=$(headless_reports "$_head" "$_base")
+  if [ -n "$_hl" ]; then
+    printf '%s\n' "$_hl" | grep -qxF -- "$o_report" || {
+      ao_lease_unlock
+      refuse "a headless report exists for this switch: triage and record it instead ($(printf '%s' "$_hl" | tr '\n' ' '))"
+    }
+    git -C "$H_HOME" cat-file blob "$_blob" | triaged || {
+      ao_lease_unlock
+      refuse "$o_report has no triage yet: record a decision for each finding under '## Triage', commit, then run audit-done"
+    }
+  fi
+  _sha=$(GIT_LITERAL_PATHSPECS=1 git -C "$H_HOME" log -1 --format=%H "$_head" -- "$o_report")
   [ -n "$_sha" ] || { ao_lease_unlock; refuse "no commit found for $o_report"; }
   if [ "$a_kind" = lease ] && [ "$L_prev_note" != none ]; then
     if [ "$(git -C "$H_HOME" rev-parse "$L_prev_note" 2>/dev/null)" = "$_sha" ] ||
@@ -462,6 +514,12 @@ do_acquire() {
   else
     L_operator=$H_KEY L_host=$(ao_host) L_generation=$(ao_hex 6) L_epoch=1
     L_prev_epoch=0 L_prev_note=none L_prev_provider=- L_audit=- L_audit_note=-
+    # A first lease on the other family than the one cross-review.sh last
+    # saw is a switch too (needs the profile's state dir).
+    if ao_audit_read "$H_KEY" && ao_is_family "$A_provider" && ao_is_family "$o_provider" &&
+      [ "$A_provider" != "$o_provider" ]; then
+      L_audit=pending L_prev_provider=$A_provider
+    fi
   fi
   if [ -n "$_replay" ]; then
     ao_lease_unlock
@@ -477,6 +535,7 @@ do_acquire() {
   stamp_heartbeat
   set_client_pid "$o_provider"
   ao_lease_write || ao_die "$AO_E_FAIL" "cannot write $H_LEASE"
+  L_PRESENT=1
   ao_lease_unlock
   echo "acquired: $H_KEY by $o_provider \`$o_session\`"
   echo "epoch: $L_epoch"
@@ -693,6 +752,14 @@ takeover_ok() {
   ! markers_present || refuse "a dispatch marker exists: an effect may be in flight or paused. Let it finish, or stop its process and settle it (lease.sh settle)"
   [ "$(ao_proc_state "$L_client_pid" "$L_client_start")" = dead ] ||
     refuse "the holder's client process (pid $L_client_pid) is still running: close that session first"
+  # takeover rewrites these and restores them from HEAD if its commit
+  # fails: uncommitted work in them would be lost.
+  for _f in HANDOFF.md ASKS.md; do
+    [ -e "$H_HOME/$_f" ] || continue
+    if ! git -C "$H_HOME" cat-file -e "HEAD:./$_f" 2>/dev/null || ! ao_git_clean "$H_HOME" "$_f"; then
+      refuse "$_f is untracked or has uncommitted changes: commit it or move it aside first (takeover rewrites it)"
+    fi
+  done
 }
 
 do_takeover() {
