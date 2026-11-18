@@ -175,7 +175,8 @@ relay_default relay_label relay_max_attempts relay_workdir work_root
 drift_rules drift_files drift_repo_files drift_min_words drift_prompt
 drift_prompt_extra drift_workdir drift_to
 review_family cross_review cross_review_timeout cross_review_per_run
-cross_review_days tracker chat githost ci secrets attribution'
+cross_review_days tracker chat githost ci secrets attribution
+lease_stale doorbell_codex doorbell_rering_min'
 # Role keys: <prefix>_<field> for these prefixes and fields.
 AO_ROLE_PREFIXES='worker reviewer reviewer_claude reviewer_codex implementer_claude
 implementer_codex relay_claude relay_custom'
