@@ -27,15 +27,17 @@
 // queue versus steer is decided here). Each handled ring moves to
 // delivered/ with one line in delivered/log.tsv:
 //   ISO-time <TAB> epoch <TAB> ring <TAB> watcher <TAB> mode <TAB> status
-// mode is steer, queue (sent when idle), queue-unknown (the thread's state
-// could not be read, so it was sent at once) or echo; status is ok, or
-// unknown after a call timeout or a send cut off by a crash or a closed pipe
-// (never re-sent automatically). Each ring is claimed into .watcher/sending/
+// mode is steer, queue (sent when the target was seen idle) or echo; a queue
+// ring whose target cannot be read counts as busy. status is ok, or unknown
+// after any send that did not come back with a tool answer (a timeout, a
+// protocol error, a crash or a closed pipe): never re-sent automatically,
+// and left in .watcher/unknown/ for the supervisor to alarm once. Each ring is claimed into .watcher/sending/
 // by an atomic rename before its send, so the relay's fallback cannot send
 // it too. A ring whose send fails twice is left for the relay's fallbacks.
 //
 // Health: .watcher/heartbeat (ISO time and pid) every 60 s; .watcher/log.
-// One watcher per RING_DIR (.watcher/pid). It exits non-zero, with a log
+// Start it only through `mailroom.sh arm-codex`, whose kernel lock makes it
+// the one watcher per RING_DIR (.watcher/pid is for status). It exits non-zero, with a log
 // line, when the app pipe closes or three sends in a row fail: no spinning.
 //
 // Exit codes: 0 stopped by a signal; 1 connection lost or repeated failure;
@@ -84,6 +86,7 @@ const STATE = path.join(DIR, '.watcher');
 const HOLDS = path.join(STATE, 'holding');
 const SENDING = path.join(STATE, 'sending');
 const RELEASED = path.join(STATE, 'released');
+const UNKNOWN = path.join(STATE, 'unknown');
 const DELIVERED = path.join(DIR, 'delivered');
 const PIDFILE = path.join(STATE, 'pid');
 
@@ -173,14 +176,10 @@ function shutdown(code, why) {
   process.exit(code);
 }
 
-// takePidfile  Refuse while another live watcher's pid is recorded. Not a
-// lock: `mailroom.sh arm-codex` holds the kernel lock that makes this the
-// only watcher; this check only catches a second direct start.
+// takePidfile  Record this watcher's pid, for status only. The kernel lock
+// `mailroom.sh arm-codex` holds through exec is what makes it the only
+// watcher, so always start it that way.
 function takePidfile() {
-  try {
-    const other = Number(fs.readFileSync(PIDFILE, 'utf8').trim());
-    if (other && other !== process.pid) { process.kill(other, 0); return false; }
-  } catch (_) { /* none, or dead */ }
   writeAtomic(PIDFILE, `${process.pid}\n`);
   return true;
 }
@@ -205,6 +204,10 @@ function fileRing(name, mode, status, from = DIR) {
   fs.appendFileSync(path.join(DELIVERED, 'log.tsv'),
     `${now.toISOString()}\t${Math.floor(now.getTime() / 1000)}\t${name}\twatcher\t${mode}\t${status}\n`);
   dropHold(name);
+  if (status === 'unknown') {
+    // An alarm obligation the supervisor discharges once.
+    try { fs.mkdirSync(UNKNOWN, { recursive: true }); fs.writeFileSync(path.join(UNKNOWN, name), ''); } catch (_) { /* best effort */ }
+  }
   log(`filed ${name} mode=${mode} status=${status}`);
   return true;
 }
@@ -252,13 +255,15 @@ async function handle(name) {
   let mode = name.endsWith('--steer.md') ? 'steer' : 'queue';
   if (mode === 'queue') {
     const state = await threadState(thread);
-    if (state === 'busy') {
+    // Unknown counts as busy: a queue ring is sent only to a thread seen idle,
+    // and is otherwise released to the relay's real queue at the cap.
+    if (state !== 'idle') {
       let since = holdSince(name);
       if (!since) {
         since = Date.now();
         fs.mkdirSync(HOLDS, { recursive: true });
         writeAtomic(path.join(HOLDS, name), `${Math.floor(since / 1000)}\n`);
-        log(`holding ${name}: target busy`);
+        log(`holding ${name}: target ${state}`);
       }
       if (Date.now() - since >= HOLD_CAP_MS) {
         release(name);
@@ -266,7 +271,6 @@ async function handle(name) {
       }
       return;
     }
-    if (state === 'unknown') mode = 'queue-unknown';
   }
   // Claim the ring (an atomic rename) so the relay's fallback cannot send it
   // too; a ring someone else took is skipped.
@@ -277,13 +281,12 @@ async function handle(name) {
   try {
     res = await app.call('send_message_to_thread', { threadId: thread, hostId: 'local', prompt: `Doorbell [${name}]: ${body}` });
   } catch (e) {
-    if (e instanceof Unknown) {
-      // Never re-sent automatically: the message may have landed (K-28).
-      fileRing(name, mode, 'unknown', SENDING);
-      return;
-    }
-    if (app.closed) { fileRing(name, mode, 'unknown', SENDING); throw e; }
-    res = { isError: true, content: [{ type: 'text', text: e.message }] };
+    // A timeout, a protocol error or a closed pipe may come after the app
+    // took the message: never re-sent automatically (K-28).
+    log(`send outcome unknown for ${name}: ${e.message}`);
+    fileRing(name, mode, 'unknown', SENDING);
+    if (app.closed) throw e;
+    return;
   }
   if (res && !res.isError) {
     errorsInARow = 0;
@@ -291,7 +294,8 @@ async function handle(name) {
     fileRing(name, mode, 'ok', SENDING);
     return;
   }
-  // A clear refusal: put it back for the next try or the relay's fallback.
+  // The tool itself answered with an error (for example an unknown thread):
+  // a clear refusal, so the ring goes back for the next try or the fallback.
   try { fs.renameSync(claimed, file); } catch (e) { log(`cannot return ${name}: ${e.message}`); }
   errorsInARow++;
   const n = (tries.get(name) || 0) + 1;

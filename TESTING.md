@@ -7,10 +7,10 @@ one macOS machine; nothing in 0.3.1 has run live yet.
 
 | Check | Evidence / result |
 | --- | --- |
-| Full suite, sh and dash | @SUITE@ |
+| Full suite, sh and dash | PASS: all 15 files under sh and dash, 321 cases per shell (642 total), macOS, 2026-11-19 |
 | New tests | `t_mailroom.sh` (relay rings, supervisor fallbacks and claims, reroute on owner change, re-arm per app process, relaunch, alarms, free probes, metrics, the kqueue watcher, the Codex watcher against a fake app tool server: burst order, steer, queue hold and cap, unknown outcomes, single watcher), `t_recover.sh` (digest at most 8000 bytes, read-first order kept under a cut), `t_install.sh` additions (relay unit from the registry, `host` table and App Nap check-then-set with a fake `defaults`, `check.sh host` launchd findings, bridge homes) |
 | shellcheck, `check.sh kit` | Clean |
-| Cross-family review | @REVIEW@ |
+| Cross-family review | Three rounds by the other model family (independent, neutral packet): 13, 7 and 6 findings (P1 to P3), every one fixed with a regression test where it was code. The round-3 fixes were not re-reviewed: K-20 caps review at three rounds |
 | Live mailroom | **Not run** (T1 to T4 below) |
 
 ## Mailroom live acceptance

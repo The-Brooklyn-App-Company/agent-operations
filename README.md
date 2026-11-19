@@ -106,7 +106,7 @@ Highest stage reached for each piece, with the client, version and date.
 
 | Piece | Status | Evidence |
 | --- | --- | --- |
-| Test suite | Passes under bash's `sh` and dash, macOS | `tests/run.sh`, 2026-11-17 |
+| Test suite | Passes under bash's `sh` and dash, macOS | `tests/run.sh`, 2026-11-19 |
 | `tick.sh --dry-run`, `status.sh` against a real registry | Proven, macOS | 2026-11-17 |
 | Relay to a named Claude Code desktop session | Proven, macOS, Claude Code 2.1.322 | Pointer delivered and confirmed from the event stream, 2026-11-17; recorded stream in `tests/fixtures/` |
 | `worker-run.sh` on Codex (`NOTHING`, a note, a failure note) | Proven, codex-cli 0.169 | 2026-11-17 |

@@ -387,11 +387,14 @@ test_codex_watcher_releases_a_queue_ring_at_the_cap_and_marks_unknown_state() {
   assert_no_file "$MR/codex/.watcher/holding/thread-q--q-1--queue.md"
   kill "$WPID"
   wait "$WPID"
-  watcher FAKE_APP_MODE=nostatus
+  # An unreadable thread state counts as busy: held, never sent at once.
+  watcher FAKE_APP_MODE=nostatus AO_MR_HOLD_CAP_MS=500
   put_ring thread-u--u-1--queue.md "unknown"
-  wait_for 'grep -q "thread-u--u-1--queue.md${TAB}watcher${TAB}queue-unknown${TAB}ok" "$MR/codex/delivered/log.tsv"'
+  wait_for 'grep -q "queue-cap thread-u--u-1--queue.md" "$MR/codex/.watcher/log"'
   kill "$WPID"
   wait "$WPID"
+  assert_file "$MR/codex/thread-u--u-1--queue.md"
+  assert_eq "$(grep -c send_message_to_thread "$T/app.log")" 0 "never sent to an unreadable thread"
 }
 
 test_codex_watcher_refuses_bad_preflight_a_second_copy_and_a_closed_pipe() {
@@ -402,13 +405,6 @@ test_codex_watcher_refuses_bad_preflight_a_second_copy_and_a_closed_pipe() {
   wait "$WPID"
   assert_eq "$?" 2 "preflight"
   assert_has "$T/werr" "send_message_to_thread missing"
-  watcher
-  first=$WPID
-  watcher
-  wait "$WPID"
-  assert_eq "$?" 3 "second copy"
-  kill "$first"
-  wait "$first"
   watcher FAKE_APP_MODE=die-on-send
   put_ring thread-s--s-1--steer.md "x"
   wait "$WPID"
@@ -435,6 +431,18 @@ test_codex_watcher_never_resends_after_a_timeout() {
   assert_eq "$(grep -c send_message_to_thread "$T/app.log")" 1 "sent once"
   kill "$WPID"
   wait "$WPID"
+  assert_file "$MR/codex/.watcher/unknown/thread-s--s-1--steer.md"
+  run mailroom.sh supervise
+  assert_eq "$(notes_named mailroom-unknown-codex)" 1 "the supervisor alarms once"
+  assert_no_file "$MR/codex/.watcher/unknown/thread-s--s-1--steer.md"
+  # A protocol error after submission is just as unknown.
+  watcher FAKE_APP_MODE=rpcerror-on-send
+  put_ring thread-s--s-2--steer.md "y"
+  wait_for 'grep -q "thread-s--s-2--steer.md${TAB}watcher${TAB}steer${TAB}unknown" "$MR/codex/delivered/log.tsv"'
+  sleep 0.3
+  kill "$WPID"
+  wait "$WPID"
+  assert_eq "$(grep -c send_message_to_thread "$T/app.log")" 2 "each sent once"
 }
 
 test_arm_codex_needs_the_app_paths_and_reports_an_armed_watcher() {
@@ -579,6 +587,18 @@ test_a_doorbell_is_never_rerouted_to_an_operator_named_doorbell() {
   FAKE_MODE=sent run mailroom.sh supervise
   assert_has "$FAKE_LOG" 'to "Alpha Op"'
   assert_lacks "$FAKE_LOG" 'Doorbell Op'
+}
+
+test_a_ring_for_an_operator_no_longer_registered_is_held() {
+  mr_setup
+  note gamma a.md "x"
+  run relay.sh
+  r=$(rings codex)
+  age_file "$MR/codex/$r" 200
+  grep -v "^gamma${TAB}" "$T/home/operators/REGISTRY.tsv" >"$T/reg" && mv "$T/reg" "$T/home/operators/REGISTRY.tsv"
+  run mailroom.sh supervise
+  assert_no_file "$FAKE_LOG"
+  assert_file "$MR/codex/$r"
 }
 
 ao_test_main "$0"

@@ -496,6 +496,11 @@ test_bridge_gets_its_own_home_and_a_reserved_registry_row() {
   run install.sh operator mailroom-codex
   assert_rc 2
   assert_has "$T/err" "reserved for a mailroom bridge"
+  ln -s "$KIT_DIR" "$T/kitlink"
+  run install.sh bridge claude --home "$T/kitlink/private-bridge"
+  assert_rc 2
+  assert_has "$T/err" "outside the kit checkout"
+  assert_no_file "$KIT_DIR/private-bridge"
 }
 
 ao_test_main "$0"

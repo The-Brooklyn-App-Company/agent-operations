@@ -281,9 +281,20 @@ _ao_mr_rings() {
     for _mr_c in "$AO_MR_DIR/$_mr_side/.claimed"/*.md; do
       [ -f "$_mr_c" ] || continue
       [ -n "$_mr_dry" ] && continue
-      ao_mr_file "$_mr_side" "${_mr_c##*/}" supervisor - unknown "${_mr_c%/*}" &&
-        ao_mr_event unknown "$_mr_side" "${_mr_c##*/}" "interrupted fallback; not sent again"
+      ao_mr_file "$_mr_side" "${_mr_c##*/}" supervisor - unknown "${_mr_c%/*}" || continue
+      ao_mr_event unknown "$_mr_side" "${_mr_c##*/}" "interrupted fallback; not sent again"
+      _ao_mr_alarm "mailroom-unknown-$_mr_side" "Mailroom: a fallback for ${_mr_c##*/} was interrupted; it may or may not have arrived and is not sent again. Check the target (docs/mailroom.md)." ||
+        ao_warn "could not raise the unknown-delivery alarm"
     done
+    # Unknown outcomes the Codex watcher recorded: one alarm each, then cleared.
+    if [ "$_mr_side" = codex ] && [ -z "$_mr_dry" ]; then
+      for _mr_u in "$AO_MR_DIR/codex/.watcher/unknown"/*.md; do
+        [ -f "$_mr_u" ] || continue
+        ao_mr_event unknown codex "${_mr_u##*/}" "watcher send outcome unknown; not sent again"
+        _ao_mr_alarm "mailroom-unknown-codex" "Mailroom: the Codex watcher could not confirm ${_mr_u##*/}; it may or may not have arrived and is not sent again. Check the target thread (docs/mailroom.md)." &&
+          rm -f "$_mr_u"
+      done
+    fi
     # A Codex send cut off with the watcher down may have landed: filed as
     # unknown, never sent again, and one alarm.
     if [ "$_mr_side" = codex ] && [ -z "$_mr_dry" ] && ! ao_mr_watcher_up codex; then
@@ -389,7 +400,8 @@ _ao_mr_ring_codex() {
 # (registry, lease, gate): 0 deliver as named; 1 hold (the gate says no, or
 # the owner has no addressable session; the alarm still runs); 2 the owner
 # moved, so a new ring went to the current owner and this one is filed as
-# rerouted. Rings with no registry key (doorbells) are delivered as named.
+# rerouted. An operator no longer in the registry holds (the alarm runs);
+# only doorbells (key .doorbell) are delivered as named.
 _ao_mr_route_cb() {
   [ "$OP_KEY" = "$_mr_key" ] || return 0
   _mr_found=1 _mr_osid=$OP_SID _mr_ocl=$OP_CLIENT _mr_ogate=0
@@ -401,9 +413,10 @@ _ao_mr_route() {
   _mr_key=${_mr_key%--queue.md}
   _mr_key=$(printf '%s\n' "${_mr_key%.md}" | sed 's/-[0-9]\{8\}T[0-9]\{6\}\(-[0-9a-f]\{6\}\)\{0,1\}\(-[0-9]\{1,3\}\)\{0,1\}$//')
   _mr_found='' _mr_osid='' _mr_ocl='' _mr_ogate=0
-  ao_is_name "$_mr_key" && ao_registry_has "$_mr_key" || return 0
+  [ "$_mr_key" != .doorbell ] || return 0
+  ao_is_name "$_mr_key" && ao_registry_has "$_mr_key" || return 1
   ao_registry_each _ao_mr_route_cb
-  [ -n "$_mr_found" ] || return 0
+  [ -n "$_mr_found" ] || return 1
   [ "$_mr_ogate" -eq 0 ] || return 1
   [ "$_mr_ocl" != "$_mr_side" ] || [ "$_mr_osid" != "$_mr_sid" ] || return 0
   case $_mr_ocl in claude | codex) ;; *) return 1 ;; esac

@@ -8,6 +8,7 @@
 //   nolist        tools/list lacks send_message_to_thread
 //   die-on-send   exit (pipe closed) at the first send
 //   hang-on-send  never answer a send (the caller times out)
+//   rpcerror-on-send  answer a send with a JSON-RPC internal error
 //   nostatus      read_thread answers with no turn status
 'use strict';
 const fs = require('node:fs');
@@ -41,6 +42,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   if (name === 'send_message_to_thread') {
     if (mode === 'die-on-send') process.exit(0);
     if (mode === 'hang-on-send') return;
+    if (mode === 'rpcerror-on-send') return process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: m.id, error: { code: -32603, message: 'internal' } })}\n`);
     if (mode === 'senderror') return reply(m.id, text({ error: 'thread not found' }, true));
     return reply(m.id, text({ threadId: a.threadId }));
   }

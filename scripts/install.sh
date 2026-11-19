@@ -99,6 +99,23 @@ inst_abs() {
   ao_expand_path "$1" "$PWD"
 }
 
+# inst_physical PATH  PATH with symlinks and .. resolved through its nearest
+# existing ancestor, so a containment check cannot be fooled by a link.
+inst_physical() {
+  _ph_rest='' _ph_p=$1
+  while [ ! -d "$_ph_p" ]; do
+    _ph_rest=/${_ph_p##*/}$_ph_rest
+    _ph_p=$(dirname -- "$_ph_p")
+  done
+  printf '%s%s\n' "$(CDPATH='' cd -- "$_ph_p" && pwd -P)" "$_ph_rest"
+}
+
+# inst_outside_kit PATH WHAT  Refuse a home inside the kit checkout.
+inst_outside_kit() {
+  _ok_kit=$(CDPATH='' cd -- "$KIT" && pwd -P)
+  case $(inst_physical "$1")/ in "$_ok_kit"/*) ao_die "$AO_E_USAGE" "the $2 home must be outside the kit checkout" ;; esac
+}
+
 # inst_tilde PATH  PATH with $HOME shown as ~, for the registry.
 inst_tilde() {
   # shellcheck disable=SC2088 # a literal ~ is the point
@@ -229,7 +246,7 @@ inst_oracle() {
     case $example in codex-only) v_client=codex ;; custom) v_client=custom ;; *) v_client=claude ;; esac
   fi
   inst_client "$v_client"
-  case $home/ in "$KIT"/*) ao_die "$AO_E_USAGE" "the Oracle home must be outside the kit checkout" ;; esac
+  inst_outside_kit "$home" Oracle
   profile=$(ao_profile_path)
   case $profile in "$home"/* | "$KIT"/*) ao_die "$AO_E_USAGE" "the profile must live outside git: $profile" ;; esac
   inst_dir "$home"
@@ -348,7 +365,7 @@ inst_operator() {
   if [ -n "$embedded" ]; then home=$AO_HOME/operators/$v_key
   elif [ -z "$home" ]; then home=$(dirname -- "$AO_HOME")/$v_key
   fi
-  case $home/ in "$KIT"/*) ao_die "$AO_E_USAGE" "the operator home must be outside the kit checkout" ;; esac
+  inst_outside_kit "$home" operator
   row=$(awk -F'\t' -v k="$v_key" '$1 == k { print; exit }' "$AO_REGISTRY")
   if [ -n "$row" ]; then
     _rh=$(printf '%s\n' "$row" | cut -f 3)
@@ -626,7 +643,7 @@ inst_bridge() {
     ao_lock install || ao_die "$AO_E_USAGE" "another install.sh is running; try again"
   fi
   [ -n "$home" ] || home=$(dirname -- "$AO_HOME")/$v_key
-  case $home/ in "$KIT"/*) ao_die "$AO_E_USAGE" "the bridge home must be outside the kit checkout" ;; esac
+  inst_outside_kit "$home" bridge
   row=$(awk -F'\t' -v k="$v_key" '$1 == k { print; exit }' "$AO_REGISTRY")
   if [ -n "$row" ]; then
     _rh=$(printf '%s\n' "$row" | cut -f 3)

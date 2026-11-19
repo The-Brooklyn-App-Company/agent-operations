@@ -42,14 +42,16 @@ when a stuck Claude bridge sent a ring and the fallback sends it again);
 the relay id is the same, so receivers drop repeats. Every sender claims a
 ring by an atomic rename before sending, so two paths never send it at the
 same moment. A Codex send whose outcome is unknown (a timeout, a crash or a
-closed pipe mid-call, or a direct queue the CLI did not confirm) is filed
-`unknown`, alarmed once and never sent again.
+protocol error or closed pipe mid-call, or a direct queue the CLI did not
+confirm) is filed `unknown`, alarmed once and never sent again. Only an
+explicit error answer from the tool counts as a refusal that may be tried
+again.
 
 **The Codex watcher is experimental twice over:** it relies on an
 undocumented pipe the desktop app provides only to commands started inside
 one of its chats, and the read-thread result it uses to tell a busy thread
-from an idle one is not documented either (an unreadable state sends at
-once, logged `queue-unknown`). It dies with the app and is re-armed by the
+from an idle one is not documented either (an unreadable state is never sent at once: it counts as busy, so the ring waits and is released
+to the real Codex queue at the cap). It dies with the app and is re-armed by the
 supervisor after each app restart.
 
 ## Timed safety nets
