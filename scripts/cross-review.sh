@@ -317,6 +317,7 @@ cr_due_week() {
 # cr_row  Registry callback.
 cr_row() {
   [ -z "$only_key" ] || [ "$OP_KEY" = "$only_key" ] || return 0
+  ! ao_is_bridge_key "$OP_KEY" || return 0
   # Every run records family changes, whatever the per-run cap.
   [ -n "$dry_run" ] || ao_audit_observe || ao_warn "cannot record the switch-in audit state of $OP_KEY"
   _wf=$state/$OP_KEY.week
@@ -373,6 +374,7 @@ cr_observe_row() {
 
 # cr_count_row  Registry callback: count rows not yet reviewed this week.
 cr_count_row() {
+  ! ao_is_bridge_key "$OP_KEY" || return 0
   [ "$(cat "$state/$OP_KEY.week" 2>/dev/null)" = "$AO_T_WEEK" ] || remaining=$((remaining + 1))
 }
 

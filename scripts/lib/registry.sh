@@ -34,6 +34,13 @@ ao_registry_each() {
   done 3<"$AO_REGISTRY"
 }
 
+# ao_is_bridge_key KEY  True for the reserved mailroom bridge keys
+# (EXPERIMENTAL, lib/mailroom.sh): never relayed to, watched or reviewed.
+ao_is_bridge_key() {
+  case $1 in mailroom-claude | mailroom-codex) return 0 ;; esac
+  return 1
+}
+
 # ao_registry_has KEY  True when KEY has a registry row.
 ao_registry_has() {
   [ -r "$AO_REGISTRY" ] || return 1

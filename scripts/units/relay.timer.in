@@ -1,0 +1,11 @@
+# systemd user timer for relay.sh (Linux). UNTESTED; see relay.service.in.
+[Unit]
+Description=Run the agent-operations relay every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

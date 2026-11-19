@@ -18,6 +18,28 @@ settings file next to the project). Fill in the paths and commands.
 }
 ```
 
+### Compaction recovery hook
+
+Claude Code cuts SessionStart hook output over about 10 KB to a short
+preview, so the kit's hook prints a capped digest (under 8 KB) that orders
+the session to read the full files first. Register it for this home:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "compact|resume",
+        "hooks": [{ "type": "command", "command": "<kit-dir>/scripts/recover-context.sh" }] }
+    ]
+  }
+}
+```
+
+### Mailroom bridge home
+
+A Claude mailroom bridge (the kit's `docs/mailroom.md`) needs `Bash(<kit-dir>/scripts/mailroom.sh:*)` (or `Bash(sh <kit-dir>/scripts/mailroom.sh:*)`)
+in its allow list and nothing else beyond `SendMessage`.
+
 ## Codex
 
 Applied in the Codex configuration for this home: sandbox level and

@@ -6,7 +6,7 @@ templates, thin skills, and POSIX sh scripts run by the OS scheduler. It
 works with Claude Code and Codex in any seat. It is not a framework, a
 daemon or an agent runtime.
 
-Version 0.3.0. [Changelog](CHANGELOG.md).
+Version 0.3.1. [Changelog](CHANGELOG.md).
 
 ## Who it is for
 
@@ -49,6 +49,12 @@ Overlays hold deltas only: a parameter, an added rule, or
   operator; a digest goes to the Oracle.
 - **Mail is a notification, never authority.** The relay tells a session
   where its new notes are; it never puts note text in front of a model.
+- **Mailroom, experimental:** the relay routes, an in-app bridge per
+  desktop app delivers, and a model-free supervisor keeps both bridges
+  armed through app restarts and reboots ([mailroom](docs/mailroom.md)).
+- **Always-on host:** `install.sh host` turns App Nap off for both desktop
+  apps and checks power, units and launchd priority; `check.sh host`
+  re-checks ([hosts](docs/hosts-and-ci.md#always-on-host)).
 - **Codex relay queues by default** for Codex rows with actual thread IDs.
   Set `relay_codex=off` for passive pickup. One live isolated round trip was
   observed on an existing macOS account/machine (versions and limits below);
@@ -69,7 +75,8 @@ scripts/install.sh oracle ~/ops/oracle              # creates and commits
 $EDITOR ~/.config/agent-operations/profile          # replace every CHANGE-ME
 scripts/install.sh operator web --owns git@git.example.com:me/app.git
 scripts/check.sh home ~/ops/oracle ~/ops/web && scripts/status.sh
-scripts/install.sh timers                           # prints the load command
+scripts/install.sh host                             # App Nap, power, units
+scripts/install.sh timers                           # prints the load commands
 ```
 
 Then start and name a session in each home, and apply each home's
@@ -109,7 +116,10 @@ Highest stage reached for each piece, with the client, version and date.
 | `cross-review.sh` | Switch-in report by a real Codex reviewer, sandboxed; weekly review: fakes only | codex-cli 0.169.0-alpha.11, 2026-11-17 |
 | `install.sh` | Fresh isolated HOME with real client binaries for version checks, Oracle + embedded operator install/home checks, and real macOS worktree helper passed; no sign-in | Claude Code 2.1.322, codex-cli 0.169.0-alpha.11.1, 2026-11-18; not a separate clean machine/account |
 | `install.sh sync`, `status.sh --drift` | Fakes only (test suite); not yet run against a real two-client setup | |
-| launchd unit | Rendered by `install.sh`; loading it is your step | |
+| launchd units (tick, relay) | Rendered by `install.sh`; loading them is your step | |
+| `install.sh host`, `check.sh host` | Test suite with a fake `defaults`; `check.sh host` read-only on a real macOS host | 2026-11-19 |
+| `recover-context.sh` digest under 8 KB | Test suite | 2026-11-19; the 10 KB hook-output limit it works around was observed, not documented |
+| **Experimental:** mailroom (relay rings, supervisor, Claude and Codex watchers) | Test suite with fakes; the pattern ran in one private deployment, not this code; restart recovery **unverified** | [Mailroom](docs/mailroom.md#what-is-proven), 2026-11-19 |
 | systemd units, Linux hosts | **Untested** | |
 | Codex relay delivery | Live isolated kit relay → existing native app thread → recipient acknowledgement, macOS; negative cases use fakes | codex-cli 0.169.0-alpha.11.1, 2026-11-18; queue/resume warning observed before a later recipient turn; not a fresh account/machine |
 | **Experimental:** lease, standby redirect, forward, cold takeover, asks ledger ([handoff](docs/handoff.md)) | Test suite; sandboxed end-to-end with both real CLIs, headless, `file-only` registry (validation table in [handoff](docs/handoff.md#per-client-validation)) | Claude Code 2.1.322, codex-cli 0.169.0-alpha.11, 2026-11-17. **Not yet** the live test on a real operator ([TESTING.md](TESTING.md)) |
@@ -123,11 +133,12 @@ Highest stage reached for each piece, with the client, version and date.
 
 ```
 kit/KIT.md      the rules, stable IDs
-docs/           six guides
+docs/           seven guides
 templates/      home/, oracle/, team/, packets/
 profiles/       claude-only, codex-only, both, custom
-scripts/        install, tick, relay, worker-run, review-run, cross-review,
-                status, inbox-put, check, drift-check, lib/, units/
+scripts/        install, tick, relay, mailroom, worker-run, review-run,
+                cross-review, status, inbox-put, check, drift-check,
+                recover-context, lib/, units/
 adapters/       CONTRACT.md, none.sh, git-gh.sh
 skills/         operator-setup, review-handoff, release-closeout,
                 return-to-desk, model-bakeoff

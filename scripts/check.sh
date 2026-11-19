@@ -1,6 +1,7 @@
 #!/bin/sh
-# check.sh - deterministic repository checks: links, duplicate rule text,
-# skill shape, home layout, privacy. Needs no profile; safe to run in CI.
+# check.sh - deterministic checks: links, duplicate rule text, skill shape,
+# home layout, privacy, and host settings. Needs no profile (host reads one
+# when present); safe to run in CI.
 #
 # Usage: check.sh kit
 #        check.sh links [FILE...]
@@ -8,6 +9,7 @@
 #        check.sh skills [--max-lines N] DIR...
 #        check.sh home DIR...
 #        check.sh privacy [--denylist FILE] [PATH...]
+#        check.sh host
 #
 # kit      Run in a kit checkout (CI does): links over every tracked
 #          Markdown file and skills over skills/ must pass; duplicate rule
@@ -42,6 +44,16 @@
 #          the files git tracks in the current directory. Matching lines are
 #          printed as file:line only, never with their text, so the report
 #          itself leaks nothing. Git history and author metadata are out of scope.
+# host     An always-on macOS host (reads the profile when there is one;
+#          read-only). App Nap: every desktop app in host_apps that has run
+#          here must have NSAppSleepDisabled set (fix: install.sh host, then
+#          restart the app). launchd: every job in host_launchd_dirs whose
+#          Label matches a host_latency_jobs pattern (default: the kit's own
+#          tick and relay; add your schedulers, watchers, alert routes and
+#          CI forwarders) must not set ProcessType Background (or Adaptive)
+#          or LowPriorityIO: launchd throttles those. Output, one finding
+#          per line: `app-nap: <bundle id>` or `launchd: <file>: <label>:
+#          <setting>`. Without `defaults` the App Nap part is skipped.
 #
 # Exit codes: 0 clean; 1 findings, or a scan that could not complete (the
 # message says which); 2 usage error.
@@ -385,6 +397,68 @@ check_privacy() {
   return "$AO_E_FAIL"
 }
 
+# check_host  App Nap and launchd priority on an always-on host.
+check_host() {
+  [ $# -eq 0 ] || ao_die "$AO_E_USAGE" "usage: check.sh host"
+  _pf=$(ao_profile_path)
+  [ ! -r "$_pf" ] || ao_profile_parse "$_pf"
+  _apps=$(ao_cfg host_apps "$AO_HOST_APPS")
+  _jobs=$(ao_cfg host_latency_jobs "$AO_HOST_LATENCY_JOBS")
+  _dirs=$(ao_cfg host_launchd_dirs "$AO_HOST_LAUNCHD_DIRS")
+  _hits=$(ao_tmp host-hits)
+  if command -v defaults >/dev/null 2>&1 && [ "$_apps" != none ]; then
+    for _id in $_apps; do
+      # Only apps that have run here (their defaults domain exists).
+      defaults read "$_id" >/dev/null 2>&1 || continue
+      [ "$(defaults read "$_id" NSAppSleepDisabled 2>/dev/null)" = 1 ] ||
+        printf 'app-nap: %s (fix: install.sh host, then restart the app)\n' "$_id" >>"$_hits"
+    done
+  fi
+  [ "$_jobs" != none ] || _dirs=
+  set -f
+  for _d in $_dirs; do
+    set +f
+    _d=$(ao_expand_path "$_d" /)
+    for _p in "$_d"/*.plist; do
+      [ -f "$_p" ] || continue
+      check_host_plist "$_p" "$_jobs" >>"$_hits"
+    done
+    set -f
+  done
+  set +f
+  [ -s "$_hits" ] || return 0
+  cat "$_hits"
+  return "$AO_E_FAIL"
+}
+
+# check_host_plist FILE PATTERNS  Print a finding for a latency-sensitive
+# job that launchd would throttle. Binary plists are read through plutil.
+check_host_plist() {
+  if command -v plutil >/dev/null 2>&1; then
+    _xml=$(plutil -convert xml1 -o - "$1" 2>/dev/null) || _xml=$(cat "$1")
+  else
+    _xml=$(cat "$1")
+  fi
+  # One line per <key>/<value> pair, whitespace between tags removed.
+  _kv=$(printf '%s\n' "$_xml" | tr -d '\n\t' | sed 's|<key>|\
+<key>|g' | sed -n 's|^<key>\([^<]*\)</key> *<\([a-z]*\)\(/\{0,1\}\)>\([^<]*\).*|\1 \2 \4|p')
+  _label=$(printf '%s\n' "$_kv" | awk '$1 == "Label" { print $3; exit }')
+  [ -n "$_label" ] || return 0
+  _hit=
+  set -f
+  for _pat in $2; do
+    # shellcheck disable=SC2254 # the pattern is a glob on purpose
+    case $_label in $_pat) _hit=1 ;; esac
+  done
+  set +f
+  [ -n "$_hit" ] || return 0
+  _pt=$(printf '%s\n' "$_kv" | awk '$1 == "ProcessType" { print $3; exit }')
+  case $_pt in Background | Adaptive) printf 'launchd: %s: %s: ProcessType %s (use Standard or leave it unset)\n' "$1" "$_label" "$_pt" ;; esac
+  printf '%s\n' "$_kv" | awk '$1 == "LowPriorityIO" && $2 == "true" { f = 1 } END { exit !f }' &&
+    printf 'launchd: %s: %s: LowPriorityIO true (remove it)\n' "$1" "$_label"
+  return 0
+}
+
 main() {
   case ${1-} in
     kit) shift; check_kit "$@" ;;
@@ -393,9 +467,10 @@ main() {
     dupes) shift; check_dupes "$@" ;;
     skills) shift; check_skills "$@" ;;
     privacy) shift; check_privacy "$@" ;;
+    host) shift; check_host "$@" ;;
     __scan) shift; check_privacy_each "$@" ;;
     -h | --help) ao_usage; exit 0 ;;
-    *) ao_die "$AO_E_USAGE" "usage: check.sh kit|links|dupes|skills|home|privacy ... (see --help)" ;;
+    *) ao_die "$AO_E_USAGE" "usage: check.sh kit|links|dupes|skills|home|privacy|host ... (see --help)" ;;
   esac
 }
 

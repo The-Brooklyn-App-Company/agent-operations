@@ -10,13 +10,16 @@
 #        install.sh [--dry-run] sync CLIENT
 #        install.sh [--dry-run] skills --target DIR
 #        install.sh [--dry-run] timers [--launchd | --systemd]
+#        install.sh [--dry-run] bridge claude|codex [--home DIR] [--name NAME]
+#        install.sh [--dry-run] host
 #
 # --dry-run lists every directory, file, link, worktree and timer the
 # command would create, and changes nothing. Without it the same list is
 # printed as the work is done. The installer only ever creates what is
 # missing: an existing file is kept as it is and reported. It never uses
 # sudo, never edits a client's settings, never loads a timer and never
-# clones over the network; it prints those steps for you instead.
+# clones over the network; it prints those steps for you instead. The one
+# OS setting it writes is the per-app App Nap default, with `host`.
 #
 # oracle    Creates the Oracle home: AGENTS.md, CLAUDE.md, MANDATE.md,
 #           NOTES.md, BACKLOG.md, JOURNAL.md, FACTS.md, SCHEDULES.md,
@@ -44,9 +47,28 @@
 # skills    Links each kit skill into DIR (a client's skills folder); an
 #           existing entry that is not this kit's link is reported, never
 #           replaced.
-# timers    Needs the profile. Renders the tick unit for this machine
-#           (launchd on macOS, systemd user units elsewhere) into your
-#           user's unit folder and prints the command that loads it.
+# timers    Needs the profile. Renders the tick unit and the relay unit
+#           (the mailroom's trigger: every inbox folder watched, plus a run
+#           every minute) for this machine (launchd on macOS, systemd user
+#           units elsewhere) into your user's unit folder and prints the
+#           commands that load them. Both run as ProcessType Standard.
+# bridge    Needs the profile. EXPERIMENTAL (docs/mailroom.md). Creates a
+#           mailroom bridge's own home (default: beside the Oracle home,
+#           mailroom-CLIENT) with the bridge's whole duty in its AGENTS.md,
+#           and its registry row under the reserved key mailroom-CLIENT
+#           (session pending): the one file the relay and the supervisor
+#           read for bridge ids. Then prints how to start and name the
+#           session and record its id.
+# host      An always-on host, check then set, idempotent; prints one table
+#           row per item (item, state, action): App Nap off for each desktop
+#           app in host_apps (default: the Claude and ChatGPT desktop apps,
+#           com.anthropic.claudefordesktop and com.openai.codex) with
+#           `defaults write <id> NSAppSleepDisabled -bool YES`, read back,
+#           effective after each app restarts; power (pmset, check only);
+#           with a profile, the mailroom folders, the tick and relay units
+#           (rendered by `timers`; the relay unit must watch every registry
+#           inbox) and the bridge rows; finally `check.sh host` (App Nap and
+#           launchd ProcessType). It never loads units or opens apps.
 #
 # Options:
 #   --name NAME              session display name (default: Oracle, or KEY)
@@ -319,6 +341,7 @@ inst_operator() {
     ao_lock install || ao_die "$AO_E_USAGE" "another install.sh is running; try again"
   fi
   [ "$v_key" != "$AO_ORACLE_KEY" ] || ao_die "$AO_E_USAGE" "'$v_key' is the Oracle's key"
+  case $v_key in mailroom-claude | mailroom-codex) ao_die "$AO_E_USAGE" "'$v_key' is reserved for a mailroom bridge (install.sh bridge)" ;; esac
   [ "$v_key" != "$(basename -- "$AO_SENT")" ] || ao_die "$AO_E_USAGE" "'$v_key' collides with the sent archive folder"
   [ -r "$AO_REGISTRY" ] || ao_die "$AO_E_USAGE" "registry not found: $AO_REGISTRY (run install.sh oracle first)"
   work_root=$(ao_cfg_path work_root "$HOME/src")
@@ -545,22 +568,190 @@ inst_timers() {
   if [ "$kind" = launchd ]; then
     unit=$HOME/Library/LaunchAgents/$label.plist
     inst_unit "$KIT/scripts/units/tick.plist.in" "$unit"
-    load="launchctl bootstrap gui/\$(id -u) $unit"
+    label=local.agent-operations.relay
+    runit=$HOME/Library/LaunchAgents/$label.plist
+    watch=$(ao_tmp watch)
+    inst_watch_paths >"$watch"
+    inst_unit "$KIT/scripts/units/relay.plist.in" "$runit" "$watch"
+    load="launchctl bootstrap gui/\$(id -u) $unit
+  launchctl bootstrap gui/\$(id -u) $runit"
   else
     unit=$HOME/.config/systemd/user/agent-operations-tick.service
     inst_unit "$KIT/scripts/units/tick.service.in" "$unit"
     inst_unit "$KIT/scripts/units/tick.timer.in" "${unit%.service}.timer"
-    load="systemctl --user daemon-reload && systemctl --user enable --now agent-operations-tick.timer"
+    runit=$HOME/.config/systemd/user/agent-operations-relay.service
+    inst_unit "$KIT/scripts/units/relay.service.in" "$runit"
+    inst_unit "$KIT/scripts/units/relay.timer.in" "${runit%.service}.timer"
+    load="systemctl --user daemon-reload && systemctl --user enable --now agent-operations-tick.timer agent-operations-relay.timer"
   fi
   cat <<EOF
 
-The unit is written but not loaded. Load it yourself:
+The units are written but not loaded. Load them yourself:
   $load
-Then add the tick to SCHEDULES.md in the Oracle home if it is not there.
+Then add the tick and the relay to SCHEDULES.md in the Oracle home if they
+are not there.
 EOF
 }
 
-# inst_unit SRC DEST  Render a unit template (its own @NAME@ set).
+# inst_watch_paths  WatchPaths entries for the relay unit: each registry
+# key's inbox folder (created if missing), XML-escaped.
+inst_watch_paths() {
+  [ -r "$AO_REGISTRY" ] || return 0
+  awk -F'\t' '$1 != "" && $1 !~ /^#/ { print $1 }' "$AO_REGISTRY" | while IFS= read -r _k; do
+    ao_is_name "$_k" || continue
+    inst_dir "$AO_INBOX/$_k" >&2
+    printf '    <string>%s</string>\n' "$(printf '%s' "$AO_INBOX/$_k" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+  done
+}
+
+# ---------------------------------------------------------------- bridge
+
+inst_bridge() {
+  case ${1-} in claude | codex) v_client=$1 ;; *) ao_die "$AO_E_USAGE" "usage: install.sh bridge claude|codex [--home DIR] [--name NAME]" ;; esac
+  shift
+  v_key=mailroom-$v_client home='' v_team=none
+  if [ "$v_client" = claude ]; then v_name='Mailroom bridge (Claude)'; else v_name='Mailroom bridge (Codex)'; fi
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --home) [ $# -ge 2 ] || ao_die "$AO_E_USAGE" "--home needs a directory"; home=$(inst_abs "$2"); shift ;;
+      --name) [ $# -ge 2 ] || ao_die "$AO_E_USAGE" "--name needs a value"; v_name=$2; shift ;;
+      *) ao_die "$AO_E_USAGE" "unknown option '$1' (see --help)" ;;
+    esac
+    shift
+  done
+  case $v_name in *"$AO_TAB"* | *"$AO_NL"* | *'"'* | *\\*) ao_die "$AO_E_USAGE" "--name must be one line without tabs, quotes or backslashes" ;; esac
+  ao_load --no-state
+  [ -r "$AO_REGISTRY" ] || ao_die "$AO_E_USAGE" "registry not found: $AO_REGISTRY (run install.sh oracle first)"
+  if [ -z "$dry_run" ]; then
+    ao_lock install || ao_die "$AO_E_USAGE" "another install.sh is running; try again"
+  fi
+  [ -n "$home" ] || home=$(dirname -- "$AO_HOME")/$v_key
+  case $home/ in "$KIT"/*) ao_die "$AO_E_USAGE" "the bridge home must be outside the kit checkout" ;; esac
+  row=$(awk -F'\t' -v k="$v_key" '$1 == k { print; exit }' "$AO_REGISTRY")
+  if [ -n "$row" ]; then
+    _rh=$(printf '%s\n' "$row" | cut -f 3)
+    [ "$(ao_expand_path "$_rh" /)" = "$home" ] ||
+      ao_die "$AO_E_USAGE" "'$v_key' is already in the registry with home $_rh"
+  fi
+  inst_kit_facts
+  inst_dir "$home"
+  inst_render "$TPL/mailroom/$v_client-AGENTS.md" "$home/AGENTS.md"
+  [ "$v_client" != claude ] || inst_render "$TPL/home/CLAUDE.md" "$home/CLAUDE.md"
+  [ -n "$row" ] || inst_append "$AO_REGISTRY" "$v_key$AO_TAB$v_name$AO_TAB$(inst_tilde "$home")${AO_TAB}pending$AO_TAB$v_client"
+  inst_commit "$home" "Create the $v_client mailroom bridge home from Agent Operations $kit_version"
+  inst_commit "$AO_HOME" "Add the $v_client mailroom bridge"
+  if [ "$v_client" = claude ]; then
+    _first="send it: Re-arm"
+  else
+    _first="send it: Re-arm doorbell watcher (set bridge_codex_node and bridge_codex_server in the profile first)"
+  fi
+  cat <<EOF
+
+Next, by hand:
+  1. Start a session in $home on $v_client with the cheapest model, name it
+     "$v_name", and replace "pending" in its row of $AO_REGISTRY with
+     its session id.
+  2. Allow it to run $AO_SCRIPTS/mailroom.sh without asking (settings).
+  3. $_first
+  4. Check: $AO_SCRIPTS/mailroom.sh status
+EOF
+}
+
+# ---------------------------------------------------------------- host
+
+# host_row ITEM STATE ACTION  One row of the host table.
+host_row() {
+  printf '%-40s %-28s %s\n' "$1" "$2" "${3:--}"
+  case $2 in ok* | set* | created*) ;; *) host_todo=$((host_todo + 1)) ;; esac
+}
+
+inst_host() {
+  [ $# -eq 0 ] || ao_die "$AO_E_USAGE" "usage: install.sh host"
+  host_todo=0
+  _pf=$(ao_profile_path)
+  _prof=
+  if [ -r "$_pf" ]; then ao_load --no-state; _prof=1; fi
+  apps=$(ao_cfg host_apps "$AO_HOST_APPS")
+  printf '%-40s %-28s %s\n' ITEM STATE ACTION
+  # 1. App Nap, per app: check, set, read back.
+  if ! command -v defaults >/dev/null 2>&1; then
+    host_row app-nap "n/a (not macOS)"
+  elif [ "$apps" != none ]; then
+    for _id in $apps; do
+      case $_id in *[!A-Za-z0-9.-]*) host_row "app-nap $_id" "invalid bundle id" "fix host_apps"; continue ;; esac
+      if [ "$(defaults read "$_id" NSAppSleepDisabled 2>/dev/null)" = 1 ]; then
+        host_row "app-nap $_id" ok
+      elif [ -n "$dry_run" ]; then
+        host_row "app-nap $_id" "would set" "defaults write $_id NSAppSleepDisabled -bool YES"
+      elif defaults write "$_id" NSAppSleepDisabled -bool YES &&
+        [ "$(defaults read "$_id" NSAppSleepDisabled 2>/dev/null)" = 1 ]; then
+        host_row "app-nap $_id" "set (restart needed)" "quit and reopen the app"
+      else
+        host_row "app-nap $_id" FAILED "defaults write $_id NSAppSleepDisabled -bool YES"
+        failures=$((failures + 1))
+      fi
+    done
+  fi
+  # 2. Power: check only.
+  if command -v pmset >/dev/null 2>&1; then
+    _sl=$(pmset -g 2>/dev/null | awk '$1 == "sleep" { print $2; exit }')
+    case $_sl in
+      0) host_row power "ok (system sleep off)" ;;
+      '') host_row power "unknown" "check pmset -g" ;;
+      *) host_row power "system sleeps after ${_sl} min" "turn system sleep off in Settings (check only here)" ;;
+    esac
+  fi
+  if [ -z "$_prof" ]; then
+    host_row profile "none" "copy a profile, then run host again"
+  else
+    # 3. Folders.
+    ao_mr_dir=$(ao_cfg_path bridge_dir "$AO_INBOX/.mailroom")
+    for _d in "$ao_mr_dir/claude/delivered" "$ao_mr_dir/codex/delivered"; do
+      if [ -d "$_d" ]; then host_row "folder ${_d#"$AO_HOME"/}" ok
+      elif [ -n "$dry_run" ]; then host_row "folder ${_d#"$AO_HOME"/}" "would create"
+      elif mkdir -p "$_d"; then host_row "folder ${_d#"$AO_HOME"/}" created
+      else host_row "folder ${_d#"$AO_HOME"/}" FAILED; failures=$((failures + 1)); fi
+    done
+    # 4. Units, generated from the registry.
+    if [ "$(uname -s)" = Darwin ]; then
+      for _u in tick relay; do
+        _f=$HOME/Library/LaunchAgents/local.agent-operations.$_u.plist
+        if [ ! -f "$_f" ]; then host_row "unit $_u" missing "install.sh timers, then load it"; continue; fi
+        _miss=
+        if [ "$_u" = relay ] && [ -r "$AO_REGISTRY" ]; then
+          _keys=$(ao_tmp keys)
+          awk -F'\t' '$1 != "" && $1 !~ /^#/ { print $1 }' "$AO_REGISTRY" >"$_keys"
+          while IFS= read -r _k; do
+            ao_is_name "$_k" || continue
+            grep -qF "<string>$AO_INBOX/$_k</string>" "$_f" || _miss="$_miss $_k"
+          done <"$_keys"
+        fi
+        if [ -n "$_miss" ]; then host_row "unit $_u" "stale: not watching$_miss" "remove $_f, run install.sh timers, reload"
+        else host_row "unit $_u" ok; fi
+      done
+    fi
+    # 5. Bridges: ids in the registry.
+    for _c in claude codex; do
+      _row=$(awk -F'\t' -v k="mailroom-$_c" '$1 == k { print; exit }' "$AO_REGISTRY" 2>/dev/null)
+      _sid=$(printf '%s\n' "$_row" | cut -f 4)
+      if [ -z "$_row" ]; then host_row "bridge $_c" "no row" "install.sh bridge $_c (if you run $_c)"
+      else case $_sid in '' | - | pending) host_row "bridge $_c" "session pending" "record its session id in the registry" ;;
+        *) host_row "bridge $_c" ok ;; esac
+      fi
+    done
+  fi
+  # 6. Verify App Nap and launchd priority.
+  _ch=$(ao_tmp check-host)
+  if "$AO_SCRIPTS/check.sh" host >"$_ch" 2>&1; then
+    host_row check.sh "ok (App Nap, ProcessType)"
+  else
+    while IFS= read -r _l; do host_row check.sh "finding" "$_l"; done <"$_ch"
+  fi
+  printf '\n%s item(s) need you.\n' "$host_todo"
+}
+
+# inst_unit SRC DEST [LINES]  Render a unit template (its own @NAME@ set);
+# a line holding only @WATCH_PATHS@ becomes the contents of file LINES.
 inst_unit() {
   if inst_exists "$2"; then
     printf 'keep    %s (exists; compare it with %s)\n' "$2" "$1"
@@ -571,7 +762,9 @@ inst_unit() {
   if ! { sed -e "s|@LABEL@|$(inst_sed_value "$label")|g" \
       -e "s|@KIT_DIR@|$(inst_sed_value "$KIT")|g" \
       -e "s|@PROFILE@|$(inst_sed_value "$AO_PROFILE")|g" \
-      -e "s|@LOG_DIR@|$(inst_sed_value "$logs")|g" "$1" | inst_publish "$2"; }; then
+      -e "s|@LOG_DIR@|$(inst_sed_value "$logs")|g" "$1" |
+      awk -v f="${3:-/dev/null}" '$1 == "@WATCH_PATHS@" { while ((getline l < f) > 0) print l; next } { print }' |
+      inst_publish "$2"; }; then
     ao_warn "cannot write $2"
     failures=$((failures + 1))
   fi
@@ -592,6 +785,8 @@ main() {
     sync) inst_sync "$@" ;;
     skills) inst_skills "$@" ;;
     timers) inst_timers "$@" ;;
+    host) inst_host "$@" ;;
+    bridge) inst_bridge "$@" ;;
     -h | --help) ao_usage; exit 0 ;;
     *) ao_die "$AO_E_USAGE" "unknown command '$cmd' (see --help)" ;;
   esac

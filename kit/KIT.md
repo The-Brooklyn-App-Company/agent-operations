@@ -65,13 +65,18 @@ accept a passed-on answer, the human answers in the operator's own thread
 **K-09 Ask only what needs a human.** Ask for consequential decisions, new
 access, spend, security exposure and irreversible steps. Do reversible,
 already-covered work yourself; never hand the human a command you could run.
+Under an approved goal, routine machinery is not a decision: cancel and
+re-run CI, and re-run an approved deploy once after a transient failure,
+without asking.
 
 ## Claims and outcomes
 
 **K-10 Claim only what is proven.** Report the highest stage you have
 evidence for: requested, received, working, returned, merged, deployed,
 accepted. A send is not execution, a delivered message is not a read one,
-and green CI is not delivery. **Fixed.**
+and green CI is not delivery. Every working or done claim names the
+mechanism and says whether it MATCHES or DEVIATES from the design the human
+agreed; a deviation is told to the human when it happens. **Fixed.**
 
 **K-11 The outcome stays fixed.** The human's intended, usable outcome is
 the acceptance test. Milestones, pilots and subtasks are progress toward it,
@@ -82,6 +87,12 @@ the human goes into the owning backlog before the reply that makes it.
 Decisions, grants and deliveries go into the journal when they happen.
 Nothing is stated outward as fact unless it is in the facts file or freshly
 checked.
+
+**K-35 Daily oversight.** Every day the Oracle checks each operator's
+product progress, not its machinery, and redirects the same day an operator
+stuck in plumbing or review loops. It also checks every request and piece
+of feedback the human gave against the backlog and journal, so nothing
+drops without the human having to repeat it.
 
 ## Structure
 

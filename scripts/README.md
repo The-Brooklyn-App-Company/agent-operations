@@ -9,9 +9,12 @@ and exit codes.
 
 | Script | Job |
 | --- | --- |
-| `install.sh` | Create the Oracle home, operator homes, skill links and the tick unit; `sync <client>` brings every home up to date for a second client; `--dry-run` lists everything first |
-| `tick.sh` | Scheduled heartbeat: stall watchdog, period hooks, then the relay |
-| `relay.sh` | Move new inbox notes to the archive and tell the session, with a pointer, never the note text |
+| `install.sh` | Create the Oracle home, operator homes, mailroom bridge homes, skill links and the tick and relay units; `host` sets up an always-on host (check then set); `sync <client>` brings every home up to date for a second client; `--dry-run` lists everything first |
+| `tick.sh` | Scheduled heartbeat: stall watchdog, period hooks, then the relay and the mailroom supervisor |
+| `relay.sh` | Move new inbox notes to the archive and route a pointer, never the note text: a ring for the app's bridge, or a direct delivery |
+| `mailroom.sh` | **Experimental.** The [mailroom](../docs/mailroom.md): `cycle` (relay unit), `supervise`, `wait` and `file` (Claude bridge), `arm-codex` (Codex bridge), `status`, `metrics` |
+| `mailroom-wait.py`, `mailroom-codex-watcher.cjs` | **Experimental.** The bridges' push watchers: kqueue for Claude; the Codex app's own tool server for Codex |
+| `recover-context.sh` | SessionStart hook: a compaction recovery digest capped at 8 KB ([continuity](../docs/continuity.md#records)) |
 | `worker-run.sh` | One cheap read-only worker job; result to an inbox unless `NOTHING` |
 | `review-run.sh` | One independent review pass by a reviewer role |
 | `cross-review.sh` | Weekly review of every operator by the other model family (from `OP_PROVIDER`), and the switch-in audit report after a move to the other family ([K-22](../kit/KIT.md), [handoff](../docs/handoff.md#switch-in-audit)) |
@@ -20,14 +23,14 @@ and exit codes.
 | `jobs.sh` | Validate explicit schedule snapshots and plan safe owning-side job cutovers; no scheduler apply |
 | `worktree.sh` | Create a scoped repo-local worktree after verified macOS churn exclusions; see `--help` |
 | `pr-watch.sh` | Deterministic change-only PR snapshots into the owning inbox; see `--help` |
-| `check.sh` | Links, duplicate rule text, skill shape, home layout, privacy scan |
+| `check.sh` | Links, duplicate rule text, skill shape, home layout, privacy scan, host settings (App Nap, launchd priority) |
 | `drift-check.sh` | Weekly audit: `check.sh dupes` plus a worker pass with `drift-prompt.md` |
 | `lease.sh` | **Experimental.** Advisory lease per operator: holder, standby, takeover ([handoff](../docs/handoff.md)) |
 | `mail.sh` | **Experimental.** File mailboxes in each home; `ring-all` for a tick hook |
-| `doorbell-claude.sh`, `doorbell-codex.sh` | **Experimental.** "You have mail", never the mail |
+| `doorbell-claude.sh`, `doorbell-codex.sh` | **Experimental.** "You have mail", never the mail; a mailroom ring when the mailroom is on |
 | `ask.sh` | **Experimental.** Asks and the approvals ledger, bound to the lease |
-| `units/` | launchd (macOS) and systemd (Linux, untested) templates for the tick |
-| `lib/` | Shared code: `core.sh`, `registry.sh`, `vendor.sh`, one `vendor-<client>.sh` per harness |
+| `units/` | launchd (macOS) and systemd (Linux, untested) templates for the tick and the relay unit |
+| `lib/` | Shared code: `core.sh`, `registry.sh`, `vendor.sh`, `mailroom.sh`, one `vendor-<client>.sh` per harness |
 
 ## Quickstart
 
@@ -55,6 +58,7 @@ key.
 | `operators/WATCHDOG-QUIET.tsv` | `quiet_list` | Dated watchdog exemptions |
 | `inbox/<key>/*.md` | `inbox_dir` | New notes waiting for a session; `.claimed/` holds notes being archived (an atomic rename, so a later note under the same name is untouched); `.relay-pending` lists archived notes whose pointer is not yet confirmed |
 | `inbox/sent/` | `sent_dir` | Archived notes, `<stamp>-<key>-<name>.md`; must be on a filesystem with hard links |
+| `inbox/.mailroom/{claude,codex}/` | `bridge_dir` | Experimental [mailroom](../docs/mailroom.md) rings, their `delivered/` folder and log, and the watchers' `.watcher/` state |
 | `hooks/{every,hourly,daily,weekly}/` | `hooks_dir` | Tick hooks; optional `hooks/gate` |
 | `~/.local/state/agent-operations/` | `state_dir` | Logs, stamps, locks, backoff, cross-review state and registry switch-in audit records (`audit/`) (machine-local; keep out of git and backups) |
 
@@ -76,6 +80,11 @@ directory), or `pending`; pending rows are skipped by the watchdog.
 `client` picks the transport, the activity source and the cross-review
 family (`claude`, `codex`, `custom`, `file-only`); empty means
 `relay_default`.
+
+The keys `mailroom-claude` and `mailroom-codex` are reserved for the
+[mailroom](../docs/mailroom.md) bridges (`install.sh bridge`): the relay,
+the watchdog and cross-review skip them, and the mailroom reads their ids
+from here.
 
 **Quiet list** (tab-separated): `key-or-name<TAB>YYYY-MM-DD<TAB>reason`.
 The watchdog skips the operator through that date, inclusive; expired rows
@@ -122,6 +131,12 @@ Unknown keys warn; keys starting with `x_` are free for local hooks.
 | `tracker`, `chat`, `githost`, `ci` | `none` | Integration slots, recorded for agents and adapters; the scripts do not read them yet |
 | `attribution` | `none` | AI attribution in commits: `none` or `disclose`; read by agents, not scripts |
 | `lease_stale`, `doorbell_codex`, `doorbell_rering_min` | `4h`, `off`, `60` | Experimental lease layer (see [handoff](../docs/handoff.md)) |
+| `relay_bridge` | `on` | Experimental [mailroom](../docs/mailroom.md): `on` rings the in-app bridges for claude and codex rows with a session id, with the transports as timed fallbacks; `off` delivers through the transports directly |
+| `bridge_dir` | `<inbox_dir>/.mailroom` | Ring folders |
+| `bridge_codex_node`, `bridge_codex_server` | none | The node binary and the `codex-app-tools/server.mjs` bundled in the Codex desktop app, for `mailroom.sh arm-codex` |
+| `host_apps` | `com.anthropic.claudefordesktop com.openai.codex` | Desktop apps whose App Nap `install.sh host` turns off and `check.sh host` checks; `none` skips |
+| `host_latency_jobs` | `*agent-operations*` | launchd label globs that must not run as Background (`check.sh host`); add your schedulers, watchers, alert routes and CI forwarders |
+| `host_launchd_dirs` | `~/Library/LaunchAgents /Library/LaunchAgents /Library/LaunchDaemons` | Folders `check.sh host` scans |
 
 **Roles.** Each role is a prefix:
 
@@ -131,7 +146,7 @@ Unknown keys warn; keys starting with `x_` are free for local hooks.
 | `reviewer` | `review-run.sh`, and cross-review for rows on other clients |
 | `reviewer_claude`, `reviewer_codex` | Per-family reviewers (client fixed by the name): `cross-review.sh` reviews Claude operators with `reviewer_codex` and Codex operators with `reviewer_claude`; a family counts as configured when its `_model` is set |
 | `implementer_claude`, `implementer_codex` | Per-seat implementer preferences, read by agents when they delegate; the scripts do not run them |
-| `relay_claude`, `relay_codex`, `relay_custom` | Relay settings (client fixed by the name); Codex relay defaults to `relay_codex=queue`; `off` makes it passive. The Codex doorbell uses these settings with its separate opt-in; its live path remains unrun |
+| `relay_claude`, `relay_codex`, `relay_custom` | Relay transports (client fixed by the name): direct delivery with `relay_bridge=off`, and the mailroom's fallbacks and re-arms otherwise; Codex relay defaults to `relay_codex=queue`; `off` makes it passive. The Codex doorbell uses these settings with its separate opt-in; its live path remains unrun |
 
 Every role takes the same fields:
 
@@ -185,7 +200,7 @@ Submission, recipient readback and action are separate stages (K-10).
 
 **Relay trust boundary.** Whatever can write an inbox can put a file in
 front of a session, so the relay never puts note text in front of a model:
-the delivery run sees only a fixed-shape pointer (count, archive folder,
+the delivery run, and a mailroom bridge, sees only a fixed-shape pointer (count, archive folder,
 sanitized file names, relay id), and the receiving session reads the files
 itself, labelled as data from automation ([K-01](../kit/KIT.md)). The Claude
 delivery run is confined: `--restricted`, no tool servers, no hooks, and

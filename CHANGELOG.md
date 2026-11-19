@@ -5,6 +5,45 @@ with 0.2.0; 0.1.x guidance had none.
 
 ## Unreleased
 
+## 0.3.1 (2026-11-19)
+
+- **K-01, K-10, K-23, K-27:** experimental [mailroom](docs/mailroom.md). One
+  rule: the relay routes, the in-app bridges deliver, and a model-free
+  supervisor keeps both bridges armed. Same-app messages go direct with the
+  app's own tool; cross-app and script notes become pointer-only rings
+  (`steer` or `queue`). Claude bridge: a cheap session in its own home with a
+  kqueue push watcher (no polling) that hands off with `SendMessage` and
+  re-arms in one command. Codex bridge (experimental, undocumented app pipe):
+  a watcher the bridge chat starts, sending natively with
+  `send_message_to_thread`; it implements steer (at once) and queue (when the
+  target is idle, 5-second checks only while held, 10-minute cap) itself and
+  logs the mode per delivery. Supervisor: 3-minute fallbacks through the
+  relay transports (outside the relay lock), hourly re-arm after an app
+  restart, reboot or crash, alarms by note and chat, free hourly echo
+  probes, metrics, a weekly review hook. New `mailroom.sh`, `install.sh
+  bridge`, a relay unit on every inbox change; reserved registry keys
+  `mailroom-claude` and `mailroom-codex`. `relay_bridge=on` by default;
+  `off` keeps direct delivery. Lease doorbells ring the mailroom when it is
+  on. **Upgrade:** run `install.sh host`, `install.sh bridge`, re-render and
+  reload the units, or set `relay_bridge=off`.
+- **K-27:** always-on host. `install.sh host`, check then set: App Nap off
+  for the Claude and ChatGPT desktop apps (`NSAppSleepDisabled`, effective
+  after each app restarts), power check, folders, units generated from the
+  registry, bridge rows. `check.sh host` flags App Nap and launchd jobs
+  tagged latency-sensitive (`host_latency_jobs`) that run `ProcessType`
+  Background or Adaptive, or `LowPriorityIO`. The tick and relay units now
+  run Standard and at load.
+- **K-15:** `recover-context.sh`, a SessionStart (`compact|resume`) recovery
+  digest capped at 8 KB, because Claude Code replaces hook output over about
+  10 KB with a short preview; a test fails above the cap.
+- **K-09 changed:** routine machinery under an approved goal (CI cancels and
+  re-runs, one re-run of an approved deploy) is not a decision for the human.
+- **K-10 changed:** claims name the mechanism and say MATCHES or DEVIATES
+  against the agreed design; deviations are told when they happen.
+- **K-35 added:** daily oversight: each operator's product progress, not its
+  machinery, and the human's words checked against the backlog and journal.
+- Validation in [TESTING.md](TESTING.md).
+
 ## 0.3.0 (2026-11-18)
 
 - **K-13, K-14, K-22, K-23, K-24, K-26, K-34:** end-to-end two-client

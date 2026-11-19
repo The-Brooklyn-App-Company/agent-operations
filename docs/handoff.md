@@ -108,8 +108,10 @@ and moves it to `done/`. Delivery is at-least-once; handle by id.
 A doorbell only says "you have mail". `mail.sh ring-all` (from a tick hook,
 see `examples/hooks/every/40-doorbells`) rings each holder while it has
 mail, again only when the pending set or the holder changes, or after
-`doorbell_rering_min` (60). Claude: the relay's confirmed `SendMessage` path
-with fixed text. Both doorbells are **fakes only; live unrun**, including the
+`doorbell_rering_min` (60). With the [mailroom](mailroom.md) on and an
+actual session id, a doorbell is a ring for that app's bridge, with the
+mailroom's fallbacks. Otherwise, Claude: the relay's confirmed `SendMessage`
+path with fixed text. Both doorbells are **fakes only; live unrun**, including the
 Claude doorbell: ordinary relay proof is not doorbell acceptance. Codex:
 `doorbell_codex=queue` opts into the native CLI queue transport; `off` remains
 the default, independently of `relay_codex`. An actual owner session ID is

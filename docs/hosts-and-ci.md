@@ -15,14 +15,21 @@ a systemd user timer on Linux (shipped, untested). Each tick, under a lock:
    `hooks/hourly/`, `daily/` and `weekly/`. A one-shot watch is a hook that
    carries its own end date and exits quietly after it. A failing hook
    leaves one note for the Oracle.
-3. **Relay.** Inbox notes go to their sessions. With every inbox empty this
-   costs nothing.
+3. **Relay and supervisor.** Inbox notes go to their sessions, then the
+   [mailroom](mailroom.md) supervisor checks waiting rings and the bridges.
+   With every inbox empty and both bridges armed this costs nothing.
 
-`scripts/install.sh timers` renders the unit for this machine into your
-user's launchd or systemd folder and prints the one command that loads it;
-loading it is your step, so no agent installs a persistent job on its own.
-The tick itself belongs in `SCHEDULES.md` like every other timed job
-([K-24](../kit/KIT.md)).
+A second unit, the **relay unit**, runs `mailroom.sh cycle` (relay, then
+supervisor) whenever a note lands in a registry inbox folder and every 60
+seconds, so cross-app messages wait seconds, not a tick. Both units run at
+load (login or reboot) as `ProcessType` Standard.
+
+`scripts/install.sh timers` renders both units for this machine into your
+user's launchd or systemd folder and prints the commands that load them;
+loading them is your step, so no agent installs a persistent job on its own.
+Both belong in `SCHEDULES.md` like every other timed job
+([K-24](../kit/KIT.md)). After adding an operator, render the relay unit
+again so it watches the new inbox (`install.sh host` reports a stale one).
 
 ## Scheduled work
 
@@ -70,6 +77,34 @@ record what the client actually shows, not what you intended.
 An always-on host still sleeps, reboots and loses network: report those
 periods as unknown, never as healthy. Remote access must keep working when
 sessions sit idle, and urgent alerts need a push route to the human.
+
+### Always-on host
+
+`scripts/install.sh host` sets the host up, check then set, and is safe to
+run again: it prints one row per item with its state and what is left for
+you. `scripts/check.sh host` repeats the checks read-only; run it after any
+change to the host or its jobs.
+
+| Item | Check | Set |
+| --- | --- | --- |
+| App Nap, per desktop app in `host_apps` (default `com.anthropic.claudefordesktop` and `com.openai.codex`, the Claude and ChatGPT desktop apps) | `defaults read <id> NSAppSleepDisabled` is 1 | `defaults write <id> NSAppSleepDisabled -bool YES`, read back. Takes effect after the app restarts. Without it a hidden, idle app is napped and its bridge stops delivering |
+| Power | `pmset -g` system sleep is 0 | Check only: change it in System Settings |
+| Mailroom folders | Present | Created |
+| Units | Tick and relay unit present; the relay unit watches every registry inbox | `install.sh timers` (rendered from the registry); you load them |
+| launchd priority | No job matching `host_latency_jobs` sets `ProcessType` Background or Adaptive, or `LowPriorityIO` | Check only: edit the job |
+| Bridges | Rows `mailroom-claude` and `mailroom-codex` have session ids | `install.sh bridge <client>` |
+
+**Latency-sensitive jobs run Standard.** launchd throttles Background jobs
+(CPU, I/O and timer coalescing), and child processes inherit it: a
+throttled job can start minutes late, and a network forwarder or database
+client under it can time out. Give every job that someone waits on
+(the mailroom, watchers, schedulers, alert routes, CI forwarders)
+`ProcessType` Standard, or leave the key unset, which is the same. Keep
+Background and `LowPriorityIO` for genuinely deferrable work such as
+backups and indexing. List your own such jobs in `host_latency_jobs`
+(launchd label globs, default `*agent-operations*`) so `check.sh host`
+flags them, and add both desktop apps to your login items so a reboot
+brings the bridges back.
 
 **No routine permission prompts** ([K-27](../kit/KIT.md)). A dialog on an
 unattended host blocks work for hours. Treat each unexpected prompt as a

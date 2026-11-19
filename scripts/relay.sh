@@ -11,11 +11,21 @@
 # never put in the message, so the delivering model never sees it; the
 # receiving session reads the files itself, as data.
 #
-# File-only sessions read their inbox at turn start. Codex queue delivery is
-# on by default for rows with actual owner thread IDs; relay_codex=off keeps
-# them passive. The transport treats exit 0 as queue submission only, with
-# no guaranteed resume. One isolated live round trip is recorded in README;
-# both experimental lease-mail doorbells remain fakes only, live unrun. A
+# Mailroom (relay_bridge=on, the default; EXPERIMENTAL, docs/mailroom.md):
+# for a claude or codex row with an addressable session, the message is
+# written as a ring into <bridge_dir>/<client>/ and the receiving app's
+# in-app bridge hands it off; the notes' custody passes to the ring. A
+# codex ring is `steer` when a note's name says urgent or steer, else
+# `queue`. The relay only routes: the timed safety nets for rings that wait
+# run in `mailroom.sh supervise`, outside this lock. relay_bridge=off,
+# custom rows and rows without an addressable session use the transport
+# directly. The bridge rows themselves (mailroom-claude, mailroom-codex)
+# are never relayed to.
+#
+# Transports: Claude, one confined headless SendMessage run confirmed from
+# its event stream; Codex, `codex queue --resume` to the actual thread id
+# (exit 0 is queue submission only); relay_codex=off keeps Codex rows
+# passive. File-only sessions read their inbox at turn start. A direct
 # delivery that is not confirmed is retried on later runs, at most relay_max_attempts
 # (default 3) times in a row; then the row backs off (1 h, doubling up to
 # 24 h) and the Oracle gets one note naming the notes. A confirmed delivery
@@ -34,7 +44,7 @@
 # .relay-pending file until a delivery is confirmed.
 #
 # Environment: AO_PROFILE; AO_KEEP_STREAM (see lib/vendor-claude.sh).
-# Log: <state_dir>/relay.log.
+# Logs: <state_dir>/relay.log; mailroom events in <state_dir>/mailroom.tsv.
 #
 # Exit codes: 0 accepted, delivered or nothing to do; 1 a delivery or move failed;
 # 2 usage or configuration error; 3 another relay is running.
@@ -43,6 +53,7 @@ AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$AO_SCRIPTS/lib/core.sh"
 . "$AO_SCRIPTS/lib/registry.sh"
 . "$AO_SCRIPTS/lib/vendor.sh"
+. "$AO_SCRIPTS/lib/mailroom.sh"
 
 dry_run=
 only_key=
@@ -160,9 +171,33 @@ relay_deliver() {
     ao_role_deliver "$OP_NAME" "$OP_SID" "$msg" "$out" "$_id"
 }
 
+# relay_via_bridge  True when this row's message goes to the mailroom.
+relay_via_bridge() {
+  [ "$AO_MR_ON" = on ] || return 1
+  case $OP_CLIENT in claude | codex) ;; *) return 1 ;; esac
+  ao_mr_addressable "$OP_SID"
+}
+
+# relay_ring  Hand the pending notes to the mailroom: one ring holding the
+# pointer message. Once the ring is written it holds custody, so the
+# pending list and any backoff are cleared.
+relay_ring() {
+  _mode=queue
+  [ "$OP_CLIENT" != codex ] || _mode=$(ao_mr_mode "$pending")
+  if ! _ring=$(ao_mr_ring "$OP_CLIENT" "$OP_SID" "$OP_KEY" "$_mode" <"$msg"); then
+    relay_failed "cannot write a ring in $AO_MR_DIR/$OP_CLIENT"
+    return 0
+  fi
+  _count=$(wc -l <"$pending" | tr -d ' ')
+  rm -f "$pending" "$failf"
+  ao_log "$log" "to=$OP_KEY via=mailroom-$OP_CLIENT id=$_id files=$_count rang ${_ring##*/}"
+  ao_mr_event ring "$OP_CLIENT" "${_ring##*/}" "to=$OP_KEY id=$_id files=$_count"
+}
+
 # relay_row  Registry callback: serve one operator's inbox.
 relay_row() {
   [ -z "$only_key" ] || [ "$OP_KEY" = "$only_key" ] || return 0
+  ! ao_is_bridge_key "$OP_KEY" || return 0
   case " $AO_RELAY_VENDORS " in *" $OP_CLIENT "*) ;; *)
     case $OP_CLIENT in
       file-only) return 0 ;;
@@ -172,8 +207,8 @@ relay_row() {
   # The off switch preserves notes and existing pending/backoff state.
   # Owner resolution and the doorbell's independent opt-in remain unchanged.
   [ "$OP_CLIENT" != codex ] || [ "$codex_mode" = queue ] || return 0
-  if [ "$AO_INBOX/$OP_KEY" = "$AO_SENT" ]; then
-    ao_log "$log" "to=$OP_KEY FAILED: registry key collides with the sent archive $AO_SENT"
+  if [ "$AO_INBOX/$OP_KEY" = "$AO_SENT" ] || [ "$AO_INBOX/$OP_KEY" = "$AO_MR_DIR" ]; then
+    ao_log "$log" "to=$OP_KEY FAILED: registry key collides with the sent archive or the mailroom"
     failures=$((failures + 1))
     return 0
   fi
@@ -208,6 +243,10 @@ relay_row() {
   rmdir "$claimdir"/c.* "$claimdir" 2>/dev/null
   [ -s "$pending" ] || return 0
   relay_message
+  if relay_via_bridge; then
+    relay_ring
+    return 0
+  fi
   : >"$out"
   if ! ao_bg relay_deliver; then
     # The reason, without the client's JSON event stream.
@@ -245,6 +284,7 @@ main() {
     *) ao_die "$AO_E_USAGE" "relay_codex must be off or queue" ;;
   esac
   mkdir -p "$AO_STATE" || ao_die "$AO_E_FAIL" "cannot create state dir $AO_STATE"
+  ao_mr_init
   ao_lock relay || { ao_msg "another relay is running; skipping"; exit "$AO_E_BUSY"; }
   label=$(ao_cfg relay_label 'Relay (automated inbox, not from the human):')
   case $label in *"$AO_NL"*) ao_die "$AO_E_USAGE" "relay_label must be one line" ;; esac

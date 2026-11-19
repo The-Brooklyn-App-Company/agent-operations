@@ -1,0 +1,10 @@
+# systemd user service for `mailroom.sh cycle` (Linux): relay, then supervisor. UNTESTED;
+# pair with relay.timer.in (every minute). No push watch of the inbox folders
+# here: a note waits for the next minute. Placeholders as in tick.service.in.
+[Unit]
+Description=agent-operations relay and mailroom safety nets
+
+[Service]
+Type=oneshot
+Environment="AO_PROFILE=@PROFILE@"
+ExecStart=/bin/sh "@KIT_DIR@/scripts/mailroom.sh" cycle

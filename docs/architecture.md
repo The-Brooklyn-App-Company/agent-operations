@@ -53,8 +53,10 @@ A solo user skips the team step.
 
 | Part | What it does | Reference |
 | --- | --- | --- |
-| Tick | launchd or systemd runs `tick.sh` every 10 minutes: stall watchdog, period hooks, then the relay. Free unless there is mail | [Scheduling](hosts-and-ci.md#scheduling) |
-| Inboxes and relay | Notes for a session are files in `inbox/<key>/`; `relay.sh` delivers them through the session's client, or leaves them for the session to read | [scripts/README.md](../scripts/README.md#the-oracle-home) |
+| Tick | launchd or systemd runs `tick.sh` every 10 minutes: stall watchdog, period hooks, then the relay and the mailroom supervisor. Free unless there is mail | [Scheduling](hosts-and-ci.md#scheduling) |
+| Inboxes and relay | Notes for a session are files in `inbox/<key>/`; `relay.sh` archives them and routes a pointer, or leaves them for the session to read | [scripts/README.md](../scripts/README.md#the-oracle-home) |
+| Mailroom (experimental) | The relay routes, the in-app bridges deliver, a model-free supervisor keeps both bridges armed; a relay unit runs on every inbox change | [Mailroom](mailroom.md) |
+| Recovery hook | `recover-context.sh`, a SessionStart hook: a capped digest after compaction | [Continuity](continuity.md#records) |
 | Worker runner | `worker-run.sh` runs one cheap read-only job and routes its answer to an inbox unless it is exactly `NOTHING` | [Scheduled work](hosts-and-ci.md#scheduled-work) |
 | Review runner | `review-run.sh` runs one boxed review pass on a neutral packet | [Review](review-and-release.md#review) |
 | Cross-review | `cross-review.sh`, from an hourly hook, has the other model family review each operator weekly, and audits a move to the other family | [Cross-model accountability](review-and-release.md#cross-model-accountability) |
@@ -64,9 +66,10 @@ A solo user skips the team step.
 
 **Mail is a notification, never authority.** Anything that can write an
 inbox can put text in front of a model, so a relayed note starts nothing on
-its own (K-01). The relay labels every message as automated, and Claude
-deliveries are confirmed from the client's event stream, never from the
-model's own words.
+its own (K-01). The relay labels every message as automated and sends
+pointers only. A direct Claude delivery is confirmed from the client's event
+stream, never from the model's own words; a bridge's delivery is what the
+bridge recorded, a weaker stage.
 
 **Threat model.** All sessions run as one OS user. The kit's controls stop
 confusion, stale state and injected text; they do not stop a hostile local

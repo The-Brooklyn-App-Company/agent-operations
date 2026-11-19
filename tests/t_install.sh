@@ -186,7 +186,7 @@ test_oracle_client_follows_the_profile_example() {
     "$T/ops/oracle/operators/REGISTRY.tsv" >"$T/reg"
   mv "$T/reg" "$T/ops/oracle/operators/REGISTRY.tsv"
   # The shipped scheduled PATH must never select a real CLI in this fixture.
-  printf 'state_dir=%s\nrelay_codex_cmd=%s\n' "$T/state" "$T/bin/codex" >>"$AO_PROFILE"
+  printf 'state_dir=%s\nrelay_codex_cmd=%s\nrelay_bridge=off\n' "$T/state" "$T/bin/codex" >>"$AO_PROFILE"
   mkdir -p "$T/ops/oracle/inbox/oracle"
   printf 'fixture\n' >"$T/ops/oracle/inbox/oracle/setup.md"
   run relay.sh --key oracle
@@ -400,6 +400,98 @@ EOF
   assert_eq "$?" 3 "signed out is misconfigured"
   "$KIT_DIR/adapters/git-gh.sh" status 'not-a-sha' o/r </dev/null 2>/dev/null
   assert_eq "$?" 3 "bad sha"
+}
+
+test_the_relay_unit_watches_every_inbox_and_runs_standard() {
+  oracle_home
+  run install.sh operator web --embedded
+  run install.sh timers --launchd
+  assert_rc 0
+  r=$T/user/Library/LaunchAgents/local.agent-operations.relay.plist
+  t=$T/user/Library/LaunchAgents/local.agent-operations.tick.plist
+  assert_has "$r" "<string>$KIT_DIR/scripts/mailroom.sh</string><string>cycle</string>"
+  assert_has "$r" "<string>$T/ops/oracle/inbox/oracle</string>"
+  assert_has "$r" "<string>$T/ops/oracle/inbox/web</string>"
+  assert_lacks "$r" "@WATCH_PATHS@"
+  for p in "$r" "$t"; do
+    assert_has "$p" "<key>ProcessType</key><string>Standard</string>"
+    assert_has "$p" "<key>RunAtLoad</key><true/>"
+  done
+  printf 'host_launchd_dirs=%s\n' "$T/user/Library/LaunchAgents" >>"$AO_PROFILE"
+  run check.sh host
+  assert_rc 0
+  run install.sh --dry-run timers --systemd
+  assert_has "$T/out" "would create  $T/user/.config/systemd/user/agent-operations-relay.timer"
+}
+
+# fake_defaults  A `defaults` that keeps values under $T/defaults.
+fake_defaults() {
+  mkdir -p "$T/defaults"
+  cat >"$T/bin/defaults" <<EOF
+#!/bin/sh
+d=$T/defaults
+case \$1 in
+  read) [ -e "\$d/\$2" ] || exit 1; [ \$# -eq 2 ] && exit 0; cat "\$d/\$2.\$3" 2>/dev/null || exit 1 ;;
+  write) : >"\$d/\$2"; echo 1 >"\$d/\$2.\$3"; echo "write \$*" >>"\$d/log" ;;
+esac
+EOF
+  chmod +x "$T/bin/defaults"
+}
+
+test_host_sets_app_nap_off_once_and_reports_a_table() {
+  oracle_home
+  fake_defaults
+  # The profile's scheduled PATH would find the real defaults: never here.
+  printf 'host_launchd_dirs=%s\npath=%s\n' "$T/none" "$T/bin:/usr/bin:/bin" >>"$AO_PROFILE"
+  run install.sh --dry-run host
+  assert_has "$T/out" "would set"
+  assert_no_file "$T/defaults/log"
+  run install.sh host
+  grep -Eq '^app-nap com.anthropic.claudefordesktop +set \(restart needed\)' "$T/out" || _fail "App Nap not set"
+  assert_has "$T/out" "app-nap com.openai.codex"
+  assert_has "$T/defaults/log" "write com.openai.codex NSAppSleepDisabled -bool YES"
+  assert_has "$T/out" "bridge claude"
+  assert_has "$T/out" "install.sh bridge claude"
+  run install.sh host
+  grep -Eq '^app-nap com.openai.codex +ok' "$T/out" || _fail "second run: App Nap not reported ok"
+  assert_eq "$(grep -c write "$T/defaults/log")" 2 "written once per app"
+  run check.sh host
+  assert_rc 0
+}
+
+test_check_host_flags_app_nap_and_throttled_latency_jobs() {
+  fresh
+  fake_defaults
+  : >"$T/defaults/com.openai.codex"
+  mkdir -p "$T/agents"
+  printf '<plist><dict><key>Label</key><string>local.agent-operations.relay</string><key>ProcessType</key><string>Background</string></dict></plist>\n' >"$T/agents/a.plist"
+  printf '<plist><dict><key>Label</key><string>org.example.ci-forwarder</string><key>LowPriorityIO</key><true/></dict></plist>\n' >"$T/agents/b.plist"
+  printf '<plist><dict><key>Label</key><string>org.example.backup</string><key>ProcessType</key><string>Background</string></dict></plist>\n' >"$T/agents/c.plist"
+  mkdir -p "$T/cfg"
+  printf 'host_launchd_dirs=%s\nhost_latency_jobs=*agent-operations* org.example.ci-*\n' "$T/agents" >"$T/cfg/profile"
+  run check.sh host
+  assert_rc 1
+  assert_has "$T/out" "app-nap: com.openai.codex"
+  assert_lacks "$T/out" "claudefordesktop"
+  assert_has "$T/out" "a.plist: local.agent-operations.relay: ProcessType Background"
+  assert_has "$T/out" "b.plist: org.example.ci-forwarder: LowPriorityIO true"
+  assert_lacks "$T/out" "org.example.backup"
+}
+
+test_bridge_gets_its_own_home_and_a_reserved_registry_row() {
+  oracle_home
+  run install.sh bridge claude
+  assert_rc 0
+  assert_has "$T/ops/mailroom-claude/AGENTS.md" "mailroom.sh file claude --wait"
+  assert_has "$T/ops/mailroom-claude/CLAUDE.md" "@AGENTS.md"
+  assert_has "$T/ops/oracle/operators/REGISTRY.tsv" "mailroom-claude${TAB}Mailroom bridge (Claude)${TAB}"
+  run install.sh bridge codex --home "$T/ops/bridge-x"
+  assert_rc 0
+  assert_has "$T/ops/bridge-x/AGENTS.md" "mailroom.sh arm-codex"
+  assert_no_file "$T/ops/bridge-x/CLAUDE.md"
+  run install.sh operator mailroom-codex
+  assert_rc 2
+  assert_has "$T/err" "reserved for a mailroom bridge"
 }
 
 ao_test_main "$0"

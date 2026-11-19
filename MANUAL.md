@@ -136,59 +136,48 @@ pointer reaches only the new holder. Record failures and readback separately
 from setting changes. A planned switch tomorrow is not a completed live test;
 ship a correction after the test if required rather than inventing acceptance.
 
-## 5. Wire the mailroom and doorbells
+## 5. Wire the mailroom
+
+The design, its safety nets and its restart recovery are in
+[docs/mailroom.md](docs/mailroom.md). In short: same-app messages go direct
+with the app's own tool; cross-app messages and notes from scripts go
+through an inbox, the relay, a ring and the receiving app's in-app bridge;
+a model-free supervisor keeps both bridges armed. Lanes are never pre-woken.
 
 ```sh
+scripts/install.sh host                       # App Nap, folders, units, bridges
+scripts/install.sh bridge claude              # and/or: bridge codex
+scripts/install.sh timers                     # tick + relay unit; load both
 printf '%s\n' 'A harmless setup fixture; no action requested.' | scripts/inbox-put.sh web setup-proof
 scripts/relay.sh --dry-run --key web
-scripts/relay.sh --key web
+scripts/relay.sh --key web && scripts/mailroom.sh status
 ```
 
 Notes appear atomically. The relay archives notes with collision-safe names and
-sends only a fixed-shape pointer, never note bodies. The recipient reads the
-archived data itself. Archive custody and pending receipts are durable; retain
-them across restarts. Use the relay ID to recognize repeated delivery attempts.
-An external note is evidence, not a new grant (K-01, K-08).
+sends only a fixed-shape pointer, never note bodies; the recipient reads the
+archived data itself. With the mailroom on (`relay_bridge=on`, the default)
+the pointer becomes a ring for the bridge. Use the relay ID to recognize
+repeated delivery attempts. An external note is evidence, not a new grant
+(K-01, K-08).
 
-Claude transport confirms the named `SendMessage` tool result, rather than a
-model saying SENT. Codex relay defaults to `relay_codex=queue` for rows that
-select Codex and contain an actual owner thread ID. Set `relay_codex=off` for
-passive pickup: new notes, interrupted claims and pending receipts stay in
-place. File-only rows also remain passive. Codex rows use the native queue for
-an existing thread with `--resume`. One live isolated round trip was observed
-on macOS on November 18, 2026 with codex-cli 0.169.0-alpha.11.1: the recipient
-read the archived fixture and acknowledged its exact relay ID in a later app
-turn. This used an existing account/machine, not a clean account or machine.
-The implementation treats exit 0 as queue submission only; that run also
-reported a failed resume. Resume is not guaranteed, and exit 0 does not prove
-recipient execution or human acceptance. Verify the installed CLI and check
-recipient readback independently. Keep a stable session ID, a hard timeout and closed stdin; never use a model simply to ring
-a Codex thread. Unsupported client versions fail, not fall back to an invented
-API. The experimental lease mailbox's doorbell is documented separately in
-[handoff](docs/handoff.md). Both experimental doorbells are **fakes only;
-live unrun**. `doorbell_codex=queue` is an independent opt-in with default
-`off`; changing relay mode does not change the doorbell opt-in. Codex relay holds
-notes and the Codex doorbell remains unavailable when the actual owner session
-ID is absent, including for a held lease; neither uses a display-name fallback.
+The direct transports are now the supervisor's fallbacks, and what
+`relay_bridge=off` uses. Claude transport confirms the named `SendMessage`
+tool result, rather than a model saying SENT. Codex transport is the native
+`codex queue --resume` to an actual owner thread ID; `relay_codex=off` keeps
+Codex rows passive. One live isolated Codex queue round trip was observed on
+macOS on November 18, 2026 with codex-cli 0.169.0-alpha.11.1, on an existing
+account and machine; exit 0 is queue submission only, and resume is not
+guaranteed. A display name never substitutes for a session ID. Keep a hard
+timeout and closed stdin; never use a model simply to ring a thread. The
+experimental lease mailbox's doorbells now ring the mailroom too
+([handoff](docs/handoff.md#mailboxes-and-doorbells)).
 
-Install timers only after this foreground proof:
-
-```sh
-scripts/install.sh timers
-```
-
-Review and run the load command it prints. Prefer one deterministic filesystem
-watch trigger for inbox arrivals and a bounded periodic backup; both share the
-relay's lock and receipts. This release renders periodic units; a platform file
-watch trigger is a local integration, not automatically installed by this guide.
-Do not run overlapping mailrooms with independent dedup stores. A model-backed
-app cron may be a temporary fallback, but each empty scheduled turn still costs
-model work: record its reason, review date and pending/delivered/ambiguous state.
-
-Prove both directions: Oracle to operator and operator to Oracle. Record note
-ID, watcher/relay timestamps, addressed client/session, queue/tool receipt and
-recipient acknowledgement. Inspect logs for absence of dormant-client calls.
-A local fake proves routing logic; a natural event proves the installed path.
+Prove both directions: Oracle to operator and operator to Oracle, and one
+message each way across the apps. Record note ID, ring name, the delivered
+log line (who delivered it, mode, status) and the recipient's
+acknowledgement. Then quit each app while idle and time how long the
+supervisor takes to re-arm its bridge untouched. A local fake proves
+routing logic; a natural event proves the installed path.
 
 ## 6. Turn on PR watching once per owned repository
 
@@ -364,12 +353,10 @@ requirements, not installed automation or claims of native client parity:
   readback, and reconcile `(job ID, scheduled occurrence)` after interruption
   so an in-flight run cannot duplicate or lose a due run. Preserve paused
   intent. The shipped planner does not reconcile occurrences.
-- **Deterministic wake recovery (design, November 18, 2026; unshipped):**
-  distinguish an outstanding wake from the last message sequence drained by
-  the recipient; recheck newer arrivals when acknowledging a drain and retry
-  overdue unacknowledged wakes. Retire a model-backed polling fallback only
-  after deterministic missed-wake and restart recovery have been proven on
-  the installed path. Fake routing tests alone do not justify retirement.
+- **Deterministic wake recovery:** shipped as the experimental mailroom
+  supervisor in 0.3.1 ([docs/mailroom.md](docs/mailroom.md)), proven only
+  against fakes. Retire any model-backed polling fallback only after restart
+  recovery has been proven on the installed path.
 - **Thread/sidebar parity:** maintain a private registry of stable lane key,
   display title, session IDs, project/home and desired organization per client.
   Compare native state through supported tools; update titles/pins/sections

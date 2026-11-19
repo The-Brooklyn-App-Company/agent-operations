@@ -39,6 +39,7 @@ ao_test_setup() {
   cat >"$T/profile" <<EOF
 oracle_home=$T/home
 state_dir=$T/state
+relay_bridge=off
 relay_claude_model=haiku
 relay_claude_max_turns=4
 worker_client=codex

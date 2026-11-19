@@ -33,8 +33,8 @@
 #
 # Environment: AO_PROFILE.
 #
-# Warnings about the profile (such as single-family cross-review) go to
-# stderr.
+# Warnings about the profile (such as single-family cross-review) and a
+# mailroom bridge whose watcher is not armed go to stderr.
 #
 # Exit codes: 0 printed (with --drift: no drift); 1 drift found (--drift);
 # 2 usage or configuration error.
@@ -43,6 +43,7 @@ AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$AO_SCRIPTS/lib/core.sh"
 . "$AO_SCRIPTS/lib/registry.sh"
 . "$AO_SCRIPTS/lib/vendor.sh"
+. "$AO_SCRIPTS/lib/mailroom.sh"
 
 status_row() {
   [ -n "$all" ] || [ "$OP_KEY" != "$AO_ORACLE_KEY" ] || return 0
@@ -168,6 +169,13 @@ main() {
 
 # status_warnings  Profile problems worth seeing every time (stderr).
 status_warnings() {
+  ao_mr_init
+  if [ "$AO_MR_ON" = on ]; then
+    for _s in claude codex; do
+      ! ao_mr_bridge "$_s" || ao_mr_watcher_up "$_s" ||
+        ao_warn "mailroom: the $_s bridge watcher is not armed (mailroom.sh status; docs/mailroom.md)"
+    done
+  fi
   [ "$(ao_cfg cross_review on)" != off ] || return 0
   if [ -z "$(ao_cfg reviewer_claude_model '')" ] || [ -z "$(ao_cfg reviewer_codex_model '')" ]; then
     ao_warn "cross-review is single-family: set reviewer_claude_model and reviewer_codex_model for cross-family review (kit rule K-22); same-family reviews are marked as such"
