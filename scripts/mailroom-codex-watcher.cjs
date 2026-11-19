@@ -29,8 +29,10 @@
 //   ISO-time <TAB> epoch <TAB> ring <TAB> watcher <TAB> mode <TAB> status
 // mode is steer, queue (sent when idle), queue-unknown (the thread's state
 // could not be read, so it was sent at once) or echo; status is ok, or
-// unknown after a call timeout (never re-sent automatically). A ring whose
-// send fails twice is left for the relay's timed fallbacks.
+// unknown after a call timeout or a send cut off by a crash or a closed pipe
+// (never re-sent automatically). Each ring is claimed into .watcher/sending/
+// by an atomic rename before its send, so the relay's fallback cannot send
+// it too. A ring whose send fails twice is left for the relay's fallbacks.
 //
 // Health: .watcher/heartbeat (ISO time and pid) every 60 s; .watcher/log.
 // One watcher per RING_DIR (.watcher/pid). It exits non-zero, with a log
@@ -80,6 +82,8 @@ if (!args) {
 const DIR = path.resolve(args.dir);
 const STATE = path.join(DIR, '.watcher');
 const HOLDS = path.join(STATE, 'holding');
+const SENDING = path.join(STATE, 'sending');
+const RELEASED = path.join(STATE, 'released');
 const DELIVERED = path.join(DIR, 'delivered');
 const PIDFILE = path.join(STATE, 'pid');
 
@@ -164,25 +168,21 @@ const released = new Set();
 
 function shutdown(code, why) {
   log(`stopping (${code}): ${why}`);
-  try { for (const f of fs.readdirSync(HOLDS)) fs.unlinkSync(path.join(HOLDS, f)); } catch (_) { /* none */ }
   try { if (fs.readFileSync(PIDFILE, 'utf8').trim() === String(process.pid)) fs.unlinkSync(PIDFILE); } catch (_) { /* none */ }
   if (app) app.close();
   process.exit(code);
 }
 
+// takePidfile  Refuse while another live watcher's pid is recorded. Not a
+// lock: `mailroom.sh arm-codex` holds the kernel lock that makes this the
+// only watcher; this check only catches a second direct start.
 function takePidfile() {
-  for (let i = 0; i < 2; i++) {
-    try {
-      fs.writeFileSync(PIDFILE, `${process.pid}\n`, { flag: 'wx' });
-      return true;
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      const other = Number(fs.readFileSync(PIDFILE, 'utf8').trim());
-      try { if (other && other !== process.pid) { process.kill(other, 0); return false; } } catch (_) { /* dead */ }
-      fs.unlinkSync(PIDFILE);
-    }
-  }
-  return false;
+  try {
+    const other = Number(fs.readFileSync(PIDFILE, 'utf8').trim());
+    if (other && other !== process.pid) { process.kill(other, 0); return false; }
+  } catch (_) { /* none, or dead */ }
+  writeAtomic(PIDFILE, `${process.pid}\n`);
+  return true;
 }
 
 function heartbeat() {
@@ -197,9 +197,9 @@ function waitingRings() {
     && fs.statSync(path.join(DIR, n), { throwIfNoEntry: false })?.isFile()).sort();
 }
 
-function fileRing(name, mode, status) {
+function fileRing(name, mode, status, from = DIR) {
   fs.mkdirSync(DELIVERED, { recursive: true });
-  try { fs.renameSync(path.join(DIR, name), path.join(DELIVERED, name)); }
+  try { fs.renameSync(path.join(from, name), path.join(DELIVERED, name)); }
   catch (e) { if (e.code === 'ENOENT') return false; throw e; }
   const now = new Date();
   fs.appendFileSync(path.join(DELIVERED, 'log.tsv'),
@@ -215,6 +215,13 @@ function holdSince(name) {
 }
 function dropHold(name) {
   try { fs.unlinkSync(path.join(HOLDS, name)); } catch (_) { /* none */ }
+}
+// release NAME  Leave a ring to the relay's fallback for good: recorded in
+// .watcher/released/ so a restarted watcher does not take it up again.
+function release(name) {
+  released.add(name);
+  dropHold(name);
+  try { fs.mkdirSync(RELEASED, { recursive: true }); fs.writeFileSync(path.join(RELEASED, name), ''); } catch (_) { /* best effort */ }
 }
 
 // threadState THREAD  'busy', 'idle' or 'unknown' from the target's latest
@@ -254,41 +261,44 @@ async function handle(name) {
         log(`holding ${name}: target busy`);
       }
       if (Date.now() - since >= HOLD_CAP_MS) {
-        released.add(name);
-        dropHold(name);
+        release(name);
         log(`queue-cap ${name}: target still busy; released to the relay's direct queue`);
       }
       return;
     }
     if (state === 'unknown') mode = 'queue-unknown';
   }
-  let body;
-  try { body = fs.readFileSync(file, 'utf8').trim(); } catch (e) { if (e.code === 'ENOENT') { dropHold(name); return; } throw e; }
-  if (!fs.existsSync(file)) return;
+  // Claim the ring (an atomic rename) so the relay's fallback cannot send it
+  // too; a ring someone else took is skipped.
+  const claimed = path.join(SENDING, name);
+  try { fs.renameSync(file, claimed); } catch (e) { if (e.code === 'ENOENT') { dropHold(name); return; } throw e; }
+  const body = fs.readFileSync(claimed, 'utf8').trim();
   let res;
   try {
     res = await app.call('send_message_to_thread', { threadId: thread, hostId: 'local', prompt: `Doorbell [${name}]: ${body}` });
   } catch (e) {
     if (e instanceof Unknown) {
       // Never re-sent automatically: the message may have landed (K-28).
-      fileRing(name, mode, 'unknown');
+      fileRing(name, mode, 'unknown', SENDING);
       return;
     }
-    if (app.closed) throw e;
+    if (app.closed) { fileRing(name, mode, 'unknown', SENDING); throw e; }
     res = { isError: true, content: [{ type: 'text', text: e.message }] };
   }
   if (res && !res.isError) {
     errorsInARow = 0;
     tries.delete(name);
-    fileRing(name, mode, 'ok');
+    fileRing(name, mode, 'ok', SENDING);
     return;
   }
+  // A clear refusal: put it back for the next try or the relay's fallback.
+  try { fs.renameSync(claimed, file); } catch (e) { log(`cannot return ${name}: ${e.message}`); }
   errorsInARow++;
   const n = (tries.get(name) || 0) + 1;
   tries.set(name, n);
   const why = JSON.stringify(res && res.content).slice(0, 300);
   log(`send failed for ${name} (try ${n}): ${why}`);
-  if (n >= MAX_TRIES_PER_RING) { released.add(name); dropHold(name); log(`left ${name} for the relay's fallback`); }
+  if (n >= MAX_TRIES_PER_RING) { release(name); log(`left ${name} for the relay's fallback`); }
   if (errorsInARow >= MAX_ERRORS_IN_A_ROW) shutdown(1, `${errorsInARow} sends in a row failed`);
 }
 
@@ -321,9 +331,18 @@ async function main() {
   if (!fs.statSync(DIR, { throwIfNoEntry: false })?.isDirectory()) { process.stderr.write(`not a directory: ${DIR}\n`); process.exit(2); }
   if (!fs.existsSync(args.server)) { process.stderr.write(`server not found: ${args.server}\n`); process.exit(2); }
   fs.mkdirSync(HOLDS, { recursive: true });
+  fs.mkdirSync(SENDING, { recursive: true });
   fs.mkdirSync(DELIVERED, { recursive: true });
   if (!takePidfile()) { process.stderr.write('another watcher is running for this folder\n'); process.exit(3); }
-  for (const f of fs.readdirSync(HOLDS)) fs.unlinkSync(path.join(HOLDS, f));
+  // Holds keep their start time across restarts (the 10-minute cap is per
+  // ring, not per watcher); releases stay released while the ring waits.
+  fs.mkdirSync(RELEASED, { recursive: true });
+  for (const f of fs.readdirSync(RELEASED)) {
+    if (fs.existsSync(path.join(DIR, f))) released.add(f); else fs.unlinkSync(path.join(RELEASED, f));
+  }
+  for (const f of fs.readdirSync(HOLDS)) if (!fs.existsSync(path.join(DIR, f))) dropHold(f);
+  // A send interrupted by a crash may have landed: filed as unknown, never re-sent.
+  for (const f of fs.readdirSync(SENDING)) if (f.endsWith('.md')) fileRing(f, 'interrupted', 'unknown', SENDING);
   process.on('SIGTERM', () => shutdown(0, 'SIGTERM'));
   process.on('SIGINT', () => shutdown(0, 'SIGINT'));
   process.on('SIGHUP', () => shutdown(0, 'SIGHUP'));

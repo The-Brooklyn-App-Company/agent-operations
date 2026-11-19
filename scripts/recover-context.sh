@@ -19,7 +19,8 @@
 # with a 2 KB preview (observed in the desktop app, November 2026; the limit
 # is not documented and may change). So this prints a digest, never whole
 # files, and cuts it at BYTES (default 8000). The read-first order comes
-# first, so a cut never loses it. tests/t_recover.sh fails above the cap.
+# first, so a cut never loses it. BYTES may only lower the cap.
+# tests/t_recover.sh fails above it.
 #
 # Environment: AO_PROFILE. Without a readable profile it prints nothing.
 #
@@ -72,7 +73,7 @@ main() {
   while [ $# -gt 0 ]; do
     case $1 in
       --cap)
-        if [ $# -lt 2 ] || ! ao_is_uint "$2"; then ao_die "$AO_E_USAGE" "--cap needs a number"; fi
+        if [ $# -lt 2 ] || ! ao_is_uint "$2" || [ "$2" -gt 8000 ]; then ao_die "$AO_E_USAGE" "--cap needs a number up to 8000"; fi
         cap=$2
         shift ;;
       -h | --help) ao_usage; exit 0 ;;

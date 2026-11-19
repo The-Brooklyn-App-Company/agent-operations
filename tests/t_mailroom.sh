@@ -153,23 +153,59 @@ test_old_codex_rings_are_queued_to_the_target_unless_held() {
   assert_has "$MR/codex/delivered/log.tsv" "queue-direct${TAB}queue${TAB}accepted"
 }
 
-test_a_down_bridge_gets_one_rearm_an_hour_then_an_alarm() {
+test_a_down_bridge_gets_one_rearm_per_app_process_then_one_alarm() {
   mr_setup
   bridge_rows
+  mkdir -p "$MR/codex/.watcher"
+  : >"$MR/codex/.watcher/log"
+  later 0
   FAKE_MODE=sent run mailroom.sh supervise
   assert_rc 0
   assert_has "$FAKE_LOG" 'arg: thread-bridge'
   assert_has "$FAKE_LOG" 'Re-arm doorbell watcher'
   assert_has "$FAKE_LOG" 'to "Mailroom bridge (Claude)"'
+  assert_lacks "$FAKE_LOG" '== open'
   _n=$(grep -c '^== ' "$FAKE_LOG")
-  later 600
+  later 60
   run mailroom.sh supervise
-  assert_eq "$(grep -c '^== ' "$FAKE_LOG")" "$_n" "no second re-arm within the hour"
-  assert_count "$T/home/inbox/oracle" 0
-  later 3700
+  assert_eq "$(grep -c '^== ' "$FAKE_LOG")" "$_n" "no second re-arm for the same app process"
+  assert_eq "$(notes_named mailroom-bridge-down)" 0 "no alarm inside the grace"
+  later 200
   run mailroom.sh supervise
   assert_eq "$(notes_named mailroom-bridge-down)" 2 "one alarm per side"
+  later 900
+  run mailroom.sh supervise
+  assert_eq "$(notes_named mailroom-bridge-down)" 2 "still one alarm per side"
+  assert_eq "$(grep -c '^== ' "$FAKE_LOG")" "$_n" "still no second re-arm"
+  # The Codex app restarted: a new process gets one re-arm.
+  echo 4343 >"$T/apps/com.openai.codex"
+  later 960
+  run mailroom.sh supervise
+  assert_eq "$(grep -c 'Re-arm doorbell watcher' "$FAKE_LOG")" 2 "re-armed for the new app process"
   assert_has "$T/state/mailroom.tsv" "${TAB}bridge-down${TAB}codex"
+}
+
+test_an_app_that_is_not_running_is_opened_not_messaged() {
+  mr_setup
+  bridge_rows
+  echo none >"$T/apps/com.anthropic.claudefordesktop"
+  later 0
+  run mailroom.sh supervise
+  assert_has "$FAKE_LOG" 'arg: com.anthropic.claudefordesktop'
+  assert_lacks "$FAKE_LOG" 'to "Mailroom bridge (Claude)"'
+  assert_lacks "$FAKE_LOG" 'Re-arm doorbell watcher'
+  later 600
+  run mailroom.sh supervise
+  assert_eq "$(grep -c '^== open' "$FAKE_LOG")" 1 "opened at most once an hour"
+  assert_has "$T/state/mailroom.tsv" "${TAB}relaunch${TAB}claude"
+}
+
+test_an_undeployed_codex_watcher_is_left_alone() {
+  mr_setup
+  printf 'mailroom-codex\tMailroom bridge (Codex)\t%s\tthread-bridge\tcodex\n' "$T/user" >>"$T/home/operators/REGISTRY.tsv"
+  run mailroom.sh supervise
+  assert_rc 0
+  assert_no_file "$FAKE_LOG"
 }
 
 test_an_armed_bridge_is_left_alone_and_probed_for_free() {
@@ -275,6 +311,24 @@ test_wait_blocks_until_a_ring_and_records_its_pid() {
   assert_eq "$?" 0 "exit code"
   assert_has "$T/out" "=== sid-a--a-1.md"
   assert_has "$T/out" "hello"
+  assert_file "$MR/claude/.watcher/handing/sid-a--a-1.md"
+  run mailroom.sh file claude sid-a--a-1.md --mode sent
+  assert_rc 0
+  assert_has "$MR/claude/delivered/log.tsv" "sid-a--a-1.md${TAB}bridge${TAB}sent${TAB}ok"
+  # A probe ring is filed by the watcher itself and wakes nobody.
+  "$AO_TEST_SHELL" "$SCRIPTS/mailroom.sh" wait claude </dev/null >"$T/out2" 2>&1 &
+  w=$!
+  wait_for '[ "$(cat "$MR/claude/.watcher/pid" 2>/dev/null)" = "$w" ]' 100
+  # A second watcher is refused while this one holds the lock.
+  run mailroom.sh wait claude
+  assert_rc 3
+  assert_has "$T/out" "armed: another watcher is running"
+  printf 'p\n' >"$MR/claude/.t" && mv "$MR/claude/.t" "$MR/claude/echo--probe-1.md"
+  wait_for 'grep -q "echo--probe-1.md" "$MR/claude/delivered/log.tsv"'
+  kill -0 "$w" 2>/dev/null || _fail "a probe woke the bridge"
+  kill "$w" 2>/dev/null
+  wait "$w" 2>/dev/null
+  assert_has "$MR/claude/delivered/log.tsv" "echo--probe-1.md${TAB}watcher${TAB}echo${TAB}ok"
 }
 
 # ---------------------------------------------------------------- Codex watcher
@@ -289,7 +343,7 @@ watcher() {
   while ! grep -q armed "$T/wout" 2>/dev/null && kill -0 "$WPID" 2>/dev/null && [ "$_n" -lt 50 ]; do sleep 0.1; _n=$((_n + 1)); done
 }
 put_ring() { printf '%s\n' "$2" >"$MR/codex/.t" && mv "$MR/codex/.t" "$MR/codex/$1"; }
-wait_for() { _n=0; while ! eval "$1" && [ "$_n" -lt "${2:-50}" ]; do sleep 0.1; _n=$((_n + 1)); done; eval "$1"; }
+wait_for() { _n=0; while ! eval "$1" 2>/dev/null && [ "$_n" -lt "${2:-50}" ]; do sleep 0.1; _n=$((_n + 1)); done; eval "$1" 2>/dev/null; }
 has_node() { command -v node >/dev/null 2>&1 || { echo "    (skipped: node not installed)"; return 1; }; }
 
 test_codex_watcher_delivers_a_burst_once_in_order_and_holds_queue_rings() {
@@ -306,7 +360,7 @@ test_codex_watcher_delivers_a_burst_once_in_order_and_holds_queue_rings() {
   wait_for '[ -f "$MR/codex/.watcher/holding/thread-q--q-1--queue.md" ]'
   assert_file "$MR/codex/thread-q--q-1--queue.md"
   rm "$T/busy/thread-q"
-  wait_for '[ ! -f "$MR/codex/thread-q--q-1--queue.md" ]'
+  wait_for 'grep -q "thread-q--q-1--queue.md" "$MR/codex/delivered/log.tsv"'
   assert_file "$MR/codex/.watcher/heartbeat"
   kill "$WPID"
   wait "$WPID"
@@ -359,8 +413,15 @@ test_codex_watcher_refuses_bad_preflight_a_second_copy_and_a_closed_pipe() {
   put_ring thread-s--s-1--steer.md "x"
   wait "$WPID"
   assert_eq "$?" 1 "pipe closed"
-  assert_file "$MR/codex/thread-s--s-1--steer.md"
   assert_has "$MR/codex/.watcher/log" "connection lost"
+  # The send may have landed: never left for a fallback to send again.
+  assert_no_file "$MR/codex/thread-s--s-1--steer.md"
+  if [ -f "$MR/codex/.watcher/sending/thread-s--s-1--steer.md" ]; then
+    run mailroom.sh supervise
+    assert_has "$T/state/mailroom.tsv" "${TAB}unknown${TAB}codex${TAB}thread-s--s-1--steer.md"
+  fi
+  assert_has "$MR/codex/delivered/log.tsv" "thread-s--s-1--steer.md${TAB}watcher"
+  assert_has "$MR/codex/delivered/log.tsv" "${TAB}unknown"
 }
 
 test_codex_watcher_never_resends_after_a_timeout() {
@@ -388,6 +449,95 @@ test_arm_codex_needs_the_app_paths_and_reports_an_armed_watcher() {
   stop_live
   assert_rc 0
   assert_has "$T/out" "armed"
+}
+
+test_claimed_but_unfiled_claude_rings_fall_back_from_the_claim_time() {
+  mr_setup
+  note alpha a.md "x"
+  run relay.sh
+  r=$(rings claude)
+  mkdir -p "$MR/claude/.watcher/handing"
+  mv "$MR/claude/$r" "$MR/claude/.watcher/handing/$r"
+  run mailroom.sh supervise
+  assert_no_file "$FAKE_LOG"
+  age_file "$MR/claude/.watcher/handing/$r" 200
+  FAKE_MODE=sent run mailroom.sh supervise
+  assert_rc 0
+  assert_has "$FAKE_LOG" 'to "Alpha Op"'
+  assert_has "$MR/claude/delivered/log.tsv" "$r${TAB}fallback"
+  assert_no_file "$MR/claude/.watcher/handing/$r"
+}
+
+test_a_fallback_follows_the_operator_to_its_current_owner() {
+  mr_setup
+  note alpha a.md "x"
+  run relay.sh
+  r=$(rings claude)
+  age_file "$MR/claude/$r" 200
+  # The operator moved to Codex meanwhile.
+  sed "s/^alpha${TAB}Alpha Op${TAB}\([^${TAB}]*\)${TAB}sid-alpha/alpha${TAB}Alpha Op${TAB}\1${TAB}thread-alpha${TAB}codex/" \
+    "$T/home/operators/REGISTRY.tsv" >"$T/reg" && mv "$T/reg" "$T/home/operators/REGISTRY.tsv"
+  run mailroom.sh supervise
+  assert_rc 0
+  assert_no_file "$FAKE_LOG"
+  assert_has "$MR/claude/delivered/log.tsv" "$r${TAB}supervisor${TAB}rerouted"
+  case $(rings codex) in thread-alpha--alpha-*--queue.md) ;; *) _fail "no ring for the new owner" ;; esac
+}
+
+test_only_the_original_note_name_sets_steer() {
+  mr_setup
+  printf 'steering\tSteering Op\t%s\tthread-steer\tcodex\n' "$T/proj/beta" >>"$T/home/operators/REGISTRY.tsv"
+  note steering plain.md "x"
+  run relay.sh
+  case $(rings codex) in *--queue.md) ;; *) _fail "the key made it steer: $(rings codex)" ;; esac
+}
+
+test_metrics_median_averages_an_even_sample() {
+  mr_setup
+  mkdir -p "$MR/claude/delivered" "$T/state"
+  printf '100\tx\tring\tclaude\ta.md\t-\n100\tx\tring\tclaude\tb.md\t-\n' >"$T/state/mailroom.tsv"
+  printf 'x\t110\ta.md\tbridge\t-\tok\nx\t130\tb.md\tbridge\t-\tok\n' >"$MR/claude/delivered/log.tsv"
+  AO_NOW=200
+  export AO_NOW
+  run mailroom.sh metrics 1
+  assert_has "$T/out" "median ring-to-delivery 20s"
+}
+
+test_codex_watcher_keeps_releases_across_a_restart() {
+  has_node || return 0
+  mr_setup
+  mkdir -p "$MR/codex" "$T/busy"
+  : >"$T/busy/thread-q"
+  watcher AO_MR_HOLD_CAP_MS=300
+  put_ring thread-q--q-1--queue.md "never idle"
+  wait_for 'grep -q queue-cap "$MR/codex/.watcher/log"'
+  kill "$WPID"
+  wait "$WPID"
+  rm "$T/busy/thread-q"
+  watcher
+  sleep 0.5
+  kill "$WPID"
+  wait "$WPID"
+  assert_file "$MR/codex/thread-q--q-1--queue.md"
+  assert_eq "$(grep -c send_message_to_thread "$T/app.log" 2>/dev/null)" 0 "released ring not taken up again"
+}
+
+test_arm_codex_holds_one_watcher_lock() {
+  has_node || return 0
+  mr_setup
+  profile_set bridge_codex_node "$(command -v node)"
+  profile_set bridge_codex_server "$TESTS_DIR/fakes/fake-app-tools.cjs"
+  mkdir -p "$MR/codex"
+  CODEX_THREAD_ID=thread-bridge FAKE_APP_LOG=$T/app.log \
+    "$AO_TEST_SHELL" "$SCRIPTS/mailroom.sh" arm-codex </dev/null >"$T/a1" 2>&1 &
+  first=$!
+  wait_for 'grep -q armed "$T/a1"'
+  rm -f "$MR/codex/.watcher/heartbeat"
+  CODEX_THREAD_ID=thread-bridge run mailroom.sh arm-codex
+  assert_rc 0
+  assert_has "$T/out" "another watcher holds the lock"
+  kill "$first"
+  wait "$first" 2>/dev/null
 }
 
 ao_test_main "$0"

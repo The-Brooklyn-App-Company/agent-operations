@@ -28,6 +28,12 @@ ao_test_setup() {
       exit 2
     fi
   done
+  # Desktop-app probes: lsappinfo answers from $T/apps/<bundle-id> (a pid or
+  # `none`; default pid 4242); open only logs. Tests never see real apps.
+  mkdir -p "$T/apps"
+  printf '#!/bin/sh\nf=%s/apps/$5\nif [ -f "$f" ]; then p=$(cat "$f"); else p=4242; fi\n[ "$p" = none ] || printf "    pid = %%s !x\\n" "$p"\n' "$T" >"$T/bin/lsappinfo"
+  printf '#!/bin/sh\nprintf "== open\\n" >>"%s"; for a in "$@"; do printf "arg: %%s\\n" "$a" >>"%s"; done\n' "$T/fake.log" "$T/fake.log" >"$T/bin/open"
+  chmod +x "$T/bin/lsappinfo" "$T/bin/open"
   PATH="$T/bin:$PATH" HOME=$T/user CLAUDE_CONFIG_DIR=$T/claude CODEX_HOME=$T/codex
   AO_PROFILE=$T/profile FAKE_LOG=$T/fake.log
   export PATH HOME CLAUDE_CONFIG_DIR CODEX_HOME AO_PROFILE FAKE_LOG

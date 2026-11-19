@@ -183,7 +183,7 @@ relay_via_bridge() {
 # pending list and any backoff are cleared.
 relay_ring() {
   _mode=queue
-  [ "$OP_CLIENT" != codex ] || _mode=$(ao_mr_mode "$pending")
+  [ "$OP_CLIENT" != codex ] || _mode=$(ao_mr_mode "$pending" "$OP_KEY")
   if ! _ring=$(ao_mr_ring "$OP_CLIENT" "$OP_SID" "$OP_KEY" "$_mode" <"$msg"); then
     relay_failed "cannot write a ring in $AO_MR_DIR/$OP_CLIENT"
     return 0

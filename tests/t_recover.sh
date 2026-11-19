@@ -78,6 +78,9 @@ test_a_small_cap_still_keeps_the_read_first_order() {
   printf '{"cwd":"%s"}' "$T/home" | "$AO_TEST_SHELL" "$SCRIPTS/recover-context.sh" --cap 600 >"$T/out" 2>"$T/err"
   [ "$(wc -c <"$T/out" | tr -d ' ')" -le 600 ] || _fail "over --cap"
   assert_has "$T/out" "FIRST, before any other action"
+  printf '{"cwd":"%s"}' "$T/home" | "$AO_TEST_SHELL" "$SCRIPTS/recover-context.sh" --cap 99999 >"$T/out" 2>"$T/err"
+  rc=$?
+  assert_rc 2
 }
 
 test_silent_elsewhere_and_without_a_profile() {

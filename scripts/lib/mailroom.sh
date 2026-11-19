@@ -30,7 +30,10 @@ AO_MR_RETRY=300           # spacing between fallback attempts for one ring
 AO_MR_HEARTBEAT=180       # a Codex watcher heartbeat older than this is stale
 AO_MR_HOLD_CAP=660        # a watcher's queue hold older than this is ignored
 AO_MR_REARM_GRACE=120     # a dead Claude watcher this long without re-arming is down
-AO_MR_REARM_EVERY=3600    # at most one re-arm per side per hour
+AO_MR_REARM_EVERY=3600    # re-arm per clock hour where the app pid is unknown; relaunch spacing
+# The desktop apps (public bundle ids), for the re-arm-per-app-process rule.
+AO_MR_APP_CLAUDE=com.anthropic.claudefordesktop
+AO_MR_APP_CODEX=com.openai.codex
 AO_MR_PROBE_EVERY=3600    # free echo probes, hourly
 
 # ao_mr_init  Read the mailroom settings: AO_MR_ON (on|off), AO_MR_DIR and
@@ -75,10 +78,15 @@ ao_mr_event() {
     ao_warn "cannot write $AO_MR_LOG"
 }
 
-# ao_mr_mode FILE  Print steer when any name listed in FILE says urgent or
-# steer (any case), else queue. Only the sender's file name decides.
+# ao_mr_mode FILE KEY  Print steer when the sender's original name of any
+# note listed in FILE (archived as <stamp>-KEY-<name>) says urgent or steer
+# (any case), else queue. The archive prefix never counts.
 ao_mr_mode() {
-  if grep -qiE 'urgent|steer' "$1" 2>/dev/null; then echo steer; else echo queue; fi
+  while IFS= read -r _mr_l; do
+    _mr_l=${_mr_l#*-"$2"-}
+    case $_mr_l in *[Uu][Rr][Gg][Ee][Nn][Tt]* | *[Ss][Tt][Ee][Ee][Rr]*) echo steer; return 0 ;; esac
+  done <"$1"
+  echo queue
 }
 
 # ao_mr_ring CLIENT SESSION KEY MODE  Write stdin as a new ring and print its
@@ -95,10 +103,11 @@ ao_mr_ring() {
   fi
 }
 
-# ao_mr_file SIDE RING BY MODE [STATUS]  Move a waiting ring to delivered/
-# and append its line to delivered/log.tsv. Fails if the ring is gone.
+# ao_mr_file SIDE RING BY MODE [STATUS [FROM]]  Move a ring (waiting, or in
+# folder FROM) to delivered/ and append its line to delivered/log.tsv.
+# Fails if the ring is gone.
 ao_mr_file() {
-  _mr_src=$AO_MR_DIR/$1/$2
+  _mr_src=${6:-$AO_MR_DIR/$1}/$2
   [ -f "$_mr_src" ] || return 1
   mkdir -p "$AO_MR_DIR/$1/delivered" || return 1
   mv -f "$_mr_src" "$AO_MR_DIR/$1/delivered/$2" || return 1
@@ -221,13 +230,11 @@ _ao_mr_alarm() {
 #              older than AO_MR_CODEX_FALLBACK: queued straight to the target
 #              thread (no steering), then filed as queue-direct
 #      both    still waiting after AO_MR_ALARM: one alarm
-#   2. Bridges (rows mailroom-claude, mailroom-codex): a watcher that is
-#      not armed (app restart, reboot, watcher crash) gets one re-arm per
-#      hour: hooks/wake, then a fixed "Re-arm" message to the bridge through
-#      the relay transport (it carries no mail). Still down at the next
-#      re-arm: one alarm per episode.
-#   3. Hourly echo probes (free): a probe ring per side, filed by a live
-#      bridge without a send; checked at the next probe.
+#   2. Bridges (rows mailroom-claude, mailroom-codex): see
+#      _ao_mr_bridge_check: one re-arm per app process, then one alarm; an
+#      app that is not running is opened in the background.
+#   3. Hourly echo probes (free): a probe ring per side, filed by the live
+#      watcher without a send or a model turn; checked at the next probe.
 # A failed fallback is retried at most relay_max_attempts times, spaced
 # AO_MR_RETRY apart. Returns 1 if anything failed.
 ao_mr_supervise() {
@@ -245,10 +252,46 @@ ao_mr_supervise() {
   return "$_mr_fail"
 }
 
+# _ao_mr_claim  Take the current ring from where it waits (an atomic rename
+# into .claimed/), so no watcher or bridge can send it meanwhile. Sets _mr_c
+# to its claimed path; fails if someone else took it.
+_ao_mr_claim() {
+  _mr_cd=$AO_MR_DIR/$_mr_side/.claimed
+  mkdir -p "$_mr_cd" || return 1
+  _mr_c=$_mr_cd/$_mr_b
+  mv "$_mr_r" "$_mr_c" 2>/dev/null
+}
+
+# _ao_mr_unclaim  Put a claimed ring back, for the next attempt.
+_ao_mr_unclaim() {
+  mv "$_mr_c" "$_mr_r" 2>/dev/null || ao_warn "cannot return $_mr_c"
+}
+
 _ao_mr_rings() {
   _mr_rf=0
   for _mr_side in claude codex; do
-    for _mr_r in "$AO_MR_DIR/$_mr_side"/*.md; do
+    # A claim left by an interrupted run: the send may have happened, so it
+    # is filed as unknown and never sent again (K-28).
+    for _mr_c in "$AO_MR_DIR/$_mr_side/.claimed"/*.md; do
+      [ -f "$_mr_c" ] || continue
+      [ -n "$_mr_dry" ] && continue
+      ao_mr_file "$_mr_side" "${_mr_c##*/}" supervisor - unknown "${_mr_c%/*}" &&
+        ao_mr_event unknown "$_mr_side" "${_mr_c##*/}" "interrupted fallback; not sent again"
+    done
+    # A Codex send cut off with the watcher down may have landed: filed as
+    # unknown, never sent again, and one alarm.
+    if [ "$_mr_side" = codex ] && [ -z "$_mr_dry" ] && ! ao_mr_watcher_up codex; then
+      for _mr_c in "$AO_MR_DIR/codex/.watcher/sending"/*.md; do
+        [ -f "$_mr_c" ] || continue
+        ao_mr_file codex "${_mr_c##*/}" watcher interrupted unknown "${_mr_c%/*}" || continue
+        ao_mr_event unknown codex "${_mr_c##*/}" "send interrupted with the watcher down; not sent again"
+        _ao_mr_alarm "mailroom-unknown-codex" "Mailroom: the Codex watcher stopped while sending ${_mr_c##*/}; it may or may not have arrived and is not sent again. Check the target thread (docs/mailroom.md)." ||
+          ao_warn "could not raise the unknown-delivery alarm"
+      done
+    fi
+    # Claude rings the bridge's watcher claimed (handing/) count from the
+    # claim: a bridge that does not file one is stuck, or its send failed.
+    for _mr_r in "$AO_MR_DIR/$_mr_side"/*.md "$AO_MR_DIR/$_mr_side/.watcher/handing"/*.md; do
       [ -f "$_mr_r" ] || continue
       _mr_b=${_mr_r##*/}
       _mr_sid=${_mr_b%%--*}
@@ -258,12 +301,15 @@ _ao_mr_rings() {
         printf 'ring waiting %ss: %s/%s\n' "$_mr_age" "$_mr_side" "$_mr_b"
         continue
       fi
-      if [ "$_mr_side" = claude ]; then
-        _ao_mr_ring_claude || _mr_rf=1
-      else
-        ao_mr_held "$_mr_b" && continue
-        _ao_mr_ring_codex || _mr_rf=1
-      fi
+      if [ "$_mr_side" = codex ] && ao_mr_held "$_mr_b"; then continue; fi
+      _ao_mr_route
+      case $? in 1) ;; 2) continue ;; *)
+        if [ "$_mr_side" = claude ]; then
+          _ao_mr_ring_claude || _mr_rf=1
+        else
+          _ao_mr_ring_codex || _mr_rf=1
+        fi ;;
+      esac
       [ -f "$_mr_r" ] || continue
       _mr_am=$(_ao_mr_marker alarmed "$_mr_b")
       if [ "$_mr_age" -ge "$AO_MR_ALARM" ] && [ ! -e "$_mr_am" ]; then
@@ -286,16 +332,18 @@ _ao_mr_ring_claude() {
     ao_mr_event fallback-failed claude "$_mr_b" "no registry row for session $_mr_sid"
     return 1
   fi
+  _ao_mr_claim || return 0
   _ao_mr_wake claude "$_mr_sid"
-  _mr_id=$(sed -n 's/^relay-id: //p;s/^doorbell-id: //p' "$_mr_r" | head -n 1)
+  _mr_id=$(sed -n 's/^relay-id: //p;s/^doorbell-id: //p' "$_mr_c" | head -n 1)
   : >"$_mr_out"
-  if ao_bg _ao_mr_deliver claude "$_mr_name" "$_mr_sid" "$_mr_r" "$_mr_out" "${_mr_id:-$_mr_b}"; then
+  if ao_bg _ao_mr_deliver claude "$_mr_name" "$_mr_sid" "$_mr_c" "$_mr_out" "${_mr_id:-$_mr_b}"; then
     _mr_w=
     [ "$(head -c 8 "$_mr_out")" != warning: ] || _mr_w=" with a warning: $(head -n 1 "$_mr_out")"
-    ao_mr_file claude "$_mr_b" fallback - || ao_warn "cannot file $_mr_b"
+    ao_mr_file claude "$_mr_b" fallback - ok "${_mr_c%/*}" || ao_warn "cannot file $_mr_b"
     ao_mr_event fallback-ok claude "$_mr_b" "bridge stuck or down: delivered directly to $_mr_name$_mr_w"
     return 0
   fi
+  _ao_mr_unclaim
   ao_mr_event fallback-failed claude "$_mr_b" "$(grep -v '^{' "$_mr_out" | tail -n 3 | tr '\n' ' ' | cut -c 1-240)"
   return 1
 }
@@ -305,29 +353,83 @@ _ao_mr_ring_codex() {
   _ao_mr_attempt_due direct "$_mr_b" || return 0
   _mr_mode=queue
   case $_mr_b in *--steer.md) _mr_mode=steer ;; esac
+  _ao_mr_claim || return 0
   {
     printf 'Doorbell [%s] (mailroom fallback, queued): ' "$_mr_b"
-    cat "$_mr_r"
+    cat "$_mr_c"
   } >"$_mr_msg"
   : >"$_mr_out"
   _ao_mr_attempt_count direct "$_mr_b"
   if ao_bg _ao_mr_deliver codex "$_mr_sid" "$_mr_sid" "$_mr_msg" "$_mr_out" "$_mr_b"; then
-    ao_mr_file codex "$_mr_b" queue-direct queue accepted || ao_warn "cannot file $_mr_b"
+    ao_mr_file codex "$_mr_b" queue-direct queue accepted "${_mr_c%/*}" || ao_warn "cannot file $_mr_b"
     ao_mr_event queue-direct codex "$_mr_b" "queued to the target (no steering; was $_mr_mode)"
     return 0
   fi
+  _ao_mr_unclaim
   ao_mr_event queue-direct-failed codex "$_mr_b" "$(tr '\n' ' ' <"$_mr_out" | cut -c 1-240)"
   return 1
 }
 
-# _ao_mr_bridge_check SIDE  Re-arm a bridge whose watcher is not armed.
+# _ao_mr_route  Before a fallback, re-check who owns the ring's operator now
+# (registry, lease, gate): 0 deliver as named; 1 hold (the gate says no, or
+# the owner has no addressable session; the alarm still runs); 2 the owner
+# moved, so a new ring went to the current owner and this one is filed as
+# rerouted. Rings with no registry key (doorbells) are delivered as named.
+_ao_mr_route_cb() {
+  [ "$OP_KEY" = "$_mr_key" ] || return 0
+  _mr_found=1 _mr_osid=$OP_SID _mr_ocl=$OP_CLIENT _mr_ogate=0
+  ao_gate relay || _mr_ogate=1
+}
+_ao_mr_route() {
+  _mr_key=${_mr_b#*--}
+  _mr_key=${_mr_key%--steer.md}
+  _mr_key=${_mr_key%--queue.md}
+  _mr_key=$(printf '%s\n' "${_mr_key%.md}" | sed 's/-[0-9]\{8\}T[0-9]\{6\}\(-[0-9]\{1,3\}\)\{0,1\}$//')
+  _mr_found='' _mr_osid='' _mr_ocl='' _mr_ogate=0
+  ao_is_name "$_mr_key" && ao_registry_has "$_mr_key" || return 0
+  ao_registry_each _ao_mr_route_cb
+  [ -n "$_mr_found" ] || return 0
+  [ "$_mr_ogate" -eq 0 ] || return 1
+  [ "$_mr_ocl" != "$_mr_side" ] || [ "$_mr_osid" != "$_mr_sid" ] || return 0
+  case $_mr_ocl in claude | codex) ;; *) return 1 ;; esac
+  ao_mr_addressable "$_mr_osid" || return 1
+  _mr_nm=queue
+  case $_mr_b in *--steer.md) _mr_nm=steer ;; esac
+  _ao_mr_claim || return 2
+  if _mr_new=$(ao_mr_ring "$_mr_ocl" "$_mr_osid" "$_mr_key" "$_mr_nm" <"$_mr_c"); then
+    ao_mr_file "$_mr_side" "$_mr_b" supervisor rerouted ok "${_mr_c%/*}"
+    ao_mr_event rerouted "$_mr_side" "$_mr_b" "owner of $_mr_key moved to $_mr_ocl; new ring ${_mr_new##*/}"
+    return 2
+  fi
+  _ao_mr_unclaim
+  return 1
+}
+
+# _ao_mr_app_pid BUNDLE  Print the desktop app's pid, `none` when it is not
+# running, or nothing when this host cannot tell (no lsappinfo: not macOS).
+_ao_mr_app_pid() {
+  command -v lsappinfo >/dev/null 2>&1 || return 0
+  _mr_ap=$(lsappinfo info -only pid -app "$1" 2>/dev/null |
+    sed -n 's/.*pid"\{0,1\} *= *\([0-9][0-9]*\).*/\1/p' | head -n 1)
+  printf '%s\n' "${_mr_ap:-none}"
+}
+
+# _ao_mr_bridge_check SIDE  Keep one bridge armed. A watcher that is not
+# armed (app restart, watcher crash) gets one re-arm per app process (the
+# app's pid; where it cannot be read, per clock hour): hooks/wake, then a
+# fixed "Re-arm" message through the relay transport, carrying no mail. Still
+# down AO_MR_REARM_GRACE after that re-arm: one alarm per episode. An app
+# that is not running at all (a reboot) is opened in the background, at most
+# once an hour. The Codex watcher is managed once deployed (its log exists).
 _ao_mr_bridge_check() {
   ao_mr_bridge "$1" || return 0
+  [ "$1" != codex ] || [ -f "$AO_MR_DIR/codex/.watcher/log" ] || return 0
   _mr_down=$(_ao_mr_marker down "$1")
   _mr_ra=$(_ao_mr_marker rearm "$1")
+  _mr_bam=$(_ao_mr_marker alarmed "bridge-$1")
   if ao_mr_watcher_up "$1"; then
     if [ -f "$_mr_down" ]; then
-      rm -f "$_mr_down" "$_mr_ra" "$(_ao_mr_marker alarmed "bridge-$1")"
+      rm -f "$_mr_down" "$_mr_bam"
       ao_mr_event recovered "$1" - "watcher armed again"
     fi
     return 0
@@ -336,24 +438,46 @@ _ao_mr_bridge_check() {
     mkdir -p "${_mr_down%/*}" && printf '%s\n' "$AO_T_EPOCH" >"$_mr_down"
     ao_mr_event bridge-down "$1" - "watcher not armed"
   fi
-  _mr_last=0
-  [ ! -f "$_mr_ra" ] || read -r _mr_last <"$_mr_ra"
-  ao_is_uint "${_mr_last:-x}" || _mr_last=0
-  [ $((AO_T_EPOCH - _mr_last)) -ge "$AO_MR_REARM_EVERY" ] || return 0
-  if [ "$_mr_last" -gt 0 ] && [ ! -e "$(_ao_mr_marker alarmed "bridge-$1")" ]; then
-    _ao_mr_alarm "mailroom-bridge-down-$1" "Mailroom: the $1 bridge ($MR_B_NAME) is still not armed after a re-arm an hour ago. Open the $1 desktop app and send its bridge 'Re-arm' (docs/mailroom.md, restart recovery)." &&
-      { : >"$(_ao_mr_marker alarmed "bridge-$1")"; ao_mr_event alarm "$1" - "bridge still down after re-arm"; }
+  if [ "$1" = claude ]; then _mr_bundle=$AO_MR_APP_CLAUDE; else _mr_bundle=$AO_MR_APP_CODEX; fi
+  _mr_app=$(_ao_mr_app_pid "$_mr_bundle")
+  if [ "$_mr_app" = none ]; then
+    _mr_lm=$(_ao_mr_marker launched "$1")
+    if [ ! -f "$_mr_lm" ] || [ "$(ao_mr_age "$_mr_lm")" -ge "$AO_MR_REARM_EVERY" ]; then
+      mkdir -p "${_mr_lm%/*}" && : >"$_mr_lm"
+      if command -v open >/dev/null 2>&1 && open -g -b "$_mr_bundle" </dev/null >/dev/null 2>&1; then
+        ao_mr_event relaunch "$1" - "opened $_mr_bundle in the background"
+      else
+        ao_mr_event relaunch-failed "$1" - "could not open $_mr_bundle"
+      fi
+    fi
+    return 0
   fi
-  { mkdir -p "${_mr_ra%/*}" && printf '%s\n' "$AO_T_EPOCH" >"$_mr_ra"; } || ao_warn "cannot record $_mr_ra"
+  _mr_key=${_mr_app:-hour-$((AO_T_EPOCH / 3600))}
+  _mr_last=0 _mr_lkey=
+  [ ! -f "$_mr_ra" ] || read -r _mr_last _mr_lkey <"$_mr_ra"
+  ao_is_uint "${_mr_last:-x}" || _mr_last=0
+  if [ "$_mr_lkey" = "$_mr_key" ]; then
+    # Re-armed already for this app process: alarm once if still down.
+    [ $((AO_T_EPOCH - _mr_last)) -ge "$AO_MR_REARM_GRACE" ] && [ ! -e "$_mr_bam" ] || return 0
+    if _ao_mr_alarm "mailroom-bridge-down-$1" "Mailroom: the $1 bridge ($MR_B_NAME) is still not armed after a re-arm. Open the $1 desktop app and send its bridge 'Re-arm' (docs/mailroom.md, restart recovery)."; then
+      if mkdir -p "${_mr_bam%/*}" && : >"$_mr_bam"; then
+        ao_mr_event alarm "$1" - "bridge still down after re-arm"
+      else
+        ao_warn "cannot record $_mr_bam"
+      fi
+    fi
+    return 0
+  fi
+  { mkdir -p "${_mr_ra%/*}" && printf '%s %s\n' "$AO_T_EPOCH" "$_mr_key" >"$_mr_ra"; } || ao_warn "cannot record $_mr_ra"
   _ao_mr_wake "$1" "$MR_B_SID"
   if [ "$1" = codex ]; then
     printf 'Mailroom (automated, not from the human): Re-arm doorbell watcher. Run your one arm command, then end the turn with no text.\nmailroom-id: rearm-%s\n' "$AO_T_STAMP" >"$_mr_msg"
   else
-    printf 'Mailroom (automated, not from the human): Re-arm. Start your watcher again as your AGENTS.md says, hand off any waiting rings, then end the turn.\nmailroom-id: rearm-%s\n' "$AO_T_STAMP" >"$_mr_msg"
+    printf 'Mailroom (automated, not from the human): Re-arm. Start your watcher again as your AGENTS.md says, then end the turn.\nmailroom-id: rearm-%s\n' "$AO_T_STAMP" >"$_mr_msg"
   fi
   : >"$_mr_out"
   if ao_bg _ao_mr_deliver "$1" "$MR_B_NAME" "$MR_B_SID" "$_mr_msg" "$_mr_out" "rearm-$AO_T_STAMP"; then
-    ao_mr_event rearm "$1" - "re-arm sent to $MR_B_NAME"
+    ao_mr_event rearm "$1" - "re-arm sent to $MR_B_NAME (app $_mr_key)"
     return 0
   fi
   ao_mr_event rearm-failed "$1" - "$(grep -v '^{' "$_mr_out" | tail -n 3 | tr '\n' ' ' | cut -c 1-240)"

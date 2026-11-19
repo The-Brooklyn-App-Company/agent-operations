@@ -25,12 +25,13 @@
 #            hourly echo probes (<state_dir>/mailroom-probe.tsv). No model
 #            runs unless something is down or stuck.
 # wait       For the Claude bridge's background task: block with no polling
-#            (a kqueue push watch, macOS) until a ring is waiting, print each
-#            as `=== <name>` followed by its body, and exit 0. Exit 2 where
-#            no push watch is available.
-# file       For a bridge after it handed rings off: move each to
-#            delivered/ and log it (default --by bridge, --mode -; probe
-#            rings are filed as echo). --wait then becomes `wait` for the
+#            (a kqueue push watch, macOS) until a ring is waiting; file probe
+#            rings without waking anyone; claim each other ring into
+#            .watcher/handing/, print it as `=== <name>` and its body, and
+#            exit 0. Exit 2 where no push watch is available.
+# file       For a bridge after it handed rings off: move each (from the
+#            watcher's handing/ folder, or waiting) to delivered/ and log it
+#            (default --by bridge, --mode -; probe rings are filed as echo). --wait then becomes `wait` for the
 #            same side, so one background command files, logs and re-arms.
 #            Exit 1 if a ring is no longer waiting (the others are filed).
 # metrics    One paragraph for the last HOURS (default 24): rings, who
@@ -123,7 +124,8 @@ mr_file() {
   while IFS= read -r _r; do
     _m=$_mode
     case $_r in echo--*) _m='echo' ;; esac
-    if ao_mr_file "$_side" "$_r" "$_by" "$_m"; then
+    if ao_mr_file "$_side" "$_r" "$_by" "$_m" ok "$AO_MR_DIR/$_side/.watcher/handing" ||
+      ao_mr_file "$_side" "$_r" "$_by" "$_m"; then
       echo "filed: $_side/$_r"
     else
       ao_msg "$_r is not waiting in $AO_MR_DIR/$_side"
@@ -161,7 +163,8 @@ mr_metrics() {
       if (n == 0) return "n/a"
       for (i = 1; i <= n; i++) a[i] = lat[side, i]
       for (i = 2; i <= n; i++) { t = a[i]; for (j = i - 1; j >= 1 && a[j] > t; j--) a[j + 1] = a[j]; a[j + 1] = t }
-      return a[int((n + 1) / 2)] "s"
+      if (n % 2) return a[(n + 1) / 2] "s"
+      return int((a[n / 2] + a[n / 2 + 1]) / 2) "s"
     }
     $0 == "PART" { part++; next }
     part == 1 {
@@ -207,6 +210,10 @@ mr_arm_codex() {
   [ -n "$_node" ] && [ -x "$_node" ] || ao_die "$AO_E_USAGE" "bridge_codex_node must name the desktop app's bundled node (docs/mailroom.md)"
   [ -n "$_server" ] && [ -r "$_server" ] || ao_die "$AO_E_USAGE" "bridge_codex_server must name the app's codex-app-tools server.mjs (docs/mailroom.md)"
   mkdir -p "$AO_MR_DIR/codex/delivered" || ao_die "$AO_E_FAIL" "cannot create $AO_MR_DIR/codex"
+  # One watcher: a kernel lock the watcher keeps through exec, released
+  # when it dies however it dies.
+  ao_lock codex-watcher || { echo "armed: another watcher holds the lock"; exit 0; }
+  rm -rf "$AO_TMPDIR"
   exec "$_node" "$AO_SCRIPTS/mailroom-codex-watcher.cjs" --dir "$AO_MR_DIR/codex" --server "$_server"
 }
 

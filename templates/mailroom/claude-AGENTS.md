@@ -17,3 +17,4 @@ Kit: `@KIT_DIR@` (docs/mailroom.md). Keep every turn to two tool calls.
    (files, logs and re-arms). End the turn with no text.
 
 A "Re-arm" message from the mailroom means: do step 1, then end the turn.
+If the watcher prints "armed: another watcher is running", end the turn.
