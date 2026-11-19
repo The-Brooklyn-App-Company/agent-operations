@@ -6,6 +6,11 @@
 > exclusion or safe resumption after a crash. Test it with
 > [`TESTING.md`](../TESTING.md) before relying on it.
 
+A planned move of an operator between clients runs as the scripted
+checklist in [conventions](conventions.md#switching-an-operator-between-clients)
+(`lane.sh switch` and `verify`); this page covers the optional lease that
+adds a holder token and a human-confirmed takeover.
+
 An operator may have a session on each client (Claude Code, Codex): one
 **holder** and one **standby**. The holder works; the standby redirects.
 Everything here is plain files in the operator home, changed only by the

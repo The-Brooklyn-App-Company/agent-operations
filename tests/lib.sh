@@ -128,6 +128,8 @@ assert_count() { assert_eq "$(count_files "$1")" "$2" "files in ${1#"$T"/}"; }
 ao_test_main() {
   _pass=0 _nfail=0
   _list=$(sed -n 's/^\(test_[a-z0-9_]*\)().*/\1/p' "$1")
+  # AO_TEST_ONLY=PATTERN runs only the matching tests (for debugging).
+  [ -z "${AO_TEST_ONLY:-}" ] || _list=$(printf '%s\n' "$_list" | grep -- "$AO_TEST_ONLY")
   for _t in $_list; do
     if (
       ao_test_setup

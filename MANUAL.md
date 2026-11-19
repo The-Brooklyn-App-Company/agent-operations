@@ -40,6 +40,13 @@ account setup is an owner action; installation never initiates sign-in.
 git clone <kit-url> ~/src/agent-operations
 cd ~/src/agent-operations
 git checkout <reviewed-release-tag>
+scripts/bootstrap.sh     # guided: this section and section 5 in one run
+```
+
+[`bootstrap.sh`](docs/hosts-and-ci.md#first-run) runs the steps below for
+you and ends with a checklist; the manual steps stay valid:
+
+```sh
 scripts/install.sh --dry-run oracle ~/ops/oracle
 scripts/install.sh oracle ~/ops/oracle
 ```
@@ -49,9 +56,14 @@ Edit the profile the installer prints. Choose explicit role models; unresolved
 Use the relevant [profile](profiles/) and [integration guide](docs/profiles-and-integrations.md).
 Do not copy credentials into the profile: use secret-store names if needed.
 
-Create an embedded operator, or omit `--embedded` for its own private home:
+Create an embedded operator, or omit `--embedded` for its own private home.
+`operator.sh create` is the guided routine: it asks for the model and effort
+on both clients (decided now, with you), runs the installer and walks the
+checklist ([routines](docs/conventions.md#operator-routines)):
 
 ```sh
+scripts/operator.sh create web --embedded --owns git@git.example.com:sample/app-web.git
+# or, without the routine:
 scripts/install.sh operator web --embedded --owns git@git.example.com:sample/app-web.git
 scripts/check.sh home ~/ops/oracle ~/ops/oracle/operators/web
 scripts/status.sh
@@ -113,6 +125,13 @@ instance-specific ownership list must agree with the registry, not become a
 second conflicting source. Retain dormant session identities for recovery, but
 exclude them from dispatch. A pointer never transfers ownership (K-34).
 
+Switch an operator between clients with `scripts/lane.sh switch KEY --to
+CLIENT --session ID`, then `scripts/lane.sh verify KEY` until every step
+passes: handoff, routing, watchdog, labels, pins on both sides, models,
+switch-in audit and the incoming session's acknowledgement
+([conventions](docs/conventions.md#switching-an-operator-between-clients)).
+The script is the checklist; no step is done from memory (K-36).
+
 Use [the lease procedure](docs/handoff.md) for warm handoff or owner-directed
 cold takeover. Lease ownership is advisory, not a hard OS security boundary.
 Only the holder acts; the standby redirects. Expiry alone does not justify
@@ -142,12 +161,15 @@ The design, its safety nets and its restart recovery are in
 [docs/mailroom.md](docs/mailroom.md). In short: same-app messages go direct
 with the app's own tool; cross-app messages and notes from scripts go
 through an inbox, the relay, a ring and the receiving app's in-app bridge;
-a model-free supervisor keeps both bridges armed. Lanes are never pre-woken.
+a model-free supervisor keeps both bridges armed. Every delivery walks a
+degradation ladder (model-free, a bridge model turn, headless or CLI queue,
+an alarm and then a push to you): it gets slower, never stops, and each
+drop is logged and flagged once per cause. Lanes are never pre-woken.
 
 ```sh
-scripts/install.sh host                       # App Nap, folders, units, bridges
-scripts/install.sh bridge claude              # and/or: bridge codex
-scripts/install.sh timers                     # tick + relay unit; load both
+scripts/install.sh host                       # what it would do
+scripts/install.sh host --apply               # App Nap, folders, units loaded, bridge homes
+# then the in-app steps it lists: the two Mailrooms, their ids, pins
 printf '%s\n' 'A harmless setup fixture; no action requested.' | scripts/inbox-put.sh web setup-proof
 scripts/relay.sh --dry-run --key web
 scripts/relay.sh --key web && scripts/mailroom.sh status
@@ -174,8 +196,8 @@ experimental lease mailbox's doorbells now ring the mailroom too
 
 Prove both directions: Oracle to operator and operator to Oracle, and one
 message each way across the apps. Record note ID, ring name, the delivered
-log line (who delivered it, mode, status) and the recipient's
-acknowledgement. Then quit each app while idle and time how long the
+log row (tier, mode, status, latency, step) and the recipient's
+acknowledgement. `scripts/mailroom.sh metrics` shows the share per tier. Then quit each app while idle and time how long the
 supervisor takes to re-arm its bridge untouched. A local fake proves
 routing logic; a natural event proves the installed path.
 

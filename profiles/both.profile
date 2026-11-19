@@ -52,6 +52,12 @@ cross_review=on
 # in-app bridges (install.sh bridge claude|codex); the supervisor falls back
 # to the relay transports above. off = deliver through the transports.
 relay_bridge=on
+# Claude tier 1 (opt-in): the bridge's watcher delivers to warm sessions
+# with no model turn, through the client's undocumented local socket.
+# bridge_claude_t1=socket
+# The desktop app's link to a session, {session} where the id goes, for the
+# supervisor's deep-link warm-up after an app restart (none shipped).
+# wake_link=CHANGE-ME-app-session-link-with-{session}
 # bridge_codex_node=CHANGE-ME-node-bundled-in-the-desktop-app
 # bridge_codex_server=CHANGE-ME-codex-app-tools-server.mjs-in-the-desktop-app
 # host_apps=com.anthropic.claudefordesktop com.openai.codex

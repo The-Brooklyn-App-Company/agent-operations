@@ -12,8 +12,9 @@
 #        check.sh host
 #
 # kit      Run in a kit checkout (CI does): links over every tracked
-#          Markdown file and skills over skills/ must pass; duplicate rule
-#          text across kit/, docs/ and skills/ is reported as a warning.
+#          Markdown file and skills over skills/ must pass, and
+#          kit/KIT.md must stay within its byte budget (11000); duplicate
+#          rule text across kit/, docs/ and skills/ is reported as a warning.
 # links    Every relative Markdown link [text](target) in the given files
 #          (default: the Markdown files git tracks here) must name an
 #          existing file or directory, and a #fragment must match a heading
@@ -28,7 +29,8 @@
 #          (default 60) or with no pointer into docs/ or templates/.
 # home     A kit-managed operator home: AGENTS.md and MANDATE.md exist;
 #          CLAUDE.md, if present, only imports AGENTS.md (`@AGENTS.md`);
-#          operator.conf, if present, has only key, session.<client> and
+#          operator.conf, if present, has only key, session.<client>,
+#          model.<client>, effort.<client>, archived and
 #          work.<name>=<url>|owner|contributor lines. Across all DIRs, a
 #          repository URL may have only one owner.
 # privacy  Reports home-directory paths (a macOS user folder anywhere; a
@@ -60,6 +62,9 @@
 set -u
 AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$AO_SCRIPTS/lib/core.sh"
+
+# The rules file's byte budget (check.sh kit).
+AO_KIT_BUDGET=11000
 
 # check_need_number OPTION VALUE...  Die unless VALUE is an integer.
 check_need_number() {
@@ -243,6 +248,9 @@ check_home() {
       case $_k in
         key) ao_is_name "$_v" || { printf '%s/operator.conf:%s: invalid key\n' "$_h" "$_n"; _bad=1; } ;;
         session.claude | session.codex | session.custom | session.file-only) ;;
+        model.claude | model.codex | effort.claude | effort.codex)
+          case $_v in '' | *[!A-Za-z0-9._:-]*) printf '%s/operator.conf:%s: %s must be one word\n' "$_h" "$_n" "$_k"; _bad=1 ;; esac ;;
+        archived) ;;
         work.*)
           case $_v in
             *'|owner') printf '%s\t%s\n' "$(ao_repo_key "${_v%|owner}")" "$_h" >>"$_owners" ;;
@@ -267,6 +275,13 @@ check_kit() {
   _rc=0
   check_links || _rc=$AO_E_FAIL
   check_skills skills || _rc=$AO_E_FAIL
+  # The rules stay readable in one sitting: a new rule replaces words, it
+  # does not add them (K-32).
+  _kb=$(wc -c <kit/KIT.md | tr -d ' ')
+  if [ "$_kb" -gt "$AO_KIT_BUDGET" ]; then
+    printf 'kit/KIT.md is %s bytes, over its budget of %s: replace rather than add (K-32)\n' "$_kb" "$AO_KIT_BUDGET"
+    _rc=$AO_E_FAIL
+  fi
   set -- kit/KIT.md docs/*.md skills/*/SKILL.md
   if ! _d=$(check_dupes "$@"); then
     printf 'warning: duplicated rule text (keep one home, point to it):\n%s\n' "$_d"

@@ -13,8 +13,8 @@ mr_setup() {
 }
 # bridge_rows: register both bridges.
 bridge_rows() {
-  printf 'mailroom-claude\tMailroom bridge (Claude)\t%s\tsid-bridge\tclaude\n' "$T/user" >>"$T/home/operators/REGISTRY.tsv"
-  printf 'mailroom-codex\tMailroom bridge (Codex)\t%s\tthread-bridge\tcodex\n' "$T/user" >>"$T/home/operators/REGISTRY.tsv"
+  printf 'mailroom-claude\tMailroom\t%s\tsid-bridge\tclaude\n' "$T/user" >>"$T/home/operators/REGISTRY.tsv"
+  printf 'mailroom-codex\tMailroom\t%s\tthread-bridge\tcodex\n' "$T/user" >>"$T/home/operators/REGISTRY.tsv"
 }
 later() { AO_NOW=$(($(date +%s) + $1)); export AO_NOW; }
 ring_count() { count_files "$MR/$1"; }
@@ -103,7 +103,7 @@ test_supervisor_leaves_young_rings_and_falls_back_for_old_claude_rings() {
   assert_has "$FAKE_LOG" 'to "Alpha Op"'
   assert_has "$FAKE_LOG" 'relay-id: alpha-'
   assert_eq "$(ring_count claude)" 1 "only delivered/ left"
-  assert_has "$MR/claude/delivered/log.tsv" "$r${TAB}fallback${TAB}-${TAB}ok"
+  assert_has "$MR/claude/delivered/log.tsv" "$r${TAB}t3-headless${TAB}send${TAB}ok"
   assert_has "$T/state/mailroom.tsv" "fallback-ok"
 }
 
@@ -150,7 +150,7 @@ test_old_codex_rings_are_queued_to_the_target_unless_held() {
   assert_has "$FAKE_LOG" '(mailroom fallback, queued)'
   assert_has "$FAKE_LOG" 'arg: --resume'
   assert_eq "$(rings codex)" "$held" "the held ring waits"
-  assert_has "$MR/codex/delivered/log.tsv" "queue-direct${TAB}queue${TAB}accepted"
+  assert_has "$MR/codex/delivered/log.tsv" "t3-cli-queue${TAB}queue${TAB}accepted"
 }
 
 test_a_down_bridge_gets_one_rearm_per_app_process_then_one_alarm() {
@@ -163,7 +163,7 @@ test_a_down_bridge_gets_one_rearm_per_app_process_then_one_alarm() {
   assert_rc 0
   assert_has "$FAKE_LOG" 'arg: thread-bridge'
   assert_has "$FAKE_LOG" 'Re-arm doorbell watcher'
-  assert_has "$FAKE_LOG" 'to "Mailroom bridge (Claude)"'
+  assert_has "$FAKE_LOG" 'to "Mailroom"'
   assert_lacks "$FAKE_LOG" '== open'
   _n=$(grep -c '^== ' "$FAKE_LOG")
   later 60
@@ -192,7 +192,7 @@ test_an_app_that_is_not_running_is_opened_not_messaged() {
   later 0
   run mailroom.sh supervise
   assert_has "$FAKE_LOG" 'arg: com.anthropic.claudefordesktop'
-  assert_lacks "$FAKE_LOG" 'to "Mailroom bridge (Claude)"'
+  assert_lacks "$FAKE_LOG" 'to "Mailroom"'
   assert_lacks "$FAKE_LOG" 'Re-arm doorbell watcher'
   later 600
   run mailroom.sh supervise
@@ -202,36 +202,25 @@ test_an_app_that_is_not_running_is_opened_not_messaged() {
 
 test_an_undeployed_codex_watcher_is_left_alone() {
   mr_setup
-  printf 'mailroom-codex\tMailroom bridge (Codex)\t%s\tthread-bridge\tcodex\n' "$T/user" >>"$T/home/operators/REGISTRY.tsv"
+  printf 'mailroom-codex\tMailroom\t%s\tthread-bridge\tcodex\n' "$T/user" >>"$T/home/operators/REGISTRY.tsv"
   run mailroom.sh supervise
   assert_rc 0
   assert_no_file "$FAKE_LOG"
 }
 
-test_an_armed_bridge_is_left_alone_and_probed_for_free() {
+test_an_armed_bridge_is_left_alone_and_never_probed() {
   mr_setup
   bridge_rows
   live_pid
-  mkdir -p "$MR/claude/.watcher" "$MR/codex/.watcher"
+  mkdir -p "$MR/claude/.watcher" "$MR/codex/.watcher" "$T/state/mailroom-probe"
   printf '%s\n' "$LIVE" >"$MR/claude/.watcher/pid"
   printf '2026-11-19T00:00:00Z %s\n' "$LIVE" >"$MR/codex/.watcher/heartbeat"
   run mailroom.sh supervise
+  stop_live
   assert_rc 0
   assert_no_file "$FAKE_LOG"
-  pc=$(rings claude) px=$(rings codex)
-  case $pc in echo--probe-*.md) ;; *) _fail "no Claude probe ring: $pc" ;; esac
-  case $px in echo--probe-*--queue.md) ;; *) _fail "no Codex probe ring: $px" ;; esac
-  run mailroom.sh file claude "$pc"
-  assert_rc 0
-  assert_has "$MR/claude/delivered/log.tsv" "$pc${TAB}bridge${TAB}echo"
-  # An hour later: the Claude bridge filed its probe; the Codex watcher died.
-  age_file "$T/state/mailroom-probe/sent" 3700
-  printf '2026-11-19T00:00:00Z 1\n' >"$MR/codex/.watcher/heartbeat"
-  FAKE_MODE=sent run mailroom.sh supervise
-  stop_live
-  assert_has "$T/state/mailroom-probe.tsv" "${TAB}claude${TAB}ok${TAB}"
-  assert_has "$T/state/mailroom-probe.tsv" "${TAB}codex${TAB}FAIL${TAB}"
-  assert_eq "$(notes_named mailroom-probe-fail-codex)" 1 "probe alarm"
+  assert_eq "$(rings claude | grep -c probe)" 0 "no hourly probe"
+  assert_no_file "$T/state/mailroom-probe"
 }
 
 test_file_moves_rings_and_rejects_bad_names() {
@@ -242,7 +231,9 @@ test_file_moves_rings_and_rejects_bad_names() {
   run mailroom.sh file claude sid-a--a-1.md "$MR/claude/sid-b--b-1.md" --mode sent
   assert_rc 0
   assert_eq "$(ring_count claude)" 1 "only delivered/ left"
-  assert_eq "$(grep -c "${TAB}bridge${TAB}sent${TAB}ok" "$MR/claude/delivered/log.tsv")" 2 "logged"
+  assert_eq "$(grep -c "${TAB}t2-bridge${TAB}sent${TAB}ok${TAB}" "$MR/claude/delivered/log.tsv")" 2 "logged"
+  run mailroom.sh file claude sid-a--a-1.md --tier t9
+  assert_rc 2
   run mailroom.sh file claude sid-a--a-1.md
   assert_rc 1
   run mailroom.sh file claude 'bad name.md'
@@ -257,11 +248,13 @@ test_metrics_count_rings_deliveries_and_latency() {
   later 0
   run relay.sh
   r=$(rings claude)
+  touch -t "$(date -r "$AO_NOW" +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$AO_NOW" +%Y%m%d%H%M.%S)" "$MR/claude/$r"
   AO_NOW=$((AO_NOW + 30))
   run mailroom.sh file claude "$r"
+  assert_has "$MR/claude/delivered/log.tsv" "$r${TAB}t2-bridge${TAB}send${TAB}ok${TAB}30000${TAB}-"
   run mailroom.sh metrics 24
   assert_rc 0
-  assert_has "$T/out" "Claude: rings 1; delivered by bridge 1, by fallback 0 (failed 0); median ring-to-delivery 30s."
+  assert_has "$T/out" "Claude: rings 1; delivered 1: t2-bridge 100% (1; p50 30.0s, p90 30.0s), t3-headless 0; first tier t2-bridge: ok -"
   assert_has "$T/out" "Waiting now: Claude 0, Codex 0."
   run mailroom.sh metrics 0
   assert_rc 2
@@ -272,8 +265,8 @@ test_status_reports_each_side() {
   bridge_rows
   run mailroom.sh status
   assert_rc 0
-  assert_has "$T/out" "claude: watcher DOWN; waiting 0"
-  assert_has "$T/out" "codex: watcher DOWN; waiting 0"
+  assert_has "$T/out" "claude: watcher DOWN; first tier t2-bridge (ok -); waiting 0"
+  assert_has "$T/out" "codex: watcher DOWN; first tier t1-native (ok -); waiting 0"
 }
 
 test_doorbells_ring_the_mailroom() {
@@ -314,7 +307,7 @@ test_wait_blocks_until_a_ring_and_records_its_pid() {
   assert_file "$MR/claude/.watcher/handing/sid-a--a-1.md"
   run mailroom.sh file claude sid-a--a-1.md --mode sent
   assert_rc 0
-  assert_has "$MR/claude/delivered/log.tsv" "sid-a--a-1.md${TAB}bridge${TAB}sent${TAB}ok"
+  assert_has "$MR/claude/delivered/log.tsv" "sid-a--a-1.md${TAB}t2-bridge${TAB}sent${TAB}ok"
   # A probe ring is filed by the watcher itself and wakes nobody.
   "$AO_TEST_SHELL" "$SCRIPTS/mailroom.sh" wait claude </dev/null >"$T/out2" 2>&1 &
   w=$!
@@ -328,14 +321,14 @@ test_wait_blocks_until_a_ring_and_records_its_pid() {
   kill -0 "$w" 2>/dev/null || _fail "a probe woke the bridge"
   kill "$w" 2>/dev/null
   wait "$w" 2>/dev/null
-  assert_has "$MR/claude/delivered/log.tsv" "echo--probe-1.md${TAB}watcher${TAB}echo${TAB}ok"
+  assert_has "$MR/claude/delivered/log.tsv" "echo--probe-1.md${TAB}none${TAB}echo${TAB}ok"
 }
 
 # ---------------------------------------------------------------- Codex watcher
 
 # watcher [VAR=VALUE...]  Start the watcher against the fake app server.
 watcher() {
-  env FAKE_APP_LOG="$T/app.log" FAKE_APP_BUSY_DIR="$T/busy" AO_MR_IDLE_POLL_MS=100 AO_MR_HEARTBEAT_MS=200 "$@" \
+  env FAKE_APP_LOG="$T/app.log" FAKE_APP_BUSY_DIR="$T/busy" AO_MR_HEARTBEAT_MS=200 "$@" \
     node "$SCRIPTS/mailroom-codex-watcher.cjs" --dir "$MR/codex" --server "$TESTS_DIR/fakes/fake-app-tools.cjs" \
     --self-thread thread-bridge </dev/null >"$T/wout" 2>"$T/werr" &
   WPID=$!
@@ -345,6 +338,13 @@ watcher() {
 put_ring() { printf '%s\n' "$2" >"$MR/codex/.t" && mv "$MR/codex/.t" "$MR/codex/$1"; }
 wait_for() { _n=0; while ! eval "$1" 2>/dev/null && [ "$_n" -lt "${2:-50}" ]; do sleep 0.1; _n=$((_n + 1)); done; eval "$1" 2>/dev/null; }
 has_node() { command -v node >/dev/null 2>&1 || { echo "    (skipped: node not installed)"; return 1; }; }
+# rollout THREAD  A target's rollout file, as the Codex app writes it.
+rollout() {
+  mkdir -p "$T/codex/sessions/2026/11/19"
+  ROLLOUT=$T/codex/sessions/2026/11/19/rollout-2026-11-19T00-00-00-$1.jsonl
+  printf '{"type":"session_meta"}\n' >>"$ROLLOUT"
+}
+turn_complete() { printf '{"type":"event_msg","payload":{"type":"task_complete"}}\n' >>"$ROLLOUT"; }
 
 test_codex_watcher_delivers_a_burst_once_in_order_and_holds_queue_rings() {
   has_node || return 0
@@ -352,6 +352,7 @@ test_codex_watcher_delivers_a_burst_once_in_order_and_holds_queue_rings() {
   mkdir -p "$MR/codex" "$T/busy"
   put_ring thread-a--a-0--queue.md "waiting at start"
   : >"$T/busy/thread-q"
+  rollout thread-q
   watcher
   for i in 1 2 3 4 5; do put_ring "thread-s--s-$i--steer.md" "burst $i"; done
   put_ring thread-q--q-1--queue.md "for a busy thread"
@@ -359,15 +360,24 @@ test_codex_watcher_delivers_a_burst_once_in_order_and_holds_queue_rings() {
   wait_for '[ "$(grep -c "${TAB}steer${TAB}ok" "$MR/codex/delivered/log.tsv" 2>/dev/null)" = 5 ]'
   wait_for '[ -f "$MR/codex/.watcher/holding/thread-q--q-1--queue.md" ]'
   assert_file "$MR/codex/thread-q--q-1--queue.md"
+  # Idle now, but no turn-complete event yet: nothing polls, so it waits.
   rm "$T/busy/thread-q"
+  sleep 0.6
+  assert_file "$MR/codex/thread-q--q-1--queue.md"
+  reads=$(grep -c '"read_thread"' "$T/app.log")
+  printf '{"type":"event_msg","payload":{"type":"token_count"}}\n' >>"$ROLLOUT"
+  sleep 0.4
+  assert_eq "$(grep -c '"read_thread"' "$T/app.log")" "$reads" "unrelated appends trigger no read"
+  turn_complete
   wait_for 'grep -q "thread-q--q-1--queue.md" "$MR/codex/delivered/log.tsv"'
   assert_file "$MR/codex/.watcher/heartbeat"
   kill "$WPID"
   wait "$WPID"
   assert_eq "$?" 0 "stopped by TERM"
-  assert_has "$MR/codex/delivered/log.tsv" "thread-a--a-0--queue.md${TAB}watcher${TAB}queue${TAB}ok"
-  assert_has "$MR/codex/delivered/log.tsv" "thread-q--q-1--queue.md${TAB}watcher${TAB}queue${TAB}ok"
-  assert_has "$MR/codex/delivered/log.tsv" "echo--probe-1--queue.md${TAB}watcher${TAB}echo${TAB}ok"
+  assert_has "$MR/codex/delivered/log.tsv" "thread-a--a-0--queue.md${TAB}t1-native${TAB}queue${TAB}ok"
+  assert_has "$MR/codex/delivered/log.tsv" "thread-q--q-1--queue.md${TAB}t1-native${TAB}queue${TAB}ok"
+  assert_has "$MR/codex/delivered/log.tsv" "echo--probe-1--queue.md${TAB}none${TAB}echo${TAB}ok"
+  assert_has "$MR/codex/.watcher/fingerprint" "tools="
   assert_eq "$(grep -c send_message_to_thread "$T/app.log")" 7 "one send per ring, none for the probe"
   assert_eq "$(grep send_message_to_thread "$T/app.log" | grep -o 'burst [0-9]' | tr -d '\n')" "burst 1burst 2burst 3burst 4burst 5" "in order"
   assert_has "$T/app.log" '"prompt":"Doorbell [thread-s--s-1--steer.md]: burst 1"'
@@ -380,6 +390,7 @@ test_codex_watcher_releases_a_queue_ring_at_the_cap_and_marks_unknown_state() {
   mr_setup
   mkdir -p "$MR/codex" "$T/busy"
   : >"$T/busy/thread-q"
+  rollout thread-q
   watcher AO_MR_HOLD_CAP_MS=500
   put_ring thread-q--q-1--queue.md "never idle"
   wait_for 'grep -q queue-cap "$MR/codex/.watcher/log"'
@@ -387,14 +398,30 @@ test_codex_watcher_releases_a_queue_ring_at_the_cap_and_marks_unknown_state() {
   assert_no_file "$MR/codex/.watcher/holding/thread-q--q-1--queue.md"
   kill "$WPID"
   wait "$WPID"
+  assert_eq "$(cat "$MR/codex/.watcher/released/thread-q--q-1--queue.md")" queue-cap "release step"
   # An unreadable thread state counts as busy: held, never sent at once.
+  rollout thread-u
   watcher FAKE_APP_MODE=nostatus AO_MR_HOLD_CAP_MS=500
   put_ring thread-u--u-1--queue.md "unknown"
-  wait_for 'grep -q "queue-cap thread-u--u-1--queue.md" "$MR/codex/.watcher/log"'
+  wait_for 'grep -q "released thread-u--u-1--queue.md to tier 3: queue-cap" "$MR/codex/.watcher/log"'
   kill "$WPID"
   wait "$WPID"
   assert_file "$MR/codex/thread-u--u-1--queue.md"
   assert_eq "$(grep -c send_message_to_thread "$T/app.log")" 0 "never sent to an unreadable thread"
+  # No rollout to tail: released to tier 3 at once, with the step.
+  : >"$T/busy/thread-n"
+  watcher
+  n=thread-n--nrow-20261119T000000-abcdef--queue.md
+  put_ring "$n" "no rollout"
+  wait_for '[ -f "$MR/codex/.watcher/released/$n" ]'
+  kill "$WPID"
+  wait "$WPID"
+  assert_eq "$(cat "$MR/codex/.watcher/released/$n")" no-rollout "release step"
+  age_file "$MR/codex/$n" 200
+  printf 'nrow\tN Op\t%s\tthread-n\tcodex\n' "$T/proj/beta" >>"$T/home/operators/REGISTRY.tsv"
+  run mailroom.sh supervise
+  assert_has "$MR/codex/delivered/log.tsv" "$n${TAB}t3-cli-queue${TAB}queue${TAB}accepted${TAB}"
+  assert_has "$MR/codex/delivered/log.tsv" "${TAB}no-rollout"
 }
 
 test_codex_watcher_refuses_bad_preflight_a_second_copy_and_a_closed_pipe() {
@@ -416,7 +443,7 @@ test_codex_watcher_refuses_bad_preflight_a_second_copy_and_a_closed_pipe() {
     run mailroom.sh supervise
     assert_has "$T/state/mailroom.tsv" "${TAB}unknown${TAB}codex${TAB}thread-s--s-1--steer.md"
   fi
-  assert_has "$MR/codex/delivered/log.tsv" "thread-s--s-1--steer.md${TAB}watcher"
+  assert_has "$MR/codex/delivered/log.tsv" "thread-s--s-1--steer.md${TAB}t1-native"
   assert_has "$MR/codex/delivered/log.tsv" "${TAB}unknown"
 }
 
@@ -432,17 +459,61 @@ test_codex_watcher_never_resends_after_a_timeout() {
   kill "$WPID"
   wait "$WPID"
   assert_file "$MR/codex/.watcher/unknown/thread-s--s-1--steer.md"
+  # Reconciled only once it is 5 minutes old; this thread has no record to
+  # read, so it alarms once and is never resent.
   run mailroom.sh supervise
+  assert_eq "$(notes_named mailroom-unknown-codex)" 0 "too early to reconcile"
+  later 400
+  run mailroom.sh supervise
+  unset AO_NOW
   assert_eq "$(notes_named mailroom-unknown-codex)" 1 "the supervisor alarms once"
   assert_no_file "$MR/codex/.watcher/unknown/thread-s--s-1--steer.md"
+  assert_lacks "$FAKE_LOG" "arg: queue"
   # A protocol error after submission is just as unknown.
   watcher FAKE_APP_MODE=rpcerror-on-send
   put_ring thread-s--s-2--steer.md "y"
-  wait_for 'grep -q "thread-s--s-2--steer.md${TAB}watcher${TAB}steer${TAB}unknown" "$MR/codex/delivered/log.tsv"'
+  wait_for 'grep -q "thread-s--s-2--steer.md${TAB}t1-native${TAB}steer${TAB}unknown" "$MR/codex/delivered/log.tsv"'
   sleep 0.3
   kill "$WPID"
   wait "$WPID"
   assert_eq "$(grep -c send_message_to_thread "$T/app.log")" 2 "each sent once"
+}
+
+# unknown_ring NAME  A Codex ring the watcher filed `unknown`.
+unknown_ring() {
+  mkdir -p "$MR/codex/delivered" "$MR/codex/.watcher/unknown"
+  printf 'relay-id: r-%s\nnotes: x\n' "$1" >"$MR/codex/delivered/$1"
+  printf '2026-11-19T00:00:00Z\t%s\t%s\tt1-native\tsteer\tunknown\t5\t-\n' "$(date +%s)" "$1" >>"$MR/codex/delivered/log.tsv"
+  : >"$MR/codex/.watcher/unknown/$1"
+}
+
+test_unknown_codex_sends_reconcile_against_the_targets_record() {
+  mr_setup
+  rollout thread-gamma
+  # Arrived after all: its text is in the rollout. No resend.
+  unknown_ring thread-gamma--gamma-1--steer.md
+  printf '{"type":"response_item","text":"Doorbell [thread-gamma--gamma-1--steer.md]: x"}\n' >>"$ROLLOUT"
+  # Absent from a readable rollout: escalated once by the CLI queue.
+  unknown_ring thread-gamma--gamma-2--steer.md
+  later 400
+  run mailroom.sh supervise
+  assert_has "$MR/codex/delivered/log.tsv" "thread-gamma--gamma-1--steer.md${TAB}t1-native${TAB}resolve${TAB}ok${TAB}-${TAB}late-receipt"
+  assert_has "$MR/codex/delivered/log.tsv" "thread-gamma--gamma-2--steer.md${TAB}t3-cli-queue${TAB}resolve${TAB}accepted${TAB}-${TAB}unknown-absent"
+  assert_eq "$(grep -c 'arg: queue' "$FAKE_LOG")" 1 "one escalation"
+  assert_has "$FAKE_LOG" "Doorbell [thread-gamma--gamma-2--steer.md] (mailroom fallback after an unconfirmed send, queued)"
+  assert_count "$MR/codex/.watcher/unknown" 0
+  run mailroom.sh supervise
+  assert_eq "$(grep -c 'arg: queue' "$FAKE_LOG")" 1 "never twice"
+  # An escalation that is itself unconfirmed alarms and stops there.
+  unknown_ring thread-gamma--gamma-3--steer.md
+  FAKE_MODE=queue-ambiguous run mailroom.sh supervise
+  assert_has "$MR/codex/delivered/log.tsv" "thread-gamma--gamma-3--steer.md${TAB}t3-cli-queue${TAB}resolve${TAB}unknown"
+  assert_eq "$(notes_named mailroom-unknown-codex)" 1 "one alarm"
+  FAKE_MODE=queue-ambiguous run mailroom.sh supervise
+  assert_eq "$(grep -c 'arg: queue' "$FAKE_LOG")" 2 "no third queue"
+  # Metrics count resolutions apart from deliveries.
+  run mailroom.sh metrics 24
+  assert_has "$T/out" "outcome unknown 3 (arrived late 1, escalated once absent 2)"
 }
 
 test_arm_codex_needs_the_app_paths_and_reports_an_armed_watcher() {
@@ -472,7 +543,8 @@ test_claimed_but_unfiled_claude_rings_fall_back_from_the_claim_time() {
   FAKE_MODE=sent run mailroom.sh supervise
   assert_rc 0
   assert_has "$FAKE_LOG" 'to "Alpha Op"'
-  assert_has "$MR/claude/delivered/log.tsv" "$r${TAB}fallback"
+  assert_has "$MR/claude/delivered/log.tsv" "$r${TAB}t3-headless${TAB}send${TAB}ok"
+  assert_has "$MR/claude/delivered/log.tsv" "${TAB}bridge-stuck"
   assert_no_file "$MR/claude/.watcher/handing/$r"
 }
 
@@ -488,7 +560,7 @@ test_a_fallback_follows_the_operator_to_its_current_owner() {
   run mailroom.sh supervise
   assert_rc 0
   assert_no_file "$FAKE_LOG"
-  assert_has "$MR/claude/delivered/log.tsv" "$r${TAB}supervisor${TAB}rerouted"
+  assert_has "$MR/claude/delivered/log.tsv" "$r${TAB}none${TAB}rerouted"
   case $(rings codex) in thread-alpha--alpha-*--queue.md) ;; *) _fail "no ring for the new owner" ;; esac
 }
 
@@ -500,15 +572,19 @@ test_only_the_original_note_name_sets_steer() {
   case $(rings codex) in *--queue.md) ;; *) _fail "the key made it steer: $(rings codex)" ;; esac
 }
 
-test_metrics_median_averages_an_even_sample() {
+test_metrics_report_tier_share_and_percentiles() {
   mr_setup
-  mkdir -p "$MR/claude/delivered" "$T/state"
-  printf '100\tx\tring\tclaude\ta.md\t-\n100\tx\tring\tclaude\tb.md\t-\n' >"$T/state/mailroom.tsv"
-  printf 'x\t110\ta.md\tbridge\t-\tok\nx\t130\tb.md\tbridge\t-\tok\n' >"$MR/claude/delivered/log.tsv"
-  AO_NOW=200
+  mkdir -p "$MR/codex/delivered" "$T/state"
+  AO_NOW=$(date +%s)
   export AO_NOW
+  : >"$MR/codex/delivered/log.tsv"
+  for l in 100 200 300 400 500 600 700 800 900 1000; do
+    printf 'x\t%s\tr%s--queue.md\tt1-native\tqueue\tok\t%s\t-\n' "$AO_NOW" "$l" "$l" >>"$MR/codex/delivered/log.tsv"
+  done
+  printf 'x\t%s\tc--queue.md\tt3-cli-queue\tqueue\taccepted\t200000\tsend-error\n' "$AO_NOW" >>"$MR/codex/delivered/log.tsv"
+  printf 'x\t%s\techo--canary-1--queue.md\tt1-native\tcanary\tok\t5\t-\n' "$AO_NOW" >>"$MR/codex/delivered/log.tsv"
   run mailroom.sh metrics 1
-  assert_has "$T/out" "median ring-to-delivery 20s"
+  assert_has "$T/out" "Codex: rings 0; delivered 11: t1-native 91% (10; p50 0.6s, p90 0.9s), t2-bridge 0, t3-cli-queue 9% (1; p50 200.0s, p90 200.0s)"
 }
 
 test_codex_watcher_keeps_releases_across_a_restart() {
@@ -516,12 +592,14 @@ test_codex_watcher_keeps_releases_across_a_restart() {
   mr_setup
   mkdir -p "$MR/codex" "$T/busy"
   : >"$T/busy/thread-q"
+  rollout thread-q
   watcher AO_MR_HOLD_CAP_MS=300
   put_ring thread-q--q-1--queue.md "never idle"
   wait_for 'grep -q queue-cap "$MR/codex/.watcher/log"'
   kill "$WPID"
   wait "$WPID"
   rm "$T/busy/thread-q"
+  turn_complete
   watcher
   sleep 0.5
   kill "$WPID"
@@ -559,7 +637,7 @@ test_an_unconfirmed_direct_queue_is_filed_unknown_not_resent() {
   later 900
   FAKE_MODE=queue-ambiguous run mailroom.sh supervise
   assert_eq "$(grep -c '^== codex' "$FAKE_LOG")" 1 "queued once"
-  assert_has "$MR/codex/delivered/log.tsv" "$r${TAB}queue-direct${TAB}queue${TAB}unknown"
+  assert_has "$MR/codex/delivered/log.tsv" "$r${TAB}t3-cli-queue${TAB}queue${TAB}unknown"
   assert_eq "$(notes_named mailroom-unknown-codex)" 1 "alarm"
 }
 
@@ -599,6 +677,236 @@ test_a_ring_for_an_operator_no_longer_registered_is_held() {
   run mailroom.sh supervise
   assert_no_file "$FAKE_LOG"
   assert_file "$MR/codex/$r"
+}
+
+# ---------------------------------------------------------------- tier 1 (Claude socket)
+
+has_kq() {
+  [ -x /usr/bin/python3 ] && /usr/bin/python3 -c 'import select; select.kqueue' 2>/dev/null && return 0
+  echo "    (skipped: no kqueue)"
+  return 1
+}
+
+# peer SID MODE  A warm fake Claude session for SID: a session record, a
+# peer key, a transcript and a socket served by fakes/fake-peer.py.
+peer() {
+  SOCKD=$(mktemp -d /tmp/aopeer.XXXXXX)
+  _sock=$SOCKD/p.sock
+  _cwd=$T/proj/warm
+  mkdir -p "$_cwd" "$T/claude/sessions"
+  TX=$T/claude/projects/$(printf '%s' "$_cwd" | sed 's/[^A-Za-z0-9]/-/g')/00000000-0000-4000-8000-000000000001.jsonl
+  mkdir -p "${TX%/*}"
+  : >"$TX"
+  /usr/bin/python3 -I "$TESTS_DIR/fakes/fake-peer.py" "$_sock" t0ken-secret "$TX" "$2" </dev/null >/dev/null 2>&1 &
+  PEER=$!
+  wait_for '[ -S "$_sock" ]'
+  _h=$(/usr/bin/python3 -I -c 'import hashlib, os, sys; print(hashlib.sha256(os.path.abspath(sys.argv[1]).encode()).hexdigest())' "$_sock")
+  printf '{"peerToken":"t0ken-secret"}\n' >"$T/claude/sessions/$PEER.$_h.key"
+  printf '{"pid":%s,"hostSessionId":"%s","sessionId":"00000000-0000-4000-8000-000000000001","cwd":"%s","messagingSocketPath":"%s","peerProtocol":1,"version":"9.9.9"}\n' \
+    "$PEER" "$1" "$_cwd" "$_sock" >"$T/claude/sessions/$PEER.json"
+}
+stop_peer() { kill "$PEER" 2>/dev/null; wait "$PEER" 2>/dev/null; rm -rf "$SOCKD"; }
+t1_setup() {
+  mr_setup
+  bridge_rows
+  profile_set bridge_claude_t1 socket
+  printf 'warm\tWarm Op\t%s\tlocal_w1\tclaude\n' "$T/proj/warm" >>"$T/home/operators/REGISTRY.tsv"
+  mkdir -p "$MR/claude"
+}
+start_wait() {
+  env AO_MR_T1_CONFIRM_S="${1:-3}" AO_MR_T1_RATE=0,100 "$AO_TEST_SHELL" "$SCRIPTS/mailroom.sh" wait claude </dev/null >"$T/wout" 2>"$T/werr" &
+  W=$!
+  wait_for '[ "$(cat "$MR/claude/.watcher/pid" 2>/dev/null)" = "$W" ]' 100
+}
+
+test_claude_t1_delivers_to_a_warm_session_and_hands_misses_to_the_bridge() {
+  has_kq || return 0
+  t1_setup
+  peer local_w1 ok
+  start_wait
+  note warm a.md "x"
+  run relay.sh
+  r=$(rings claude)
+  wait_for 'grep -q "$r" "$MR/claude/delivered/log.tsv"' 100
+  assert_has "$MR/claude/delivered/log.tsv" "$r${TAB}t1-socket${TAB}send${TAB}ok${TAB}"
+  kill -0 "$W" 2>/dev/null || _fail "the watcher stopped after a tier-1 delivery"
+  assert_has "$TX" '"operation": "enqueue"'
+  assert_has "$TX" "Doorbell [$r]"
+  assert_has "$TX.log" '"auth_ok": true'
+  assert_lacks "$MR/claude/.watcher/log" "t0ken-secret"
+  assert_lacks "$T/wout" "t0ken-secret"
+  # A cold target (no live session record) goes to the bridge model, with the step.
+  note alpha b.md "y"
+  later 2
+  run relay.sh
+  r2=$(rings claude)
+  wait_for '! kill -0 "$W" 2>/dev/null' 100
+  wait "$W"
+  assert_has "$T/wout" "=== $r2"
+  assert_file "$MR/claude/.watcher/handing/$r2"
+  run mailroom.sh file claude "$r2"
+  assert_rc 0
+  assert_has "$MR/claude/delivered/log.tsv" "$r2${TAB}t2-bridge${TAB}send${TAB}ok${TAB}"
+  assert_has "$MR/claude/delivered/log.tsv" "${TAB}cold-target"
+  # The kill switch sends everything to the bridge model.
+  touch "$MR/claude/.watcher/t1-off"
+  start_wait
+  note warm c.md "z"
+  later 4
+  run relay.sh
+  wait_for '! kill -0 "$W" 2>/dev/null' 100
+  wait "$W"
+  stop_peer
+  r3=$(sed -n 's/^=== //p' "$T/wout")
+  assert_eq "$(sed -n 1p "$MR/claude/.watcher/meta/$r3" | cut -f 2)" kill-switch "miss step"
+  assert_eq "$(grep -c '"auth_ok"' "$TX.log")" 1 "no send with the kill switch on"
+}
+
+test_claude_t1_without_a_receipt_is_a_miss_and_never_counts_a_mention() {
+  has_kq || return 0
+  t1_setup
+  peer local_w1 mention
+  start_wait 1
+  note warm a.md "x"
+  run relay.sh
+  r=$(rings claude)
+  wait_for '! kill -0 "$W" 2>/dev/null' 100
+  wait "$W"
+  stop_peer
+  assert_has "$T/wout" "=== $r"
+  assert_eq "$(cut -f 2 "$MR/claude/.watcher/meta/$r")" no-receipt "miss step"
+  assert_no_file "$MR/claude/.watcher/t1/$r.tx"
+  run mailroom.sh file claude "$r"
+  assert_has "$MR/claude/delivered/log.tsv" "${TAB}no-receipt"
+}
+
+test_a_tier1_claim_a_dead_watcher_left_is_filed_on_a_receipt_else_returned() {
+  has_kq || return 0
+  t1_setup
+  mkdir -p "$MR/claude/.watcher/t1"
+  tx=$T/tx.jsonl
+  printf '{"type":"queue-operation","operation":"enqueue","content":"<cross-session-message>\\nDoorbell [local_w1--warm-1.md]: x\\n</cross-session-message>"}\n' >"$tx"
+  printf 'x\n' >"$MR/claude/.watcher/t1/local_w1--warm-1.md"
+  printf '%s\n' "$tx" >"$MR/claude/.watcher/t1/local_w1--warm-1.md.tx"
+  printf 'y\n' >"$MR/claude/.watcher/t1/local_w1--warm-2.md"
+  printf '%s\n' "$tx" >"$MR/claude/.watcher/t1/local_w1--warm-2.md.tx"
+  run mailroom.sh supervise
+  assert_has "$MR/claude/delivered/log.tsv" "local_w1--warm-1.md${TAB}t1-socket${TAB}send${TAB}ok"
+  assert_file "$MR/claude/local_w1--warm-2.md"
+  assert_no_file "$MR/claude/.watcher/t1/local_w1--warm-2.md.tx"
+  assert_has "$T/state/mailroom.tsv" "${TAB}t1-returned${TAB}claude"
+}
+
+# ---------------------------------------------------------------- degradation reporting
+
+# codex_up  A live Codex watcher (heartbeat, log, fingerprint FP).
+codex_up() {
+  mkdir -p "$MR/codex/.watcher"
+  live_pid
+  printf '2026-11-19T00:00:00Z %s\n' "$LIVE" >"$MR/codex/.watcher/heartbeat"
+  : >"$MR/codex/.watcher/log"
+  printf '%s\n' "$1" >"$MR/codex/.watcher/fingerprint"
+}
+codex_bridge_row() { printf 'mailroom-codex\tMailroom\t%s\tthread-bridge\tcodex\n' "$T/user" >>"$T/home/operators/REGISTRY.tsv"; }
+
+test_a_version_change_sends_one_canary_and_a_failed_canary_alarms_once() {
+  mr_setup
+  codex_bridge_row
+  codex_up "tools=aaa server=x-1"
+  run mailroom.sh supervise
+  assert_rc 0
+  c=$(rings codex)
+  case $c in echo--canary-*--queue.md) ;; *) _fail "no canary: $c" ;; esac
+  assert_has "$T/state/mailroom-versions.tsv" "${TAB}codex${TAB}none${TAB}tools=aaa server=x-1"
+  run mailroom.sh supervise
+  assert_eq "$(rings codex | grep -c canary)" 1 "one canary"
+  # The watcher files it from tier 1: confirmed, no alarm.
+  mkdir -p "$MR/codex/delivered"
+  mv "$MR/codex/$c" "$MR/codex/delivered/$c"
+  printf 'x\t%s\t%s\tt1-native\tcanary\tok\t5\t-\n' "$(date +%s)" "$c" >>"$MR/codex/delivered/log.tsv"
+  run mailroom.sh supervise
+  assert_has "$T/state/mailroom.tsv" "${TAB}canary-ok${TAB}codex"
+  # A new version whose canary is never filed: one alarm, flagged as degraded.
+  printf 'tools=bbb server=x-2\n' >"$MR/codex/.watcher/fingerprint"
+  run mailroom.sh supervise
+  assert_eq "$(rings codex | grep -c canary)" 1 "a canary for the new version"
+  printf '2099-01-01T00:00:00Z %s\n' "$LIVE" >"$MR/codex/.watcher/heartbeat"
+  later 700
+  touch -t 209901010000 "$MR/codex/.watcher/heartbeat"
+  run mailroom.sh supervise
+  assert_eq "$(notes_named mailroom-degraded-codex)" 1 "canary alarm"
+  assert_has "$(ls "$T/home/inbox/oracle"/*mailroom-degraded-codex*)" "slower tiers, with higher latency"
+  later 1400
+  run mailroom.sh supervise
+  stop_live
+  assert_eq "$(notes_named mailroom-degraded-codex)" 1 "once per cause"
+}
+
+test_two_first_tier_misses_alarm_once_and_a_first_tier_delivery_clears_it() {
+  mr_setup
+  mkdir -p "$MR/codex/delivered"
+  now=$(date +%s)
+  row() { printf 'x\t%s\t%s--queue.md\t%s\tqueue\t%s\t1000\t%s\n' "$1" "$2" "$3" "$4" "$5" >>"$MR/codex/delivered/log.tsv"; }
+  row "$now" a t1-native ok -
+  row "$now" b t3-cli-queue accepted queue-cap
+  row "$now" c t3-cli-queue accepted queue-cap
+  later 0
+  run mailroom.sh supervise
+  assert_eq "$(notes_named mailroom-degraded-codex)" 0 "a busy target is not a failure"
+  row "$now" d t3-cli-queue accepted send-error
+  row "$now" e t3-cli-queue accepted send-error
+  run mailroom.sh supervise
+  assert_eq "$(notes_named mailroom-degraded-codex)" 1 "degraded"
+  assert_has "$(ls "$T/home/inbox/oracle"/*mailroom-degraded-codex*)" "at step send-error"
+  run mailroom.sh status
+  assert_has "$T/out" "first tier t1-native (degraded send-error)"
+  later 60
+  run mailroom.sh supervise
+  assert_eq "$(notes_named mailroom-degraded-codex)" 1 "once"
+  row $((now + 120)) f t1-native ok -
+  later 120
+  run mailroom.sh supervise
+  assert_has "$T/state/mailroom.tsv" "${TAB}first-tier-ok${TAB}codex"
+  row $((now + 180)) g t3-cli-queue accepted send-error
+  row $((now + 180)) h t3-cli-queue accepted send-error
+  later 200
+  run mailroom.sh supervise
+  assert_eq "$(notes_named mailroom-degraded-codex)" 2 "the same cause alarms again after a recovery"
+}
+
+test_tier4_pushes_the_owner_once_when_the_oracle_does_not_receive_an_alarm() {
+  mr_setup
+  mkdir -p "$T/home/hooks" "$T/state/mailroom/alarm-pending"
+  printf '#!/bin/sh\nprintf "push: %%s\\n" "$1" >>"%s/push.log"\n' "$T" >"$T/home/hooks/push"
+  chmod +x "$T/home/hooks/push"
+  later 0
+  printf '%s\n' "$((AO_NOW - 1000))" >"$T/state/mailroom/alarm-pending/mailroom-bridge-down-claude"
+  run mailroom.sh supervise
+  assert_has "$T/push.log" "the Oracle has not received an alarm for 15+ minutes"
+  later 60
+  run mailroom.sh supervise
+  assert_eq "$(grep -c push: "$T/push.log")" 1 "once per outage"
+  # A ring to the Oracle is delivered: the alarm reached it, the outage closes.
+  mkdir -p "$MR/claude/delivered"
+  printf 'x\t%s\tsid-oracle--oracle-20261119T000000-abcdef.md\tt2-bridge\tsend\tok\t1\t-\n' "$AO_NOW" >>"$MR/claude/delivered/log.tsv"
+  later 120
+  run mailroom.sh supervise
+  assert_no_file "$T/state/mailroom/alarm-pending/mailroom-bridge-down-claude"
+  assert_has "$T/state/mailroom.tsv" "${TAB}outage-closed${TAB}"
+}
+
+test_a_claude_app_restart_wakes_the_bridge_then_returns_to_the_oracle() {
+  mr_setup
+  printf 'mailroom-claude\tMailroom\t%s\tsid-bridge\tclaude\n' "$T/user" >>"$T/home/operators/REGISTRY.tsv"
+  profile_set wake_link 'exampleapp://session/{session}'
+  later 0
+  FAKE_MODE=sent run mailroom.sh supervise
+  assert_rc 0
+  b=$(grep -n 'arg: exampleapp://session/sid-bridge' "$FAKE_LOG" | cut -d: -f1)
+  o=$(grep -n 'arg: exampleapp://session/sid-oracle' "$FAKE_LOG" | cut -d: -f1)
+  [ -n "$b" ] && [ -n "$o" ] && [ "$b" -lt "$o" ] || _fail "expected the bridge link, then the Oracle's (bridge line ${b:-none}, oracle line ${o:-none})"
+  assert_has "$FAKE_LOG" 'to "Mailroom"'
+  assert_has "$FAKE_LOG" 'Re-arm'
 }
 
 ao_test_main "$0"

@@ -177,8 +177,8 @@ drift_prompt_extra drift_workdir drift_to
 review_family cross_review cross_review_timeout cross_review_per_run
 cross_review_days tracker chat githost ci secrets attribution
 lease_stale doorbell_codex doorbell_rering_min
-relay_bridge bridge_dir bridge_codex_node bridge_codex_server
-host_apps host_latency_jobs host_launchd_dirs'
+relay_bridge bridge_dir bridge_codex_node bridge_codex_server bridge_claude_t1
+wake_link host_apps host_latency_jobs host_launchd_dirs owner_tz archive_dir'
 # Host defaults (install.sh host, check.sh host): desktop apps whose App Nap
 # is turned off, launchd label patterns that must not run as Background,
 # and the launchd folders scanned.

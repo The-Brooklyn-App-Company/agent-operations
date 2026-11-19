@@ -1,5 +1,11 @@
 # Delegation packet
 
+A short handoff is enough for most tasks: **outcome**, **scope and
+authority** (a reference: mandate section, ask id), **exact artifact or
+head**, **acceptance**, **exclusions**, **return path**. Keep uncertainty
+and the one next step in your own notes. Use the full packet below for
+delegated builds and reviews.
+
 - **Task:** `<existing task link>`
 - **Delegate:** `<model / effort>`; reviewer `<other model family / high effort>`; both on the owner's existing subscriptions. No billing fallback: stop and report on quota or access loss (K-26).
 - **Repository and base SHA:** `<repo>` @ `<sha>`

@@ -11,15 +11,16 @@
 #        install.sh [--dry-run] skills --target DIR
 #        install.sh [--dry-run] timers [--launchd | --systemd]
 #        install.sh [--dry-run] bridge claude|codex [--home DIR] [--name NAME]
-#        install.sh [--dry-run] host
+#        install.sh [--dry-run] host [--apply]
 #
 # --dry-run lists every directory, file, link, worktree and timer the
 # command would create, and changes nothing. Without it the same list is
 # printed as the work is done. The installer only ever creates what is
 # missing: an existing file is kept as it is and reported. It never uses
 # sudo, never edits a client's settings, never loads a timer and never
-# clones over the network; it prints those steps for you instead. The one
-# OS setting it writes is the per-app App Nap default, with `host`.
+# clones over the network; it prints those steps for you instead. The
+# exceptions are all in `host`: the per-app App Nap default, and, with
+# `host --apply`, writing and loading the kit's own two launchd units.
 #
 # oracle    Creates the Oracle home: AGENTS.md, CLAUDE.md, MANDATE.md,
 #           NOTES.md, BACKLOG.md, JOURNAL.md, FACTS.md, SCHEDULES.md,
@@ -59,16 +60,22 @@
 #           (session pending): the one file the relay and the supervisor
 #           read for bridge ids. Then prints how to start and name the
 #           session and record its id.
-# host      An always-on host, check then set, idempotent; prints one table
-#           row per item (item, state, action): App Nap off for each desktop
-#           app in host_apps (default: the Claude and ChatGPT desktop apps,
-#           com.anthropic.claudefordesktop and com.openai.codex) with
-#           `defaults write <id> NSAppSleepDisabled -bool YES`, read back,
+# host      An always-on host, turnkey: check then set, idempotent; prints
+#           one table row per item (item, state, action), then the few
+#           in-app steps only a person can do, each marked done or to do.
+#           Always: App Nap off for each desktop app in host_apps (default:
+#           com.anthropic.claudefordesktop and com.openai.codex), read back,
 #           effective after each app restarts; power (pmset, check only);
-#           with a profile, the mailroom folders, the tick and relay units
-#           (rendered by `timers`; the relay unit must watch every registry
-#           inbox) and the bridge rows; finally `check.sh host` (App Nap and
-#           launchd ProcessType). It never loads units or opens apps.
+#           the mailroom folders. With --apply also: the tick and relay
+#           launchd units rendered from their templates (the relay unit
+#           watches every registry inbox), replaced when stale (old copy in
+#           <state_dir>/backup) and loaded in your user's launchd domain;
+#           each bridge's home and lean duty file; the retired probes'
+#           state removed. Checked only: bridge ids in the registry, the
+#           Claude tier-1 switch, the supervisor pause and lane holds (owner
+#           and expiry), the Oracle lock, and `check.sh host` (App Nap,
+#           launchd ProcessType Background or Adaptive). It never uses sudo
+#           and never opens an app.
 #
 # Options:
 #   --name NAME              session display name (default: Oracle, or KEY)
@@ -156,6 +163,18 @@ inst_publish() {
   return 1
 }
 
+# inst_fill SRC  Print a template with its @NAME@ placeholders filled in.
+inst_fill() {
+  sed -e "s|@KEY@|$(inst_sed_value "${v_key-}")|g" \
+    -e "s|@NAME@|$(inst_sed_value "${v_name-}")|g" \
+    -e "s|@CLIENT@|$(inst_sed_value "${v_client-}")|g" \
+    -e "s|@KIT_DIR@|$(inst_sed_value "$KIT")|g" \
+    -e "s|@KIT_VERSION@|$(inst_sed_value "${kit_version-}")|g" \
+    -e "s|@KIT_COMMIT@|$(inst_sed_value "${kit_commit-}")|g" \
+    -e "s|@TEAM@|$(inst_sed_value "${v_team-}")|g" \
+    -e "s|@DATE@|$AO_T_DATE|g" "$1"
+}
+
 # inst_render SRC DEST [MODE]  Copy a template with its @NAME@ placeholders
 # filled in, unless DEST exists.
 inst_render() {
@@ -165,15 +184,7 @@ inst_render() {
   fi
   inst_say "create  $2"
   [ -z "$dry_run" ] || return 0
-  if ! { sed -e "s|@KEY@|$(inst_sed_value "$v_key")|g" \
-      -e "s|@NAME@|$(inst_sed_value "$v_name")|g" \
-      -e "s|@CLIENT@|$(inst_sed_value "$v_client")|g" \
-      -e "s|@KIT_DIR@|$(inst_sed_value "$KIT")|g" \
-      -e "s|@KIT_VERSION@|$(inst_sed_value "$kit_version")|g" \
-      -e "s|@KIT_COMMIT@|$(inst_sed_value "$kit_commit")|g" \
-      -e "s|@TEAM@|$(inst_sed_value "$v_team")|g" \
-      -e "s|@DATE@|$AO_T_DATE|g" "$1" | inst_publish "$2" &&
-    chmod "${3:-644}" "$2"; }; then
+  if ! { inst_fill "$1" | inst_publish "$2" && chmod "${3:-644}" "$2"; }; then
     ao_warn "cannot write $2"
     failures=$((failures + 1))
     return 0
@@ -626,8 +637,9 @@ inst_watch_paths() {
 inst_bridge() {
   case ${1-} in claude | codex) v_client=$1 ;; *) ao_die "$AO_E_USAGE" "usage: install.sh bridge claude|codex [--home DIR] [--name NAME]" ;; esac
   shift
-  v_key=mailroom-$v_client home='' v_team=none
-  if [ "$v_client" = claude ]; then v_name='Mailroom bridge (Claude)'; else v_name='Mailroom bridge (Codex)'; fi
+  # Both bridges are titled Mailroom (docs/conventions.md); the registry
+  # key says which app.
+  v_key=mailroom-$v_client home='' v_team=none v_name=Mailroom
   while [ $# -gt 0 ]; do
     case $1 in
       --home) [ $# -ge 2 ] || ao_die "$AO_E_USAGE" "--home needs a directory"; home=$(inst_abs "$2"); shift ;;
@@ -657,39 +669,129 @@ inst_bridge() {
   [ -n "$row" ] || inst_append "$AO_REGISTRY" "$v_key$AO_TAB$v_name$AO_TAB$(inst_tilde "$home")${AO_TAB}pending$AO_TAB$v_client"
   inst_commit "$home" "Create the $v_client mailroom bridge home from Agent Operations $kit_version"
   inst_commit "$AO_HOME" "Add the $v_client mailroom bridge"
-  if [ "$v_client" = claude ]; then
-    _first="send it: Re-arm"
-  else
-    _first="send it: Re-arm doorbell watcher (set bridge_codex_node and bridge_codex_server in the profile first)"
-  fi
-  cat <<EOF
+  cat <<EOT
 
-Next, by hand:
-  1. Start a session in $home on $v_client with the cheapest model, name it
-     "$v_name", and replace "pending" in its row of $AO_REGISTRY with
-     its session id.
-  2. Allow it to run $AO_SCRIPTS/mailroom.sh without asking (settings).
-  3. $_first
-  4. Check: $AO_SCRIPTS/mailroom.sh status
-EOF
+Next, in the $v_client app (install.sh host lists these with their state):
+$(inst_bridge_steps "$v_client" "$home" "$v_name")
+EOT
+}
+
+# inst_bridge_steps CLIENT HOME NAME  The in-app steps for one bridge.
+inst_bridge_steps() {
+  if [ "$1" = claude ]; then
+    cat <<EOT
+  - Start a Claude Code session in $2 on the cheapest model, title it
+    "$3", allow it to run $AO_SCRIPTS/mailroom.sh without asking, and send
+    it "Re-arm". It may sit nested under the Oracle in the sidebar.
+  - Put its session id in place of "pending" in its row of $AO_REGISTRY.
+EOT
+  else
+    cat <<EOT
+  - Create a Codex thread in $2 titled "$3" on the cheapest model and pin
+    it. Set bridge_codex_node and bridge_codex_server in the profile, then
+    send it "Re-arm doorbell watcher".
+  - Put its thread id in place of "pending" in its row of $AO_REGISTRY.
+EOT
+  fi
 }
 
 # ---------------------------------------------------------------- host
 
-# host_row ITEM STATE ACTION  One row of the host table.
+# host_row ITEM STATE ACTION  One row of the host table. States that are
+# done (ok, set, created, installed, updated, loaded, removed, opt-in) do
+# not count as needing you.
 host_row() {
-  printf '%-40s %-28s %s\n' "$1" "$2" "${3:--}"
-  case $2 in ok* | set* | created*) ;; *) host_todo=$((host_todo + 1)) ;; esac
+  printf '%-34s %-40s %s\n' "$1" "$2" "${3:--}"
+  case $2 in ok* | set* | created* | installed* | updated* | loaded* | removed* | off\ \(opt-in*) ;; *) host_todo=$((host_todo + 1)) ;; esac
+}
+
+# host_step DONE TEXT  One line of the closing in-app checklist.
+host_step() {
+  if [ "$1" = 1 ]; then printf '  [done]  %s\n' "$2"; else printf '  [to do] %s\n' "$2"; fi
+}
+
+# host_backup FILE  Copy FILE into <state_dir>/backup/ before replacing it.
+host_backup() {
+  [ -f "$1" ] || return 0
+  mkdir -p "$AO_STATE/backup" && cp -p "$1" "$AO_STATE/backup/${1##*/}.$AO_T_STAMP"
+}
+
+# host_unit NAME  The launchd unit NAME (tick or relay): rendered from its
+# template (the relay unit watches every registry inbox), compared with the
+# installed file, written (old copy backed up) and loaded with --apply.
+host_unit() {
+  label=local.agent-operations.$1
+  _f=$HOME/Library/LaunchAgents/$label.plist
+  _want=$(ao_tmp "unit-$1")
+  _watch=$(ao_tmp watch)
+  : >"$_watch"
+  [ "$1" != relay ] || inst_watch_paths >"$_watch" 2>/dev/null
+  inst_unit_text "$KIT/scripts/units/$1.plist.in" "$_watch" >"$_want" || { host_row "unit $1" FAILED "cannot render"; failures=$((failures + 1)); return; }
+  _dom=gui/$(id -u)
+  if [ -f "$_f" ] && cmp -s "$_want" "$_f"; then
+    if launchctl print "$_dom/$label" >/dev/null 2>&1; then host_row "unit $1" "ok (loaded)"
+    elif [ -n "$_apply" ] && launchctl bootstrap "$_dom" "$_f" >/dev/null 2>&1; then host_row "unit $1" "loaded"
+    elif [ -n "$_apply" ]; then host_row "unit $1" "FAILED to load" "launchctl bootstrap $_dom $_f"; failures=$((failures + 1))
+    else host_row "unit $1" "not loaded" "install.sh host --apply"; fi
+    return
+  fi
+  if [ -f "$_f" ]; then _was="stale (differs from the template or the registry)"; else _was=missing; fi
+  if [ -z "$_apply" ] || [ -n "$dry_run" ]; then
+    host_row "unit $1" "$_was" "install.sh host --apply"
+    return
+  fi
+  mkdir -p "$logs" "${_f%/*}"
+  if host_backup "$_f" && cp "$_want" "$_f.tmp.$$" && mv -f "$_f.tmp.$$" "$_f"; then
+    launchctl bootout "$_dom/$label" >/dev/null 2>&1
+    if launchctl bootstrap "$_dom" "$_f" >/dev/null 2>&1; then
+      if [ "$_was" = missing ]; then host_row "unit $1" "installed and loaded"; else host_row "unit $1" "updated and reloaded (old copy in state/backup)"; fi
+    else
+      host_row "unit $1" "written, FAILED to load" "launchctl bootstrap $_dom $_f"; failures=$((failures + 1))
+    fi
+  else
+    rm -f "$_f.tmp.$$"
+    host_row "unit $1" "FAILED to write" "$_f"; failures=$((failures + 1))
+  fi
+}
+
+# host_bridge CLIENT  The bridge's home and duty file (created or brought
+# up to date with --apply) and its id in the registry (a human step).
+host_bridge() {
+  _row=$(awk -F'\t' -v k="mailroom-$1" '$1 == k { print; exit }' "$AO_REGISTRY" 2>/dev/null)
+  if [ -z "$_row" ]; then
+    if [ -n "$_apply" ] && [ -z "$dry_run" ]; then
+      if sh "$AO_SCRIPTS/install.sh" bridge "$1" </dev/null >/dev/null 2>&1; then host_row "bridge $1 home" "created (install.sh bridge $1)"
+      else host_row "bridge $1 home" FAILED "install.sh bridge $1"; failures=$((failures + 1)); fi
+      _row=$(awk -F'\t' -v k="mailroom-$1" '$1 == k { print; exit }' "$AO_REGISTRY" 2>/dev/null)
+    else
+      host_row "bridge $1 home" "no row" "install.sh host --apply"
+      return
+    fi
+  fi
+  _bh=$(ao_expand_path "$(printf '%s\n' "$_row" | cut -f 3)" /)
+  _duty=$(ao_tmp "duty-$1")
+  inst_fill "$TPL/mailroom/$1-AGENTS.md" >"$_duty"
+  if cmp -s "$_duty" "$_bh/AGENTS.md"; then host_row "bridge $1 duty file" "ok ($(wc -c <"$_duty" | tr -d ' ') bytes)"
+  elif [ -n "$_apply" ] && [ -z "$dry_run" ] && mkdir -p "$_bh" && host_backup "$_bh/AGENTS.md" &&
+    cp "$_duty" "$_bh/AGENTS.md.tmp.$$" && mv -f "$_bh/AGENTS.md.tmp.$$" "$_bh/AGENTS.md"; then
+    host_row "bridge $1 duty file" "updated (a running bridge reads it at its next start)"
+  else
+    host_row "bridge $1 duty file" "differs from the template" "install.sh host --apply"
+  fi
+  _sid=$(printf '%s\n' "$_row" | cut -f 4)
+  case $_sid in '' | - | pending) host_row "bridge $1 id" pending "the in-app steps below" ;; *) host_row "bridge $1 id" "ok (recorded in the registry)" ;; esac
 }
 
 inst_host() {
-  [ $# -eq 0 ] || ao_die "$AO_E_USAGE" "usage: install.sh host"
-  host_todo=0
+  _apply=
+  case ${1-} in --apply) _apply=1; shift ;; esac
+  [ $# -eq 0 ] || ao_die "$AO_E_USAGE" "usage: install.sh [--dry-run] host [--apply]"
+  host_todo=0 _napset=
   _pf=$(ao_profile_path)
   _prof=
   if [ -r "$_pf" ]; then ao_load --no-state; _prof=1; fi
   apps=$(ao_cfg host_apps "$AO_HOST_APPS")
-  printf '%-40s %-28s %s\n' ITEM STATE ACTION
+  printf '%-34s %-40s %s\n' ITEM STATE ACTION
   # 1. App Nap, per app: check, set, read back.
   if ! command -v defaults >/dev/null 2>&1; then
     host_row app-nap "n/a (not macOS)"
@@ -703,6 +805,7 @@ inst_host() {
       elif defaults write "$_id" NSAppSleepDisabled -bool YES &&
         [ "$(defaults read "$_id" NSAppSleepDisabled 2>/dev/null)" = 1 ]; then
         host_row "app-nap $_id" "set (restart needed)" "quit and reopen the app"
+        _napset=1
       else
         host_row "app-nap $_id" FAILED "defaults write $_id NSAppSleepDisabled -bool YES"
         failures=$((failures + 1))
@@ -721,6 +824,10 @@ inst_host() {
   if [ -z "$_prof" ]; then
     host_row profile "none" "copy a profile, then run host again"
   else
+    # shellcheck disable=SC1091 # followed from the scripts and checked itself
+    . "$AO_SCRIPTS/lib/registry.sh"
+    logs=$AO_STATE/logs
+    v_key='' v_name='' v_client='' v_team='' kit_version='' kit_commit=''
     # 3. Folders.
     ao_mr_dir=$(ao_cfg_path bridge_dir "$AO_INBOX/.mailroom")
     for _d in "$ao_mr_dir/claude/delivered" "$ao_mr_dir/codex/delivered"; do
@@ -729,35 +836,46 @@ inst_host() {
       elif mkdir -p "$_d"; then host_row "folder ${_d#"$AO_HOME"/}" created
       else host_row "folder ${_d#"$AO_HOME"/}" FAILED; failures=$((failures + 1)); fi
     done
-    # 4. Units, generated from the registry.
-    if [ "$(uname -s)" = Darwin ]; then
-      for _u in tick relay; do
-        _f=$HOME/Library/LaunchAgents/local.agent-operations.$_u.plist
-        if [ ! -f "$_f" ]; then host_row "unit $_u" missing "install.sh timers, then load it"; continue; fi
-        _miss=
-        if [ "$_u" = relay ] && [ -r "$AO_REGISTRY" ]; then
-          _keys=$(ao_tmp keys)
-          awk -F'\t' '$1 != "" && $1 !~ /^#/ { print $1 }' "$AO_REGISTRY" >"$_keys"
-          while IFS= read -r _k; do
-            ao_is_name "$_k" || continue
-            grep -qF "<string>$AO_INBOX/$_k</string>" "$_f" || _miss="$_miss $_k"
-          done <"$_keys"
-        fi
-        if [ -n "$_miss" ]; then host_row "unit $_u" "stale: not watching$_miss" "remove $_f, run install.sh timers, reload"
-        else host_row "unit $_u" ok; fi
-      done
+    # 4. Bridges: homes, lean duty files, ids in the registry (one file);
+    #    first, so the relay unit below watches their inboxes too.
+    host_bridge claude
+    host_bridge codex
+    # 5. Units, generated from the templates and the registry.
+    if [ "$(uname -s)" = Darwin ] && command -v launchctl >/dev/null 2>&1; then
+      host_unit tick
+      host_unit relay
+    else
+      host_row units "not macOS: not checked" "install.sh timers, then load them"
     fi
-    # 5. Bridges: ids in the registry.
-    for _c in claude codex; do
-      _row=$(awk -F'\t' -v k="mailroom-$_c" '$1 == k { print; exit }' "$AO_REGISTRY" 2>/dev/null)
-      _sid=$(printf '%s\n' "$_row" | cut -f 4)
-      if [ -z "$_row" ]; then host_row "bridge $_c" "no row" "install.sh bridge $_c (if you run $_c)"
-      else case $_sid in '' | - | pending) host_row "bridge $_c" "session pending" "record its session id in the registry" ;;
-        *) host_row "bridge $_c" ok ;; esac
-      fi
-    done
+    # 6. Switches and holds: each is off unless someone turned it on, and
+    #    one that is on names its owner and expiry (K-07).
+    if [ "$(ao_cfg bridge_claude_t1 off)" = socket ]; then
+      if [ -e "$ao_mr_dir/claude/.watcher/t1-off" ]; then host_row "claude tier 1" "ON in the profile, kill switch set" "rm $ao_mr_dir/claude/.watcher/t1-off"
+      else host_row "claude tier 1" "ok (socket)"; fi
+    else
+      host_row "claude tier 1" "off (opt-in: bridge_claude_t1=socket)"
+    fi
+    if [ -f "$AO_STATE/mailroom-pause" ]; then
+      if ao_hold_active "$AO_STATE/mailroom-pause"; then host_row "supervisor" "PAUSED until $AO_H_UNTIL by $AO_H_OWNER" "lane.sh unhold mailroom"
+      else host_row "supervisor" "pause file expired or without owner" "lane.sh unhold mailroom"; fi
+    else
+      host_row "supervisor" "ok (not paused)"
+    fi
+    _nh=0
+    for _h in "$AO_STATE/holds"/*; do [ -f "$_h" ] && _nh=$((_nh + 1)); done
+    if [ "$_nh" -eq 0 ]; then host_row "lane holds" "ok (none)"; else host_row "lane holds" "$_nh held" "lane.sh check"; fi
+    # 7. The retired hourly probes' state.
+    if [ ! -d "$AO_STATE/mailroom-probe" ]; then host_row "retired hourly probes" "ok (none left)"
+    elif [ -n "$_apply" ] && [ -z "$dry_run" ] && rm -rf "$AO_STATE/mailroom-probe"; then host_row "retired hourly probes" "removed"
+    else host_row "retired hourly probes" "state left in $AO_STATE/mailroom-probe" "install.sh host --apply"; fi
+    # 8. One active Oracle (K-13).
+    if [ -f "$AO_HOME/operators/ORACLE-LOCK" ]; then
+      host_row "oracle lock" "ok ($(sed -n 's/^holder=//p' "$AO_HOME/operators/ORACLE-LOCK" | head -n 1))"
+    else
+      host_row "oracle lock" missing "lane.sh oracle-lock take CLIENT --session ID (on the human's word)"
+    fi
   fi
-  # 6. Verify App Nap and launchd priority.
+  # 9. Verify App Nap and launchd priority.
   _ch=$(ao_tmp check-host)
   if "$AO_SCRIPTS/check.sh" host >"$_ch" 2>&1; then
     host_row check.sh "ok (App Nap, ProcessType)"
@@ -765,10 +883,33 @@ inst_host() {
     while IFS= read -r _l; do host_row check.sh "finding" "$_l"; done <"$_ch"
   fi
   printf '\n%s item(s) need you.\n' "$host_todo"
+  [ -n "$_prof" ] || return 0
+  # The few steps only a person can do, in the apps (docs/conventions.md).
+  _cs=0 _xs=0
+  _r=$(awk -F'\t' '$1 == "mailroom-claude" { print $4; exit }' "$AO_REGISTRY" 2>/dev/null)
+  case $_r in '' | - | pending) ;; *) _cs=1 ;; esac
+  _r=$(awk -F'\t' '$1 == "mailroom-codex" { print $4; exit }' "$AO_REGISTRY" 2>/dev/null)
+  case $_r in '' | - | pending) ;; *) _xs=1 ;; esac
+  printf '\nIn the apps (once; a person does these):\n'
+  [ -z "$_napset" ] || host_step 0 "Quit and reopen both desktop apps (App Nap takes effect)."
+  host_step "$_cs" "Claude: the Mailroom session in the bridge home, cheapest model, titled \"Mailroom\", sent \"Re-arm\"; its id in the registry."
+  host_step "$_xs" "Codex: the Mailroom thread in the bridge home, cheapest model, titled \"Mailroom\", pinned, sent \"Re-arm doorbell watcher\"; its id in the registry."
+  host_step 0 "Claude sidebar: pin the active operators; keep inactive operators in a section named \"Inactive Operators\"; the Mailroom may sit nested under the Oracle."
+  host_step 0 "Codex sidebar: pin the threads of the operators active on Codex, and the Mailroom."
+  [ -n "$_apply" ] || printf '  (Rows that say "install.sh host --apply" are done by: %s/install.sh host --apply)\n' "$AO_SCRIPTS"
 }
 
-# inst_unit SRC DEST [LINES]  Render a unit template (its own @NAME@ set);
-# a line holding only @WATCH_PATHS@ becomes the contents of file LINES.
+# inst_unit_text SRC [LINES]  Print a unit template rendered (its own @NAME@
+# set); a line holding only @WATCH_PATHS@ becomes the contents of file LINES.
+inst_unit_text() {
+  sed -e "s|@LABEL@|$(inst_sed_value "$label")|g" \
+    -e "s|@KIT_DIR@|$(inst_sed_value "$KIT")|g" \
+    -e "s|@PROFILE@|$(inst_sed_value "$AO_PROFILE")|g" \
+    -e "s|@LOG_DIR@|$(inst_sed_value "$logs")|g" "$1" |
+    awk -v f="${2:-/dev/null}" '$1 == "@WATCH_PATHS@" { while ((getline l < f) > 0) print l; next } { print }'
+}
+
+# inst_unit SRC DEST [LINES]  Render a unit template, unless DEST exists.
 inst_unit() {
   if inst_exists "$2"; then
     printf 'keep    %s (exists; compare it with %s)\n' "$2" "$1"
@@ -776,12 +917,7 @@ inst_unit() {
   fi
   inst_say "create  $2"
   [ -z "$dry_run" ] || return 0
-  if ! { sed -e "s|@LABEL@|$(inst_sed_value "$label")|g" \
-      -e "s|@KIT_DIR@|$(inst_sed_value "$KIT")|g" \
-      -e "s|@PROFILE@|$(inst_sed_value "$AO_PROFILE")|g" \
-      -e "s|@LOG_DIR@|$(inst_sed_value "$logs")|g" "$1" |
-      awk -v f="${3:-/dev/null}" '$1 == "@WATCH_PATHS@" { while ((getline l < f) > 0) print l; next } { print }' |
-      inst_publish "$2"; }; then
+  if ! inst_unit_text "$1" "${3:-}" | inst_publish "$2"; then
     ao_warn "cannot write $2"
     failures=$((failures + 1))
   fi

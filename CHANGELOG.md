@@ -7,32 +7,103 @@ with 0.2.0; 0.1.x guidance had none.
 
 ## 0.3.1 (2026-11-19)
 
-- **K-01, K-10, K-23, K-27:** experimental [mailroom](docs/mailroom.md). One
-  rule: the relay routes, the in-app bridges deliver, and a model-free
+- **K-01, K-10, K-23, K-27, K-37:** experimental [mailroom](docs/mailroom.md).
+  One rule: the relay routes, the in-app bridges deliver, and a model-free
   supervisor keeps both bridges armed. Same-app messages go direct with the
   app's own tool; cross-app and script notes become pointer-only rings
-  (`steer` or `queue`). Claude bridge: a cheap session in its own home with a
-  kqueue push watcher (no polling) that hands off with `SendMessage` and
-  re-arms in one command. Codex bridge (experimental, undocumented app pipe):
-  a watcher the bridge chat starts, sending natively with
-  `send_message_to_thread`; it implements steer (at once) and queue (when the
-  target is idle, 5-second checks only while held, 10-minute cap) itself and
-  logs the mode per delivery. Supervisor: 3-minute fallbacks through the
-  relay transports (outside the relay lock), hourly re-arm after an app
-  restart, reboot or crash, alarms by note and chat, free hourly echo
-  probes, metrics, a weekly review hook. New `mailroom.sh`, `install.sh
-  bridge`, a relay unit on every inbox change; reserved registry keys
-  `mailroom-claude` and `mailroom-codex`. `relay_bridge=on` by default;
-  `off` keeps direct delivery. Lease doorbells ring the mailroom when it is
-  on. **Upgrade:** run `install.sh host`, `install.sh bridge`, re-render and
-  reload the units, or set `relay_bridge=off`.
-- **K-27:** always-on host. `install.sh host`, check then set: App Nap off
-  for the Claude and ChatGPT desktop apps (`NSAppSleepDisabled`, effective
-  after each app restarts), power check, folders, units generated from the
-  registry, bridge rows. `check.sh host` flags App Nap and launchd jobs
-  tagged latency-sensitive (`host_latency_jobs`) that run `ProcessType`
-  Background or Adaptive, or `LowPriorityIO`. The tick and relay units now
-  run Standard and at load.
+  (`steer` or `queue`). **Degradation ladders per side:** tier 1 model-free
+  (Claude: opt-in `bridge_claude_t1=socket`, the bridge's watcher writes to
+  a warm session's socket and confirms the session's own receipt; Codex: the
+  bridge-owned watcher sends natively, steers at once and queues on the
+  target's turn-complete event read from its rollout file, with no status
+  polling), tier 2 a bridge model turn (cold targets, misses, re-arm),
+  tier 3 headless or CLI queue, tier 4 an alarm and then a push to the owner
+  (`hooks/push` or the chat adapter) when the Oracle has not received it in
+  15 minutes. **Telemetry:** one delivered-log row format for both sides
+  (tier, mode, status, latency in ms, the step that missed);
+  `mailroom.sh metrics` reports the share per tier with p50/p90. **Version
+  fingerprint and canary** per side, and a once-per-cause degradation alarm
+  (side, step, fingerprint), cleared by the next first-tier delivery; the
+  hourly probes are retired. **Supervisor recovery:** desktop-app restart
+  (relaunch, deep-link warm-up of the bridge through `wake_link` or
+  `hooks/wake`, then back to the Oracle's session, plus a headless re-arm),
+  Codex app restart (one re-arm per app process), reboot (open in the
+  background at login), and **Codex thread recovery**: a thread that keeps
+  timing out while others deliver is marked unresponsive and its recovery
+  routine opens (a queued, then a native no-op turn; else a new thread in
+  the operator's home with the model set at creation, the old one archived,
+  the registry updated, the lane switch re-run). **Unknown sends are
+  reconciled** against the target's own record five minutes later: a late
+  receipt is settled, a confirmed absence is escalated once to tier 3, an
+  unreadable record alarms (`resolve` rows, counted apart in `metrics`).
+  Both bridges are titled "Mailroom"; ids live in the registry rows
+  `mailroom-claude` and `mailroom-codex`. `relay_bridge=off` keeps direct
+  delivery.
+- **K-27, K-36:** turnkey always-on host. `install.sh host [--apply]`, check
+  then set: App Nap off for both desktop apps, power check, folders, the
+  tick and relay launchd units rendered (WatchPaths from the registry),
+  replaced when stale and loaded, both bridge homes with lean duty files,
+  retired probe state removed; checks the Claude tier-1 switch, the
+  supervisor pause and lane holds, the Oracle lock and `ProcessType`
+  Background; ends with the few in-app steps a person must do, each marked
+  done or to do. `check.sh host` re-checks launchd priority.
+- **K-36, K-27:** `bootstrap.sh`, the guided first run: starts the Oracle
+  on whichever client you begin with, explains each step and asks only for
+  your choices (client, Oracle home, clients used, timezone, models, the
+  Oracle lock); automates the rest (the Oracle home and profile, the Codex
+  app's bundled node and tool server found in the app bundle, `install.sh
+  host --apply`, a toehold in the other client by `install.sh sync`); ends
+  with a checklist of the in-app steps, each with its check, the last a
+  test note that must reach the Oracle.
+- **K-26, K-29, K-36:** `operator.sh`, the operator routines as guided
+  scripts with verifiers: `create` (model and effort for both clients
+  decided at creation, recorded in `operator.conf`), `archive` (worktrees to
+  verified local git bundles, the registry row retired last), `model` (the
+  one, owner-initiated path to change an operator's model; refused without
+  the owner's words or from the operator's own session), `session`,
+  `recover`, `verify`, `mark`.
+- **K-13, K-36:** `lane.sh`: a lane switch as a scripted checklist with a
+  verifier (handoff, routing, watchdog, labels, pins on both sides, models
+  from `operator.conf`, switch-in audit, ACK proof with a one-time token;
+  in-app marks carry the app's readback as evidence, or a stated gap); `side` for the
+  parked-side guard now first in every home's recovery steps; `check`;
+  holds with owner and expiry; the Oracle lock. New
+  [conventions](docs/conventions.md) page: one active side per operator and
+  one active Oracle, same app direct and cross-app via the mailroom, the
+  Mailroom titles, pinned active operators, an "Inactive Operators" section
+  on Claude, pinned active threads and Mailroom on Codex.
+- **K-32:** `hygiene.sh`, the nightly model-free hygiene check (expired holds,
+  open switches, uncommitted work, budgets, standing grants against the
+  Claude permission rules), with a daily hook example.
+- **K-15:** client-neutral recovery: `recover-context.sh` answers the
+  `SessionStart` sources `startup|resume|compact|fork` (Claude Code and
+  Codex), reads the operator's bounded `## Current state` block of
+  `NOTES.md` (new in the template) instead of a tail of the history, and
+  orders an explicit re-read until recovery is verified on the client. New
+  [client capabilities](docs/client-capabilities.md) page: each operation's
+  tool on both clients, with evidence levels and the known gaps.
+- **K-24 changed:** the schedule inventory records mechanism, native id,
+  owner and side, cadence with timezone, paused state and last verified
+  run. The delegation packet opens with the short handoff shape.
+- **K-05 changed:** credentials move store to store. **K-07 changed:** holds,
+  pauses and kill switches name an owner, an expiry and a reason
+  (`lane.sh hold --reason` is required; a hold without one is not obeyed).
+  **K-26 changed:** models are set at creation with the human; an operator
+  never changes its own; no model changes by a message to an idle session.
+  **K-28 changed:** check a tool's schema first; after an ambiguous result,
+  repeat only once the target's own record confirms absence. **K-29
+  changed:** finished worktrees become local bundles. The introduction
+  states that no rule overrides a client's platform instructions, its
+  sandbox or a review. **K-12 changed:**
+  report times in the owner's local timezone; convert UTC logs. **K-13
+  changed:** one active side per operator and one active Oracle (a lock
+  file). **K-32 changed:** derived rules quote the human's words, dated, and are
+  marked derived until confirmed;
+  clean as you go with a nightly hygiene check. **K-36 added:** build
+  alongside, switch atomically, and run multi-step procedures as scripted
+  checklists with a verifier. **K-37 added:** degrade, never stop. The rules
+  file now has a byte budget of 11000, enforced by `check.sh kit`; other
+  rules were tightened to fit (no meaning changed).
 - **K-15:** `recover-context.sh`, a SessionStart (`compact|resume`) recovery
   digest capped at 8 KB, because Claude Code replaces hook output over about
   10 KB with a short preview; a test fails above the cap.

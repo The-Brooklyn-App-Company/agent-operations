@@ -26,7 +26,7 @@ big_home() {
   } >"$T/home/JOURNAL.md"
   printf '# Local rules\n\n**P-01 Prefer quiet mornings.** Text.\n' >"$T/home/KIT.local.md"
   {
-    printf '# Notes: Alpha Op\n\n'
+    printf '# Notes: Alpha Op\n\n## Current state\n\n- Goal: ship the widget\n- Next action: open the pull request\n\n'
     i=0
     while [ "$i" -lt 400 ]; do
       printf '## 2026-11-%02d\n\n- note %s: a long working-memory line about what happened and what is next, kept for the record\n\n' "$((28 - i % 28))" "$i"
@@ -61,7 +61,7 @@ test_oracle_digest_is_capped_and_starts_with_the_read_first_order() {
   assert_has "$T/out" "Then: "
 }
 
-test_operator_digest_is_capped_and_shows_the_newest_notes() {
+test_operator_digest_shows_the_current_state_block_not_a_tail() {
   big_home
   hook "$T/proj/alpha"
   assert_rc 0
@@ -69,8 +69,26 @@ test_operator_digest_is_capped_and_shows_the_newest_notes() {
   [ "$bytes" -le "$CAP" ] || _fail "digest is $bytes bytes, over the $CAP-byte cap"
   assert_has "$T/out" "## Alpha Op recovery"
   assert_has "$T/out" "$T/proj/alpha/MANDATE.md"
-  assert_has "$T/out" "note 0:"
-  assert_lacks "$T/out" "note 5:"
+  assert_has "$T/out" "- Next action: open the pull request"
+  assert_lacks "$T/out" "note 0:"
+  assert_lacks "$T/out" "note 399:"
+  # No block: the digest says what to write, and still no tail.
+  sed '/^## Current state/,/^- Next action/d' "$T/proj/alpha/NOTES.md" >"$T/n" && mv "$T/n" "$T/proj/alpha/NOTES.md"
+  : >"$T/proj/alpha/HANDOFF.md"
+  hook "$T/proj/alpha"
+  assert_has "$T/out" "No '## Current state' block"
+  assert_has "$T/out" "A HANDOFF.md is in the home"
+  assert_lacks "$T/out" "note 0:"
+}
+
+test_codex_sources_and_clear() {
+  big_home
+  for src in startup resume compact fork; do
+    printf '{"source":"%s","cwd":"%s"}\n' "$src" "$T/proj/alpha" | "$AO_TEST_SHELL" "$SCRIPTS/recover-context.sh" >"$T/out" 2>"$T/err"
+    assert_has "$T/out" "## Alpha Op recovery"
+  done
+  printf '{"source":"clear","cwd":"%s"}\n' "$T/proj/alpha" | "$AO_TEST_SHELL" "$SCRIPTS/recover-context.sh" >"$T/out" 2>"$T/err"
+  assert_eq "$(wc -c <"$T/out" | tr -d ' ')" 0 "clear prints nothing"
 }
 
 test_a_small_cap_still_keeps_the_read_first_order() {

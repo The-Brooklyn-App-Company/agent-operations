@@ -436,6 +436,18 @@ case \$1 in
 esac
 EOF
   chmod +x "$T/bin/defaults"
+  # And a launchctl that only records: tests never touch the real launchd.
+  mkdir -p "$T/loaded"
+  cat >"$T/bin/launchctl" <<EOF
+#!/bin/sh
+echo "\$*" >>"$T/launchctl.log"
+case \$1 in
+  print) [ -e "$T/loaded/\${2##*/}" ] ;;
+  bootstrap) f=\${3##*/}; : >"$T/loaded/\${f%.plist}" ;;
+  bootout) rm -f "$T/loaded/\${2##*/}" ;;
+esac
+EOF
+  chmod +x "$T/bin/launchctl"
 }
 
 test_host_sets_app_nap_off_once_and_reports_a_table() {
@@ -450,13 +462,57 @@ test_host_sets_app_nap_off_once_and_reports_a_table() {
   grep -Eq '^app-nap com.anthropic.claudefordesktop +set \(restart needed\)' "$T/out" || _fail "App Nap not set"
   assert_has "$T/out" "app-nap com.openai.codex"
   assert_has "$T/defaults/log" "write com.openai.codex NSAppSleepDisabled -bool YES"
-  assert_has "$T/out" "bridge claude"
-  assert_has "$T/out" "install.sh bridge claude"
+  assert_has "$T/out" "bridge claude home"
+  assert_has "$T/out" "install.sh host --apply"
+  assert_has "$T/out" "In the apps (once; a person does these):"
+  assert_no_file "$T/launchctl.log"
   run install.sh host
   grep -Eq '^app-nap com.openai.codex +ok' "$T/out" || _fail "second run: App Nap not reported ok"
   assert_eq "$(grep -c write "$T/defaults/log")" 2 "written once per app"
   run check.sh host
   assert_rc 0
+}
+
+test_host_apply_is_turnkey_and_ends_with_the_in_app_steps() {
+  [ "$(uname -s)" = Darwin ] || { echo "    (skipped: launchd units are macOS)"; return 0; }
+  oracle_home
+  fake_defaults
+  printf 'host_launchd_dirs=%s\npath=%s\n' "$T/none" "$T/bin:/usr/bin:/bin" >>"$AO_PROFILE"
+  mkdir -p "$T/state/mailroom-probe"
+  printf 'state_dir=%s\n' "$T/state" >>"$AO_PROFILE"
+  run install.sh host --apply
+  la=$T/user/Library/LaunchAgents
+  assert_file "$la/local.agent-operations.tick.plist"
+  assert_has "$la/local.agent-operations.relay.plist" "<string>$T/ops/oracle/inbox/oracle</string>"
+  grep -Eq '^unit relay +installed and loaded' "$T/out" || _fail "relay unit not installed"
+  assert_has "$T/launchctl.log" "bootstrap gui/"
+  assert_has "$T/ops/mailroom-claude/AGENTS.md" "Mailroom (Claude): your whole duty"
+  assert_has "$T/ops/mailroom-codex/AGENTS.md" "Mailroom (Codex): your whole duty"
+  assert_has "$T/ops/oracle/operators/REGISTRY.tsv" "mailroom-codex${TAB}Mailroom${TAB}"
+  grep -Eq '^bridge claude id +pending' "$T/out" || _fail "bridge id not reported pending"
+  grep -Eq '^retired hourly probes +removed' "$T/out" || _fail "probe state not removed"
+  grep -Eq '^oracle lock +missing' "$T/out" || _fail "no lock row"
+  assert_has "$T/out" '[to do] Claude: the Mailroom session'
+  assert_has "$T/out" 'a section named "Inactive Operators"'
+  assert_has "$T/out" '[to do] Quit and reopen both desktop apps'
+  # Again: nothing left to set; a stale relay unit and duty file are fixed.
+  run install.sh host --apply
+  grep -Eq '^unit relay +ok \(loaded\)' "$T/out" || _fail "second run: relay unit not ok"
+  grep -Eq '^bridge claude duty file +ok' "$T/out" || _fail "second run: duty file not ok"
+  run install.sh operator web --embedded
+  printf 'old duty\n' >"$T/ops/mailroom-claude/AGENTS.md"
+  run install.sh host
+  grep -Eq '^unit relay +stale' "$T/out" || _fail "stale relay unit not reported"
+  run install.sh host --apply
+  grep -Eq '^unit relay +updated and reloaded' "$T/out" || _fail "relay unit not updated"
+  assert_has "$la/local.agent-operations.relay.plist" "<string>$T/ops/oracle/inbox/web</string>"
+  grep -Eq '^bridge claude duty file +updated' "$T/out" || _fail "duty file not updated"
+  [ "$(find "$T/state/backup" -name 'AGENTS.md.*' | wc -l | tr -d ' ')" = 1 ] || _fail "no duty file backup"
+  # A recorded bridge id marks its in-app step done.
+  sed "s/^mailroom-claude\(${TAB}[^${TAB}]*${TAB}[^${TAB}]*${TAB}\)pending/mailroom-claude\1sid-b/" \
+    "$T/ops/oracle/operators/REGISTRY.tsv" >"$T/reg" && mv "$T/reg" "$T/ops/oracle/operators/REGISTRY.tsv"
+  run install.sh host
+  assert_has "$T/out" '[done]  Claude: the Mailroom session'
 }
 
 test_check_host_flags_app_nap_and_throttled_latency_jobs() {
@@ -488,7 +544,7 @@ test_bridge_gets_its_own_home_and_a_reserved_registry_row() {
   assert_rc 0
   assert_has "$T/ops/mailroom-claude/AGENTS.md" "mailroom.sh file claude --wait"
   assert_has "$T/ops/mailroom-claude/CLAUDE.md" "@AGENTS.md"
-  assert_has "$T/ops/oracle/operators/REGISTRY.tsv" "mailroom-claude${TAB}Mailroom bridge (Claude)${TAB}"
+  assert_has "$T/ops/oracle/operators/REGISTRY.tsv" "mailroom-claude${TAB}Mailroom${TAB}"
   run install.sh bridge codex --home "$T/ops/bridge-x"
   assert_rc 0
   assert_has "$T/ops/bridge-x/AGENTS.md" "mailroom.sh arm-codex"

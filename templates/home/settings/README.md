@@ -35,9 +35,16 @@ the session to read the full files first. Register it for this home:
 }
 ```
 
-### Mailroom bridge home
+On Codex, register the same command as a `SessionStart` hook for the
+sources `startup|resume|compact|fork` in Codex's hooks configuration, and
+trust it when Codex asks (non-managed hooks need trust). The digest stays
+under about 2,000 tokens. The exact Codex registration format is not
+verified by the kit; until a live recovery passes, the session re-reads its
+files itself (the kit's `docs/client-capabilities.md`).
 
-A Claude mailroom bridge (the kit's `docs/mailroom.md`) needs `Bash(<kit-dir>/scripts/mailroom.sh:*)` (or `Bash(sh <kit-dir>/scripts/mailroom.sh:*)`)
+### Mailroom home
+
+The Claude Mailroom (the kit's `docs/mailroom.md`) needs `Bash(<kit-dir>/scripts/mailroom.sh:*)` (or `Bash(sh <kit-dir>/scripts/mailroom.sh:*)`)
 in its allow list and nothing else beyond `SendMessage`.
 
 ## Codex

@@ -78,21 +78,58 @@ An always-on host still sleeps, reboots and loses network: report those
 periods as unknown, never as healthy. Remote access must keep working when
 sessions sit idle, and urgent alerts need a push route to the human.
 
+### First run
+
+`scripts/bootstrap.sh` is the one command a new adopter runs, from a
+terminal, ideally inside the client they want the Oracle on. It explains
+each step before doing it and asks only for the choices that are yours: the
+client you start on (detected when it can be), the Oracle home, which
+clients you use, your timezone (`owner_tz`; times are reported in it, logs
+stay UTC), the profile's model choices, and making this client the one
+active Oracle. The rest it does with the kit's own scripts
+([K-36](../kit/KIT.md)): `install.sh oracle`; the profile, including the
+Codex app's bundled node and tool server found inside the app bundle;
+`install.sh host --apply` (below); `install.sh sync` for a toehold in the
+other client; the Oracle's session id (`operator.sh session`) and the lock.
+
+It ends with a checklist that waits for you and re-checks after each step:
+start the Oracle session, sign in to each app yourself, quit and reopen
+both apps once, start the two Mailrooms (cheapest model set at creation,
+titled "Mailroom") and record their ids, re-arm the Codex watcher, pin per
+the [conventions](conventions.md#sidebar-and-titles), register the recovery
+hook on each client. Each step passes on its own evidence (a registry id,
+the watcher's heartbeat) or on `bootstrap.sh mark STEP` where no script can
+see it; the last step is a test note that must reach the Oracle through the
+mailroom. `bootstrap.sh status` prints the checklist again; `--yes` runs
+without questions (options and defaults only).
+
 ### Always-on host
 
-`scripts/install.sh host` sets the host up, check then set, and is safe to
-run again: it prints one row per item with its state and what is left for
-you. `scripts/check.sh host` repeats the checks read-only; run it after any
-change to the host or its jobs.
+`scripts/install.sh host --apply` sets the host up in one command, check
+then set, and is safe to run again ([K-36](../kit/KIT.md)): it prints one row
+per item with its state and what is left, then the few steps only a person
+can do in the apps, each marked done or to do. Without `--apply` it changes
+only App Nap and folders and says what `--apply` would do.
+`scripts/check.sh host` repeats the launchd checks read-only; run it after
+any change to the host or its jobs.
 
-| Item | Check | Set |
+| Item | Check | Set (with `--apply`) |
 | --- | --- | --- |
-| App Nap, per desktop app in `host_apps` (default `com.anthropic.claudefordesktop` and `com.openai.codex`, the Claude and ChatGPT desktop apps) | `defaults read <id> NSAppSleepDisabled` is 1 | `defaults write <id> NSAppSleepDisabled -bool YES`, read back. Takes effect after the app restarts. Without it a hidden, idle app is napped and its bridge stops delivering |
+| App Nap, per desktop app in `host_apps` (default `com.anthropic.claudefordesktop` and `com.openai.codex`, the Claude and ChatGPT desktop apps) | `defaults read <id> NSAppSleepDisabled` is 1 | Always: `defaults write <id> NSAppSleepDisabled -bool YES`, read back. Takes effect after the app restarts. Without it a hidden, idle app is napped and its bridge stops delivering |
 | Power | `pmset -g` system sleep is 0 | Check only: change it in System Settings |
-| Mailroom folders | Present | Created |
-| Units | Tick and relay unit present; the relay unit watches every registry inbox | `install.sh timers` (rendered from the registry); you load them |
+| Mailroom folders | Present | Always created |
+| Units | The tick and relay units match their templates; the relay unit watches every registry inbox (WatchPaths generated from the registry); both are loaded | Rendered, replaced when stale (old copy in `<state_dir>/backup`), loaded with `launchctl bootstrap gui/<uid>` |
+| Bridge homes | Each has its lean duty file (`AGENTS.md`, rendered from `templates/mailroom/`) | Created with `install.sh bridge <client>`, or the duty file brought up to date |
+| Bridge ids | Rows `mailroom-claude` and `mailroom-codex` have session ids: the one file every script reads | In-app step |
+| Switches and holds | Claude tier 1 (`bridge_claude_t1`) and its kill switch; the supervisor pause and lane holds name an owner, an expiry and a reason ([K-07](../kit/KIT.md)) | Check only |
+| Retired probes | No hourly probe state left | Removed |
+| Oracle lock | `operators/ORACLE-LOCK` names the one active Oracle | `lane.sh oracle-lock take`, on the human's word |
 | launchd priority | No job matching `host_latency_jobs` sets `ProcessType` Background or Adaptive, or `LowPriorityIO` | Check only: edit the job |
-| Bridges | Rows `mailroom-claude` and `mailroom-codex` have session ids | `install.sh bridge <client>` |
+
+The in-app steps it ends with: quit and reopen both apps once (App Nap);
+start the Claude Mailroom and create the Codex Mailroom (both titled
+"Mailroom", cheapest model, ids into the registry); pin per the
+[conventions](conventions.md#sidebar-and-titles).
 
 **Latency-sensitive jobs run Standard.** launchd throttles Background jobs
 (CPU, I/O and timer coalescing), and child processes inherit it: a
