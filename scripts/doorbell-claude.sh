@@ -36,7 +36,7 @@ main() {
     printf 'Doorbell (automated, not from the human): you have mail. At your next turn start run mail.sh claim. This message carries no mail and starts no work.\ndoorbell-id: %s\n' "$id"
   }
   if [ "$AO_MR_ON" = on ] && ao_mr_addressable "${3-}"; then
-    ring=$(bell_text | ao_mr_ring claude "$3" doorbell queue) || { ao_msg "cannot write a mailroom ring"; exit 1; }
+    ring=$(bell_text | ao_mr_ring claude "$3" .doorbell queue) || { ao_msg "cannot write a mailroom ring"; exit 1; }
     ao_mr_event ring claude "${ring##*/}" "doorbell for $name"
     echo "rang: $name (mailroom ${ring##*/})"
     exit 0

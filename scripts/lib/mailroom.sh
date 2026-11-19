@@ -12,8 +12,9 @@
 # A ring is one file per hand-off in <bridge_dir>/<client>/, written
 # atomically by the relay (or a doorbell): its body is the relay's
 # fixed-shape pointer, never note text. Names:
-#   claude  <session>--<key>-<stamp>.md
-#   codex   <thread>--<key>-<stamp>--<steer|queue>.md
+#   claude  <session>--<key>-<stamp>-<rand>.md
+#   codex   <thread>--<key>-<stamp>-<rand>--<steer|queue>.md
+#   (a doorbell's key is `.doorbell`, never an operator key)
 #   probes  echo--probe-<stamp>.md (codex: ...--queue.md): filed, never sent
 # The receiving app's in-app bridge (a cheap session in its own home, with a
 # push watcher) hands each ring to its target with the app's own messaging
@@ -90,14 +91,18 @@ ao_mr_mode() {
 }
 
 # ao_mr_ring CLIENT SESSION KEY MODE  Write stdin as a new ring and print its
-# path. Never replaces a ring: a taken name gets -2, -3... before the suffix.
+# path. The name carries the stamp and six random hex digits, so it is never
+# reused while an earlier ring of the same name is still being sent or
+# filed; a taken name still gets -2, -3... before the suffix. KEY is an
+# operator key, or `.doorbell` for a doorbell (never an operator key).
 ao_mr_ring() {
   _mr_dir=$AO_MR_DIR/$1
   _mr_ext=.md
   [ "$1" != codex ] || _mr_ext=--$4.md
   mkdir -p "$_mr_dir" || return 1
+  _mr_rand=$(od -An -tx1 -N3 /dev/urandom | tr -d ' \n')
   _mr_tmp=$(mktemp "$_mr_dir/.tmp.XXXXXX") || return 1
-  if ! cat >"$_mr_tmp" || ! ao_place "$_mr_tmp" "$_mr_dir/$2--$3-$AO_T_STAMP" "$_mr_ext"; then
+  if ! cat >"$_mr_tmp" || ! ao_place "$_mr_tmp" "$_mr_dir/$2--$3-$AO_T_STAMP-$_mr_rand" "$_mr_ext"; then
     rm -f "$_mr_tmp"
     return 1
   fi
@@ -264,7 +269,8 @@ _ao_mr_claim() {
 
 # _ao_mr_unclaim  Put a claimed ring back, for the next attempt.
 _ao_mr_unclaim() {
-  mv "$_mr_c" "$_mr_r" 2>/dev/null || ao_warn "cannot return $_mr_c"
+  # link(2) refuses an existing name: a return never overwrites a ring.
+  if ln "$_mr_c" "$_mr_r" 2>/dev/null; then rm -f "$_mr_c"; else ao_warn "cannot return $_mr_c"; fi
 }
 
 _ao_mr_rings() {
@@ -365,6 +371,15 @@ _ao_mr_ring_codex() {
     ao_mr_event queue-direct codex "$_mr_b" "queued to the target (no steering; was $_mr_mode)"
     return 0
   fi
+  # The CLI ran and did not confirm: it may have queued (K-28). Only a
+  # failure before the CLI ran puts the ring back for another attempt.
+  if grep -q 'queue acceptance unconfirmed' "$_mr_out" 2>/dev/null; then
+    ao_mr_file codex "$_mr_b" queue-direct queue unknown "${_mr_c%/*}" || ao_warn "cannot file $_mr_b"
+    ao_mr_event unknown codex "$_mr_b" "direct queue unconfirmed; not sent again: $(tr '\n' ' ' <"$_mr_out" | cut -c 1-200)"
+    _ao_mr_alarm "mailroom-unknown-codex" "Mailroom: the direct queue of $_mr_b was not confirmed; it may or may not have arrived and is not sent again. Check the target thread (docs/mailroom.md)." ||
+      ao_warn "could not raise the unknown-delivery alarm"
+    return 1
+  fi
   _ao_mr_unclaim
   ao_mr_event queue-direct-failed codex "$_mr_b" "$(tr '\n' ' ' <"$_mr_out" | cut -c 1-240)"
   return 1
@@ -384,7 +399,7 @@ _ao_mr_route() {
   _mr_key=${_mr_b#*--}
   _mr_key=${_mr_key%--steer.md}
   _mr_key=${_mr_key%--queue.md}
-  _mr_key=$(printf '%s\n' "${_mr_key%.md}" | sed 's/-[0-9]\{8\}T[0-9]\{6\}\(-[0-9]\{1,3\}\)\{0,1\}$//')
+  _mr_key=$(printf '%s\n' "${_mr_key%.md}" | sed 's/-[0-9]\{8\}T[0-9]\{6\}\(-[0-9a-f]\{6\}\)\{0,1\}\(-[0-9]\{1,3\}\)\{0,1\}$//')
   _mr_found='' _mr_osid='' _mr_ocl='' _mr_ogate=0
   ao_is_name "$_mr_key" && ao_registry_has "$_mr_key" || return 0
   ao_registry_each _ao_mr_route_cb
@@ -449,6 +464,14 @@ _ao_mr_bridge_check() {
       else
         ao_mr_event relaunch-failed "$1" - "could not open $_mr_bundle"
       fi
+    fi
+    # Still not running well after the open: one alarm per episode.
+    _mr_since=0
+    read -r _mr_since <"$_mr_down" 2>/dev/null
+    ao_is_uint "${_mr_since:-x}" || _mr_since=$AO_T_EPOCH
+    if [ $((AO_T_EPOCH - _mr_since)) -ge $((AO_MR_REARM_GRACE * 2)) ] && [ ! -e "$_mr_bam" ] &&
+      _ao_mr_alarm "mailroom-bridge-down-$1" "Mailroom: the $1 desktop app is not running and opening it did not bring it back. Open it yourself; its bridge then re-arms (docs/mailroom.md, restart recovery)."; then
+      if mkdir -p "${_mr_bam%/*}" && : >"$_mr_bam"; then ao_mr_event alarm "$1" - "app not running"; fi
     fi
     return 0
   fi
@@ -532,7 +555,8 @@ _ao_mr_prune() {
       [ -f "$_mr_m" ] || continue
       _mr_n=${_mr_m##*/}
       case $_mr_n in bridge-*) continue ;; esac
-      [ -f "$AO_MR_DIR/claude/$_mr_n" ] || [ -f "$AO_MR_DIR/codex/$_mr_n" ] || rm -f "$_mr_m"
+      [ -f "$AO_MR_DIR/claude/$_mr_n" ] || [ -f "$AO_MR_DIR/codex/$_mr_n" ] ||
+        [ -f "$AO_MR_DIR/claude/.watcher/handing/$_mr_n" ] || rm -f "$_mr_m"
     done
   done
 }

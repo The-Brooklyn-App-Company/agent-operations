@@ -1,3 +1,33 @@
+# v0.3.1 validation
+
+Release remains maintainer-owned. This release adds the experimental
+mailroom, always-on host setup, the capped recovery digest and rule edits
+K-09, K-10 and K-35. Everything below is deterministic tests with fakes on
+one macOS machine; nothing in 0.3.1 has run live yet.
+
+| Check | Evidence / result |
+| --- | --- |
+| Full suite, sh and dash | @SUITE@ |
+| New tests | `t_mailroom.sh` (relay rings, supervisor fallbacks and claims, reroute on owner change, re-arm per app process, relaunch, alarms, free probes, metrics, the kqueue watcher, the Codex watcher against a fake app tool server: burst order, steer, queue hold and cap, unknown outcomes, single watcher), `t_recover.sh` (digest at most 8000 bytes, read-first order kept under a cut), `t_install.sh` additions (relay unit from the registry, `host` table and App Nap check-then-set with a fake `defaults`, `check.sh host` launchd findings, bridge homes) |
+| shellcheck, `check.sh kit` | Clean |
+| Cross-family review | @REVIEW@ |
+| Live mailroom | **Not run** (T1 to T4 below) |
+
+## Mailroom live acceptance
+
+Run on the always-on host with both desktop apps and both bridges set up
+([docs/mailroom.md](docs/mailroom.md#set-it-up)). Record the client
+versions and times.
+
+| # | Do | Expect |
+| --- | --- | --- |
+| T1 | With an operator's Claude session cold (no process since the last app start), drop a note for it | The bridge sends to its session id; the session starts and reads the pointer |
+| T2 | Run your `hooks/wake claude <session>` for a cold session | The session gets a process; the app does not take focus |
+| T3 | After T2, let the supervisor's headless "Re-arm" reach the bridge | The bridge's watcher pid appears in `.watcher/pid` |
+| T4 | Quit each desktop app while idle and leave it | The supervisor opens it again, re-arms its bridge once, and `mailroom.sh status` shows the watcher armed; time it. Then one round trip each way across the apps |
+
+---
+
 # v0.3.0 validation
 
 Release remains maintainer-owned. Evidence below separates deterministic tests,

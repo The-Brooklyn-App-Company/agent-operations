@@ -30,7 +30,7 @@ two bridges are kept warm.
 | --- | --- |
 | Relay unit | launchd job (`install.sh timers`) running `mailroom.sh cycle`: on any change in a registry inbox folder (WatchPaths), every 60 s, and at login. `cycle` runs `relay.sh`, then `mailroom.sh supervise`, each under its own lock |
 | Relay | `relay.sh`: archives new notes and writes one **ring** per hand-off into `<bridge_dir>/<client>/` (default `inbox/.mailroom/`). No model |
-| Ring | A file named `<session>--<key>-<stamp>.md` (Codex: `...--steer.md` or `--queue.md`), body = the pointer message |
+| Ring | A file named `<session>--<key>-<stamp>-<random>.md` (Codex: `...--steer.md` or `--queue.md`; a doorbell's key is `.doorbell`), body = the pointer message. Names are never reused |
 | Claude bridge | A session on the cheapest model in its own home (`install.sh bridge claude`), whose whole duty is its 15-line `AGENTS.md`. It keeps `mailroom.sh wait claude` running as a background task: a kqueue push watch, zero CPU, no polling, one watcher per folder (an flock, a pid record). The watcher files probe rings itself; for real rings it claims each (an atomic rename into `.watcher/handing/`), prints them and exits, which wakes the bridge. The bridge sends each with `SendMessage` to the session id in its name, then runs one background command, `mailroom.sh file claude <rings> --wait`, that files and logs them and re-arms the watcher. Two tool calls per batch |
 | Codex bridge | A chat in its own home (`install.sh bridge codex`) that only keeps the **Codex watcher** armed. No model turn per message |
 | Codex watcher | `mailroom-codex-watcher.cjs`, started by the bridge chat with `mailroom.sh arm-codex` from its own command session (not detached), run by the app's bundled node under a kernel lock (one watcher). It opens an MCP connection to the app's bundled `codex-app-tools` server over the pipe the app gives its chats, checks it, then watches the ring folder and sends each ring with `send_message_to_thread` straight to the target thread: `steer` rings at once (they can land mid-turn), `queue` rings when the target's latest turn is no longer running (checked every 5 s only while one is held, released after 10 min). The tool has no mode parameter, so the watcher decides; the mode used is logged per delivery. Each ring is claimed (renamed into `.watcher/sending/`) before its send |
@@ -42,7 +42,8 @@ when a stuck Claude bridge sent a ring and the fallback sends it again);
 the relay id is the same, so receivers drop repeats. Every sender claims a
 ring by an atomic rename before sending, so two paths never send it at the
 same moment. A Codex send whose outcome is unknown (a timeout, a crash or a
-closed pipe mid-call) is filed `unknown` and never sent again.
+closed pipe mid-call, or a direct queue the CLI did not confirm) is filed
+`unknown`, alarmed once and never sent again.
 
 **The Codex watcher is experimental twice over:** it relies on an
 undocumented pipe the desktop app provides only to commands started inside

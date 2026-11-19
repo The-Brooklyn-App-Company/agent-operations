@@ -467,6 +467,8 @@ test_check_host_flags_app_nap_and_throttled_latency_jobs() {
   printf '<plist><dict><key>Label</key><string>local.agent-operations.relay</string><key>ProcessType</key><string>Background</string></dict></plist>\n' >"$T/agents/a.plist"
   printf '<plist><dict><key>Label</key><string>org.example.ci-forwarder</string><key>LowPriorityIO</key><true/></dict></plist>\n' >"$T/agents/b.plist"
   printf '<plist><dict><key>Label</key><string>org.example.backup</string><key>ProcessType</key><string>Background</string></dict></plist>\n' >"$T/agents/c.plist"
+  printf '<plist><dict><key>Label</key><string>local.agent-operations.tick</string><key>EnvironmentVariables</key><dict><key>ProcessType</key><string>Standard</string></dict><key>ProcessType</key><string>Background</string></dict></plist>\n' >"$T/agents/d.plist"
+  printf '<plist><dict><key>Label</key><string>local.agent-operations.x</string><key>EnvironmentVariables</key><dict><key>ProcessType</key><string>Background</string></dict></dict></plist>\n' >"$T/agents/e.plist"
   mkdir -p "$T/cfg"
   printf 'host_launchd_dirs=%s\nhost_latency_jobs=*agent-operations* org.example.ci-*\n' "$T/agents" >"$T/cfg/profile"
   run check.sh host
@@ -476,6 +478,8 @@ test_check_host_flags_app_nap_and_throttled_latency_jobs() {
   assert_has "$T/out" "a.plist: local.agent-operations.relay: ProcessType Background"
   assert_has "$T/out" "b.plist: org.example.ci-forwarder: LowPriorityIO true"
   assert_lacks "$T/out" "org.example.backup"
+  assert_has "$T/out" "d.plist: local.agent-operations.tick: ProcessType Background"
+  assert_lacks "$T/out" "e.plist"
 }
 
 test_bridge_gets_its_own_home_and_a_reserved_registry_row() {

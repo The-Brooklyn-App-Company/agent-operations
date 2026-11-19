@@ -280,13 +280,13 @@ test_doorbells_ring_the_mailroom() {
   mr_setup
   run doorbell-claude.sh ring "Alpha Op" sid-alpha
   assert_rc 0
-  assert_has "$T/out" "mailroom sid-alpha--doorbell-"
+  assert_has "$T/out" "mailroom sid-alpha--.doorbell-"
   assert_has "$MR/claude/$(rings claude)" "doorbell-id: doorbell-"
   assert_no_file "$FAKE_LOG"
   profile_set doorbell_codex queue
   run doorbell-codex.sh ring "Gamma Op" thread-gamma
   assert_rc 0
-  case $(rings codex) in thread-gamma--doorbell-*--queue.md) ;; *) _fail "no Codex doorbell ring" ;; esac
+  case $(rings codex) in thread-gamma--.doorbell-*--queue.md) ;; *) _fail "no Codex doorbell ring" ;; esac
   assert_no_file "$FAKE_LOG"
 }
 
@@ -538,6 +538,47 @@ test_arm_codex_holds_one_watcher_lock() {
   assert_has "$T/out" "another watcher holds the lock"
   kill "$first"
   wait "$first" 2>/dev/null
+}
+
+test_an_unconfirmed_direct_queue_is_filed_unknown_not_resent() {
+  mr_setup
+  note gamma a.md "x"
+  run relay.sh
+  r=$(rings codex)
+  age_file "$MR/codex/$r" 200
+  FAKE_MODE=queue-ambiguous run mailroom.sh supervise
+  assert_rc 1
+  later 900
+  FAKE_MODE=queue-ambiguous run mailroom.sh supervise
+  assert_eq "$(grep -c '^== codex' "$FAKE_LOG")" 1 "queued once"
+  assert_has "$MR/codex/delivered/log.tsv" "$r${TAB}queue-direct${TAB}queue${TAB}unknown"
+  assert_eq "$(notes_named mailroom-unknown-codex)" 1 "alarm"
+}
+
+test_failed_fallbacks_for_claimed_rings_keep_their_spacing() {
+  mr_setup
+  note alpha a.md "x"
+  run relay.sh
+  r=$(rings claude)
+  mkdir -p "$MR/claude/.watcher/handing"
+  mv "$MR/claude/$r" "$MR/claude/.watcher/handing/$r"
+  age_file "$MR/claude/.watcher/handing/$r" 700
+  FAKE_MODE=failed run mailroom.sh supervise
+  FAKE_MODE=failed run mailroom.sh supervise
+  assert_eq "$(grep -c '^== claude' "$FAKE_LOG")" 1 "one attempt, spaced"
+  assert_eq "$(notes_named mailroom-ring-waiting)" 1 "one alarm"
+  assert_file "$MR/claude/.watcher/handing/$r"
+}
+
+test_a_doorbell_is_never_rerouted_to_an_operator_named_doorbell() {
+  mr_setup
+  printf 'doorbell\tDoorbell Op\t%s\tsid-db\tclaude\n' "$T/proj/beta" >>"$T/home/operators/REGISTRY.tsv"
+  run doorbell-claude.sh ring "Alpha Op" sid-alpha
+  r=$(rings claude)
+  age_file "$MR/claude/$r" 200
+  FAKE_MODE=sent run mailroom.sh supervise
+  assert_has "$FAKE_LOG" 'to "Alpha Op"'
+  assert_lacks "$FAKE_LOG" 'Doorbell Op'
 }
 
 ao_test_main "$0"

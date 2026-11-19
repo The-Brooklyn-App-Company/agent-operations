@@ -439,9 +439,20 @@ check_host_plist() {
   else
     _xml=$(cat "$1")
   fi
-  # One line per <key>/<value> pair, whitespace between tags removed.
-  _kv=$(printf '%s\n' "$_xml" | tr -d '\n\t' | sed 's|<key>|\
-<key>|g' | sed -n 's|^<key>\([^<]*\)</key> *<\([a-z]*\)\(/\{0,1\}\)>\([^<]*\).*|\1 \2 \4|p')
+  # Top-level keys of the outer <dict> only (nested dictionaries such as
+  # EnvironmentVariables never count): `key type value` per line.
+  _kv=$(printf '%s\n' "$_xml" | tr -d '\n\t' | sed 's|<|\
+<|g' | awk '
+    /^<dict>/ { depth++; if (depth > 1) k = ""; next }
+    /^<\/dict>/ { depth--; next }
+    /^<array>/ { depth++; k = ""; next }
+    /^<\/array>/ { depth--; next }
+    depth != 1 { next }
+    /^<key>/ { k = substr($0, 6); next }
+    k != "" && /^<[a-z]+\/?>/ {
+      t = $0; sub(/^</, "", t); v = t; sub(/[\/]?>.*/, "", t); sub(/^[^>]*>/, "", v)
+      print k, t, v; k = ""
+    }')
   _label=$(printf '%s\n' "$_kv" | awk '$1 == "Label" { print $3; exit }')
   [ -n "$_label" ] || return 0
   _hit=
