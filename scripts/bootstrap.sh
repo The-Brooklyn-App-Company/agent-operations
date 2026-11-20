@@ -228,14 +228,16 @@ bs_checklist() {
   _ms=$(bs_marks_file)
   _sent=$(ao_st_get "$_ms" test-note)
   if [ -z "$_sent" ] && bs_has "$AO_ORACLE_KEY" && { [ -z "$_bc" ] || bs_has mailroom-claude; }; then
-    printf 'First-run check (bootstrap.sh, automated): if you can read this, the mailroom reached the Oracle. No action needed.\n' |
-      ao_inbox_put "$AO_ORACLE_KEY" bootstrap-check >/dev/null && ao_st_set "$_ms" test-note "$AO_T_EPOCH"
+    if _tn=$(printf 'First-run check (bootstrap.sh, automated): if you can read this, the mailroom reached the Oracle. No action needed.\n' |
+      ao_inbox_put "$AO_ORACLE_KEY" bootstrap-check); then
+      ao_st_set "$_ms" test-note-name "${_tn##*/}"
+      ao_st_set "$_ms" test-note "$AO_T_EPOCH"
+    fi
     _sent=$(ao_st_get "$_ms" test-note)
   fi
   if [ -z "$_sent" ]; then
     ao_step WAIT round-trip "a test note to the Oracle goes out once the Oracle and its Mailroom have ids"
-  elif cat "$AO_MR_DIR"/claude/delivered/log.tsv "$AO_MR_DIR"/codex/delivered/log.tsv 2>/dev/null |
-    awk -F'\t' -v k="--$AO_ORACLE_KEY-" -v at="$_sent" 'index($3, k) && $2 >= at && ($6 == "ok" || $6 == "accepted") { f = 1 } END { exit !f }'; then
+  elif ao_mr_note_received "$(ao_st_get "$_ms" test-note-name)" "$_sent"; then
     ao_step PASS round-trip "the test note reached the Oracle"
   else
     ao_step WAIT round-trip "a test note went to the Oracle $(ao_utc "$_sent") UTC; waiting for its delivery (mailroom.sh status)"

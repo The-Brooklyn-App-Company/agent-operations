@@ -92,9 +92,17 @@ test_first_run_sets_up_everything_then_lists_the_human_steps() {
   assert_has "$T/out" "PASS  codex-watcher armed"
   assert_has "$T/out" "WAIT  round-trip    a test note went to the Oracle"
   ls "$T/ops/oracle/inbox/oracle"/*bootstrap-check.md >/dev/null 2>&1 || _fail "no test note"
-  mkdir -p "$T/ops/oracle/inbox/.mailroom/claude/delivered"
-  printf '2026-11-19T00:00:00Z\t%s\tsid-oracle--oracle-x.md\tt2-bridge\tsend\tok\t900\t-\n' "$(($(date +%s) + 5))" \
-    >>"$T/ops/oracle/inbox/.mailroom/claude/delivered/log.tsv"
+  # Only a delivered ring that lists the test note counts.
+  d=$T/ops/oracle/inbox/.mailroom/claude/delivered
+  mkdir -p "$d"
+  printf -- '- x-oracle-other-note.md\n' >"$d/sid-oracle--oracle-1.md"
+  printf '2026-11-19T00:00:00Z\t%s\tsid-oracle--oracle-1.md\tt2-bridge\tsend\tok\t900\t-\n' "$(($(date +%s) + 5))" >>"$d/log.tsv"
+  run bootstrap.sh status
+  assert_has "$T/out" "WAIT  round-trip"
+  tn=$(ls "$T/ops/oracle/inbox/oracle"/*bootstrap-check.md)
+  tn=${tn##*/}
+  printf -- '- 20261119T000000-oracle-%s\n' "$tn" >"$d/sid-oracle--oracle-2.md"
+  printf '2026-11-19T00:00:00Z\t%s\tsid-oracle--oracle-2.md\tt2-bridge\tsend\tok\t900\t-\n' "$(($(date +%s) + 5))" >>"$d/log.tsv"
   run bootstrap.sh status
   kill "$live" 2>/dev/null
   assert_rc 0

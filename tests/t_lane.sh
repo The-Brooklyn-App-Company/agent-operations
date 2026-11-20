@@ -84,6 +84,9 @@ test_switch_refusals_cold_handoff_and_same_family() {
   assert_rc 2
   run lane.sh switch alpha --to claude --session sid-alpha
   assert_rc 5
+  run lane.sh switch alpha --to claude --session sid-beta
+  assert_rc 5
+  assert_has "$T/err" "already leads 'beta'"
   run lane.sh switch alpha --to claude --session sid-new
   assert_rc 0
   run lane.sh switch alpha --to claude --session sid-newer

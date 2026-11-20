@@ -63,6 +63,14 @@ ao_pause() {
   return 0
 }
 
+# ao_unlock  Release this process's kit lock early (before running another
+# kit script that takes the same lock).
+ao_unlock() {
+  if [ -n "$AO_LOCK_FD" ]; then exec 9>&-
+  elif [ -n "$AO_LOCK" ] && [ "$(cat "$AO_LOCK/pid" 2>/dev/null)" = "$$" ]; then rm -rf "$AO_LOCK"; fi
+  AO_LOCK='' AO_LOCK_FD=''
+}
+
 # Value checks for ao_ask.
 ao_is_client() { case $1 in claude | codex) return 0 ;; esac; return 1; }
 ao_is_word() { case $1 in '' | *[!A-Za-z0-9._:-]*) return 1 ;; esac; return 0; }

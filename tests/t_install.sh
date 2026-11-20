@@ -508,6 +508,13 @@ test_host_apply_is_turnkey_and_ends_with_the_in_app_steps() {
   assert_has "$la/local.agent-operations.relay.plist" "<string>$T/ops/oracle/inbox/web</string>"
   grep -Eq '^bridge claude duty file +updated' "$T/out" || _fail "duty file not updated"
   [ "$(find "$T/state/backup" -name 'AGENTS.md.*' | wc -l | tr -d ' ')" = 1 ] || _fail "no duty file backup"
+  # A dry run never loads a unit, even with --apply.
+  rm -f "$T/loaded/local.agent-operations.relay"
+  n=$(grep -c bootstrap "$T/launchctl.log")
+  run install.sh --dry-run host --apply
+  assert_eq "$(grep -c bootstrap "$T/launchctl.log")" "$n" "no launchctl bootstrap on a dry run"
+  grep -Eq '^unit relay +not loaded' "$T/out" || _fail "dry run does not say the unit is not loaded"
+  : >"$T/loaded/local.agent-operations.relay"
   # A recorded bridge id marks its in-app step done.
   sed "s/^mailroom-claude\(${TAB}[^${TAB}]*${TAB}[^${TAB}]*${TAB}\)pending/mailroom-claude\1sid-b/" \
     "$T/ops/oracle/operators/REGISTRY.tsv" >"$T/reg" && mv "$T/reg" "$T/ops/oracle/operators/REGISTRY.tsv"

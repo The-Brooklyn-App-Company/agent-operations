@@ -128,7 +128,9 @@ lane_switch() {
   ao_is_name "$_sid" && [ "$_sid" != pending ] && [ "$_sid" != - ] || ao_die "$AO_E_USAGE" "--session needs the incoming session or thread id"
   case $_name in *"$AO_TAB"* | *"$AO_NL"*) ao_die "$AO_E_USAGE" "--name must be one line without tabs" ;; esac
   [ "$_to" != "$R_CLIENT" ] || [ "$_sid" != "$R_SID" ] || refuse "$_key already runs on $_to in session $_sid"
-  ao_lock lane || ao_die "$AO_E_BUSY" "another lane.sh is running"
+  _other=$(awk -F'\t' -v k="$_key" -v s="$_sid" '$1 !~ /^#/ && $1 != k && $4 == s { print $1; exit }' "$AO_REGISTRY")
+  [ -z "$_other" ] || refuse "session $_sid already leads '$_other': one session per operator"
+  ao_lock registry || ao_die "$AO_E_BUSY" "the registry is being changed by another command; try again"
   _st=$(lane_state "$_key")
   [ ! -f "$_st" ] || refuse "a switch of $_key is open since $(ao_utc "$(st_get "$_st" started)"); finish it with lane.sh verify $_key, or remove $_st"
   _tok=$(od -An -tx1 -N6 /dev/urandom | tr -d ' \n')
@@ -163,7 +165,7 @@ lane_verify() {
   _key=$1
   _st=$(lane_state "$_key")
   [ -f "$_st" ] || ao_die "$AO_E_USAGE" "no open switch for $_key (lane.sh switch first)"
-  ao_lock lane || ao_die "$AO_E_BUSY" "another lane.sh is running"
+  ao_lock registry || ao_die "$AO_E_BUSY" "the registry is being changed by another command; try again"
   _fc=$(st_get "$_st" from_client) _fs=$(st_get "$_st" from_sid)
   _tc=$(st_get "$_st" to_client) _ts=$(st_get "$_st" to_sid)
   _nm=$(st_get "$_st" name) _since=$(st_get "$_st" started) _tok=$(st_get "$_st" token)
@@ -178,6 +180,8 @@ lane_verify() {
   # routing
   if [ "$R_CLIENT" = "$_tc" ] && [ "$R_SID" = "$_ts" ]; then
     lane_say PASS routing "registry: $_tc $_ts"
+  elif [ "$_left" -eq 0 ] && _dup=$(awk -F'\t' -v k="$_key" -v s="$_ts" '$1 !~ /^#/ && $1 != k && $4 == s { print $1; exit }' "$AO_REGISTRY") && [ -n "$_dup" ]; then
+    lane_say TODO routing "session $_ts now leads '$_dup': one session per operator; fix the registry or switch to another session"
   elif [ "$_left" -eq 0 ]; then
     lane_registry_set "$_key" "$_tc" "$_ts" "$_nm" || ao_die "$AO_E_FAIL" "cannot update $AO_REGISTRY"
     lane_row "$_key"
@@ -264,7 +268,7 @@ lane_mark() {
   _note=$(printf '%s' "$_note" | tr '\t\n' '  ')
   _st=$(lane_state "$_key")
   [ -f "$_st" ] || ao_die "$AO_E_USAGE" "no open switch for $_key"
-  ao_lock lane || ao_die "$AO_E_BUSY" "another lane.sh is running"
+  ao_lock registry || ao_die "$AO_E_BUSY" "the registry is being changed by another command; try again"
   st_set "$_st" "done_$_step" "$AO_T_EPOCH $_note"
   echo "marked $_step for $_key"
 }
@@ -287,7 +291,7 @@ lane_ack() {
   else
     _how="acknowledged (client not detectable)"
   fi
-  ao_lock lane || ao_die "$AO_E_BUSY" "another lane.sh is running"
+  ao_lock registry || ao_die "$AO_E_BUSY" "the registry is being changed by another command; try again"
   st_set "$_st" ack "$AO_T_EPOCH $_how"
   echo "$_how"
 }

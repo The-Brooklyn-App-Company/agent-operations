@@ -333,9 +333,9 @@ _ao_mr_push() {
 # the Oracle is delivered (_ao_mr_tier4). When the note cannot even be
 # written, the owner is pushed at once.
 _ao_mr_alarm() {
-  if ao_note_oracle "$1" "$2"; then
+  if _mr_np=$(printf '%s\n' "$2" | (ao_inbox_put "$AO_ORACLE_KEY" "$1") 2>/dev/null) && [ -n "$_mr_np" ]; then
     _mr_ap=$(_ao_mr_marker alarm-pending "$1")
-    [ -f "$_mr_ap" ] || _ao_mr_touch "$_mr_ap" "$AO_T_EPOCH"
+    [ -f "$_mr_ap" ] || _ao_mr_touch "$_mr_ap" "$AO_T_EPOCH ${_mr_np##*/}"
     return 0
   fi
   _ao_mr_push "$2" || { ao_mr_event push-failed - - "alarm note and push both failed: $1"; return 1; }
@@ -412,12 +412,30 @@ _ao_mr_t1_stranded() {
     ! ao_mr_watcher_up claude || [ "$(ao_mr_age "$_mr_c")" -ge "$AO_MR_T1_STRANDED" ] || continue
     _mr_b=${_mr_c##*/}
     _mr_tx=$(head -n 1 "$_mr_c.tx" 2>/dev/null)
-    if [ -n "$_mr_tx" ] && [ -x /usr/bin/python3 ] &&
-      /usr/bin/python3 -I "$AO_SCRIPTS/mailroom-wait.py" --receipt "$_mr_tx" "$_mr_b" </dev/null >/dev/null 2>&1; then
-      ao_mr_file claude "$_mr_b" t1-socket send ok "${_mr_c%/*}" && ao_mr_event t1-settled claude "$_mr_b" "receipt found after the watcher stopped"
-    elif ln "$_mr_c" "$AO_MR_DIR/claude/$_mr_b" 2>/dev/null; then
-      rm -f "$_mr_c"
-      ao_mr_event t1-returned claude "$_mr_b" "no receipt; back in the queue for the next tier"
+    _mr_rc=3
+    if [ -z "$_mr_tx" ]; then _mr_rc=1
+    elif [ -x /usr/bin/python3 ]; then
+      /usr/bin/python3 -I "$AO_SCRIPTS/mailroom-wait.py" --receipt "$_mr_tx" "$_mr_b" </dev/null >/dev/null 2>&1
+      _mr_rc=$?
+    fi
+    if [ "$_mr_rc" -eq 0 ]; then
+      ao_mr_file claude "$_mr_b" t1-socket send ok "${_mr_c%/*}" && ao_mr_event t1-settled claude "$_mr_b" "receipt found in the target's transcript"
+    elif [ "$_mr_rc" -eq 1 ]; then
+      # A claim with no transcript to check never had a send recorded (the
+      # sidecar is written before the send); a readable transcript without
+      # the receipt confirms absence. Either way the next tier may send it.
+      if ln "$_mr_c" "$AO_MR_DIR/claude/$_mr_b" 2>/dev/null; then
+        rm -f "$_mr_c"
+        ao_mr_event t1-returned claude "$_mr_b" "no receipt in the target's transcript; back in the queue for the next tier"
+      fi
+    else
+      # The transcript cannot be read: no evidence either way. Kept, never
+      # resent; one alarm (K-28).
+      _mr_am=$(_ao_mr_marker alarmed "t1-unknown-$_mr_b")
+      if [ ! -f "$_mr_am" ] && _ao_mr_alarm "mailroom-unknown-claude" "Mailroom: $_mr_b was sent to a Claude session at tier 1 but the session's transcript cannot be read to confirm it; it is kept and not resent. Check the target session (docs/mailroom.md)."; then
+        _ao_mr_touch "$_mr_am"
+        ao_mr_event unknown claude "$_mr_b" "transcript unreadable; kept, not resent"
+      fi
     fi
     [ -f "$_mr_c" ] || rm -f "$_mr_c.tx"
   done
@@ -442,14 +460,15 @@ _ao_mr_rings() {
     # target's own record before anything is repeated (K-28).
     [ "$_mr_side" != codex ] || [ -n "$_mr_dry" ] || _ao_mr_unknowns || _mr_rf=1
     # A Codex send cut off with the watcher down may have landed: filed as
-    # unknown, never sent again, and one alarm.
+    # unknown and marked for the same reconciliation against the target's
+    # rollout (_ao_mr_unknowns); never resent blindly.
     if [ "$_mr_side" = codex ] && [ -z "$_mr_dry" ] && ! ao_mr_watcher_up codex; then
       for _mr_c in "$AO_MR_DIR/codex/.watcher/sending"/*.md; do
         [ -f "$_mr_c" ] || continue
         ao_mr_file codex "${_mr_c##*/}" t1-native - unknown "${_mr_c%/*}" interrupted || continue
-        ao_mr_event unknown codex "${_mr_c##*/}" "send interrupted with the watcher down; not sent again"
-        _ao_mr_alarm "mailroom-unknown-codex" "Mailroom: the Codex watcher stopped while sending ${_mr_c##*/}; it may or may not have arrived and is not sent again. Check the target thread (docs/mailroom.md)." ||
-          ao_warn "could not raise the unknown-delivery alarm"
+        _ao_mr_touch "$AO_MR_DIR/codex/.watcher/unknown/${_mr_c##*/}" ||
+          ao_warn "could not mark ${_mr_c##*/} for reconciliation"
+        ao_mr_event unknown codex "${_mr_c##*/}" "send interrupted with the watcher down; reconciled against the target's rollout"
       done
     fi
     # Claude rings the bridge's watcher claimed (handing/) count from the
@@ -520,6 +539,30 @@ _ao_mr_unknowns() {
       _ao_mr_alarm "mailroom-unknown-codex" "Mailroom: the Codex watcher could not confirm $_mr_b and the target thread's record cannot be read, so it is not sent again. Check the target thread (docs/mailroom.md)." &&
         rm -f "$_mr_u"
       continue
+    fi
+    # Absence is confirmed on the thread it went to. Re-check who owns the
+    # operator now: a hold waits; a moved owner (a switch, a replaced
+    # thread) gets a new ring instead of the old thread.
+    if ! _ao_mr_owner "$_mr_b"; then
+      ao_mr_event unknown codex "$_mr_b" "absent from the target, and its operator is no longer in the registry; not sent again"
+      _ao_mr_alarm "mailroom-unknown-codex" "Mailroom: $_mr_b never reached its thread and its operator is no longer in the registry, so it is not sent again (docs/mailroom.md)." &&
+        rm -f "$_mr_u"
+      continue
+    fi
+    if [ -n "$_mr_found" ]; then
+      [ "$_mr_ogate" -eq 0 ] || continue
+      if [ "$_mr_ocl" != codex ] || [ "$_mr_osid" != "$_mr_sid" ]; then
+        case $_mr_ocl in claude | codex) ;; *) continue ;; esac
+        ao_mr_addressable "$_mr_osid" || continue
+        _mr_nm=queue
+        case $_mr_b in *--steer.md) _mr_nm=steer ;; esac
+        if _mr_new=$(ao_mr_ring "$_mr_ocl" "$_mr_osid" "$_mr_key" "$_mr_nm" <"$_mr_d"); then
+          ao_mr_row codex "$_mr_b" none resolve ok - rerouted-absent
+          ao_mr_event rerouted codex "$_mr_b" "absent from the old thread; owner of $_mr_key is now $_mr_ocl: new ring ${_mr_new##*/}"
+          rm -f "$_mr_u"
+        fi
+        continue
+      fi
     fi
     _ao_mr_attempt_due absent "$_mr_b" || continue
     _ao_mr_attempt_count absent "$_mr_b"
@@ -679,8 +722,12 @@ _ao_mr_route_cb() {
   _mr_found=1 _mr_osid=$OP_SID _mr_ocl=$OP_CLIENT _mr_ogate=0
   ao_gate relay || _mr_ogate=1
 }
-_ao_mr_route() {
-  _mr_key=${_mr_b#*--}
+# _ao_mr_owner RING  Set _mr_key from the ring's name and _mr_found,
+# _mr_osid, _mr_ocl, _mr_ogate from the registry as it is now. Returns 0
+# for a doorbell (key .doorbell: delivered as named, _mr_found empty) or an
+# operator in the registry, 1 otherwise.
+_ao_mr_owner() {
+  _mr_key=${1#*--}
   _mr_key=${_mr_key%--steer.md}
   _mr_key=${_mr_key%--queue.md}
   _mr_key=$(printf '%s\n' "${_mr_key%.md}" | sed 's/-[0-9]\{8\}T[0-9]\{6\}\(-[0-9a-f]\{6\}\)\{0,1\}\(-[0-9]\{1,3\}\)\{0,1\}$//')
@@ -688,7 +735,11 @@ _ao_mr_route() {
   [ "$_mr_key" != .doorbell ] || return 0
   ao_is_name "$_mr_key" && ao_registry_has "$_mr_key" || return 1
   ao_registry_each _ao_mr_route_cb
-  [ -n "$_mr_found" ] || return 1
+  [ -n "$_mr_found" ]
+}
+_ao_mr_route() {
+  _ao_mr_owner "$_mr_b" || return 1
+  [ "$_mr_key" != .doorbell ] || return 0
   [ "$_mr_ogate" -eq 0 ] || return 1
   [ "$_mr_ocl" != "$_mr_side" ] || [ "$_mr_osid" != "$_mr_sid" ] || return 0
   case $_mr_ocl in claude | codex) ;; *) return 1 ;; esac
@@ -705,9 +756,30 @@ _ao_mr_route() {
   return 1
 }
 
-# _ao_mr_tier4  An alarm note is pending until a ring to the Oracle is
-# delivered after it (a delivered row for a ring of the Oracle's key, on
-# either side). One pending longer than AO_MR_PUSH means the Oracle is
+# ao_mr_note_received NOTE AT  True when a ring to the Oracle that lists
+# NOTE (a note's file name in the Oracle's inbox, as the relay archived it)
+# was delivered with status ok at or after epoch AT. A CLI `accepted` only
+# proves submission, and an unrelated delivery proves nothing about NOTE.
+ao_mr_note_received() {
+  _mr_nk=-$AO_ORACLE_KEY-$(ao_slug "${1%.md}")
+  for _mr_sd in claude codex; do
+    _mr_lg=$AO_MR_DIR/$_mr_sd/delivered/log.tsv
+    [ -f "$_mr_lg" ] || continue
+    # Ring names are single words (ao_mr_ring).
+    # shellcheck disable=SC2013
+    for _mr_rn in $(awk -F'\t' -v k="--$AO_ORACLE_KEY-" -v at="$2" 'index($3, k) && $2 >= at && $6 == "ok" && $5 != "resolve" { print $3 }' "$_mr_lg"); do
+      _mr_rf=$AO_MR_DIR/$_mr_sd/delivered/$_mr_rn
+      [ -f "$_mr_rf" ] || continue
+      grep -qF -- "$_mr_nk" "$_mr_rf" && return 0
+      _mr_mf=$(sed -n 's/^- and [0-9]* more, all listed in //p' "$_mr_rf" | head -n 1)
+      [ -n "$_mr_mf" ] && grep -qF -- "$_mr_nk" "$AO_SENT/$_mr_mf" 2>/dev/null && return 0
+    done
+  done
+  return 1
+}
+
+# _ao_mr_tier4  An alarm note is pending until a ring that lists it reaches
+# the Oracle (ao_mr_note_received). One pending longer than AO_MR_PUSH means the Oracle is
 # unreachable: the owner is pushed once per outage. The outage ends when no
 # alarm is overdue; pending alarms are dropped after a day.
 _ao_mr_tier4() {
@@ -715,11 +787,10 @@ _ao_mr_tier4() {
   _mr_over=''
   for _mr_p in "$_mr_pd"/*; do
     [ -f "$_mr_p" ] || continue
-    read -r _mr_at <"$_mr_p" 2>/dev/null
+    _mr_note=''
+    read -r _mr_at _mr_note <"$_mr_p" 2>/dev/null
     ao_is_uint "${_mr_at:-x}" || _mr_at=$AO_T_EPOCH
-    if cat "$AO_MR_DIR/claude/delivered/log.tsv" "$AO_MR_DIR/codex/delivered/log.tsv" 2>/dev/null |
-      awk -F'\t' -v k="--$AO_ORACLE_KEY-" -v at="$_mr_at" '
-        index($3, k) && $2 >= at && ($6 == "ok" || $6 == "accepted") { f = 1 } END { exit !f }'; then
+    if [ -n "$_mr_note" ] && ao_mr_note_received "$_mr_note" "$_mr_at"; then
       rm -f "$_mr_p"
       continue
     fi
@@ -971,7 +1042,10 @@ _ao_mr_prune() {
     for _mr_m in "$AO_STATE/mailroom/$_mr_k"/*; do
       [ -f "$_mr_m" ] || continue
       _mr_n=${_mr_m##*/}
-      case $_mr_n in bridge-* | degraded-* | canary-*) continue ;; esac
+      case $_mr_n in
+        bridge-* | degraded-* | canary-*) continue ;;
+        t1-unknown-*) [ -f "$AO_MR_DIR/claude/.watcher/t1/${_mr_n#t1-unknown-}" ] || rm -f "$_mr_m"; continue ;;
+      esac
       [ -f "$AO_MR_DIR/claude/$_mr_n" ] || [ -f "$AO_MR_DIR/codex/$_mr_n" ] ||
         [ -f "$AO_MR_DIR/claude/.watcher/handing/$_mr_n" ] || rm -f "$_mr_m"
     done

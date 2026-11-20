@@ -37,8 +37,9 @@
 # archive  Steps: handoff (a warm HANDOFF.md committed since the archive
 #          opened, or `mark KEY handoff --cold REASON`), worktrees (every
 #          worktree under <work_root>/.worktrees/KEY/ becomes a verified
-#          local git bundle in <archive_dir>/KEY/, then the worktree and
-#          its KEY/* branches are removed; uncommitted work stops it),
+#          local git bundle in <archive_dir>/KEY/ holding its KEY/*
+#          branches and its HEAD; only then are the worktree and those
+#          branches removed; uncommitted work stops it),
 #          jobs (no JOBS.tsv row names KEY), sidebar (mark: unpinned, in
 #          "Inactive Operators" on Claude, archived on Codex), registry
 #          (last: the row is commented out as #archived and operator.conf
@@ -247,8 +248,22 @@ op_bundle() {
   fi
   _main=$(git -C "$_wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || _main=
   _main=${_main%/.git}
+  [ -n "$_main" ] || { ao_step TODO worktrees "$_wt: its main checkout was not found; archive it by hand"; return 1; }
+  _head=$(git -C "$_wt" rev-parse --verify -q HEAD 2>/dev/null) || _head=''
   _refs=$(git -C "$_wt" for-each-ref --format='%(refname)' "refs/heads/$_key/" 2>/dev/null)
-  [ -n "$_main" ] && [ -n "$_refs" ] || { ao_step TODO worktrees "$_wt: no $_key/* branch or main checkout found; archive it by hand"; return 1; }
+  # The worktree's HEAD must be in the bundle too (a detached or other
+  # branch commit would otherwise be lost): when no KEY/* branch contains
+  # it, it gets one of its own, bundled and removed with the rest.
+  if [ -n "$_head" ]; then
+    _in=''
+    for _r in $_refs; do git -C "$_wt" merge-base --is-ancestor "$_head" "$_r" 2>/dev/null && { _in=1; break; }; done
+    if [ -z "$_in" ]; then
+      git -C "$_wt" branch "$_key/archived-head-$AO_T_STAMP" "$_head" >/dev/null 2>&1 ||
+        { ao_step TODO worktrees "$_wt: cannot name its HEAD for the bundle; nothing removed"; return 1; }
+      _refs="$_refs refs/heads/$_key/archived-head-$AO_T_STAMP"
+    fi
+  fi
+  [ -n "$_refs" ] || { ao_step TODO worktrees "$_wt: nothing to bundle (no commit); archive it by hand"; return 1; }
   _ad=$(op_archive_dir)/$_key
   _b=$_ad/$_repo-$AO_T_STAMP.bundle
   mkdir -p "$_ad" || { ao_step TODO worktrees "cannot create $_ad"; return 1; }
@@ -261,6 +276,15 @@ op_bundle() {
   for _r in $_refs; do
     git bundle list-heads "$_b" 2>/dev/null | grep -q " $_r\$" || { ao_step TODO worktrees "$_b lacks $_r; nothing removed"; return 1; }
   done
+  if [ -n "$_head" ]; then
+    # Prove HEAD is reachable from what the bundle carries before removing.
+    _hok=''
+    for _r in $_refs; do
+      _t=$(git bundle list-heads "$_b" 2>/dev/null | awk -v r="$_r" '$2 == r { print $1; exit }')
+      [ -n "$_t" ] && git -C "$_main" merge-base --is-ancestor "$_head" "$_t" 2>/dev/null && { _hok=1; break; }
+    done
+    [ -n "$_hok" ] || { ao_step TODO worktrees "$_b does not contain $_wt's HEAD; nothing removed"; return 1; }
+  fi
   git -C "$_main" worktree remove "$_wt" >/dev/null 2>&1 || { ao_step TODO worktrees "$_wt: git worktree remove failed (bundle kept: $_b)"; return 1; }
   for _r in $_refs; do git -C "$_main" branch -D "${_r#refs/heads/}" >/dev/null 2>&1 || true; done
   ao_st_set "$_st" "bundle_$(ao_slug "$_repo")" "$_b"
@@ -511,6 +535,8 @@ op_verify_recover() {
     return
   fi
   if [ ! -f "$AO_STATE/switch/$_key" ]; then
+    # lane.sh takes the same registry lock in its own process.
+    ao_unlock
     if ! sh "$AO_SCRIPTS/lane.sh" switch "$_key" --to codex --session "$_new" </dev/null >"$_tmpo" 2>&1 ||
       ! sh "$AO_SCRIPTS/lane.sh" mark "$_key" handoff --cold "thread $_old unresponsive; replaced by operator.sh recover" </dev/null >>"$_tmpo" 2>&1; then
       ao_step TODO switch "lane.sh switch failed: $(tail -n 1 "$_tmpo")"
@@ -528,7 +554,7 @@ op_verify() {
   op_row "$_key" || ao_die "$AO_E_USAGE" "no registry row for '$_key'"
   _st=$(op_state "$_key")
   [ -f "$_st" ] || ao_die "$AO_E_USAGE" "no open routine for $_key"
-  ao_lock "routine-$_key" || ao_die "$AO_E_BUSY" "another operator.sh is working on $_key"
+  ao_lock registry || ao_die "$AO_E_BUSY" "the registry is being changed by another command; try again"
   _kind=$(ao_st_get "$_st" kind)
   _tmpo=$(ao_tmp out)
   AO_STEPS_LEFT=0

@@ -42,8 +42,9 @@ running" and exits 3.
 
 --fingerprint prints `cli=<version> proto=<peer protocol>` of the newest
 live session record (or cli=unknown). --receipt exits 0 when TRANSCRIPT
-holds the session's own receipt of RING (used by the supervisor for claims
-a dead watcher left).
+holds the session's own receipt of RING, 1 when it is readable without one,
+and 3 when it cannot be read (used by the supervisor for claims a dead
+watcher left, or held after a send whose outcome is unknown).
 
 Exit codes: 0 rings printed; 2 usage error, DIR missing, or no kqueue on
 this platform (the supervisor's timed tiers still deliver); 3 another
@@ -196,6 +197,7 @@ class Watcher:
         except OSError:
             return False
         sidecar = claim + ".tx"
+        sent = False  # True once any byte of the message may have reached the session
         try:
             body = safe_read(claim)
             if not body:
@@ -211,16 +213,22 @@ class Watcher:
                 h.write(tx + "\n")
             os.replace(sidecar + ".tmp", sidecar)
             self.sent_at[target].append(time.time())
-            send(rec, text)
+            try:
+                send(rec, text)
+            except Miss as e:
+                sent = str(e) not in ("key", "connect")  # those fail before any byte is written
+                raise
+            sent = True
             if not confirm(tx, start, marker, time.monotonic() + CONFIRM_S):
+                # The transcript was read to the deadline with no receipt:
+                # absence is confirmed, so the next tier may send it.
+                sent = False
                 raise Miss("no-receipt")
-        except Miss:
-            put_back(claim, src)
-            rm(sidecar)
+        except Miss as e:
+            self.miss_after_send(name, claim, src, sidecar, sent, str(e))
             raise
-        except Exception as e:  # never die on one ring: the next tier takes it
-            put_back(claim, src)
-            rm(sidecar)
+        except Exception as e:  # never die on one ring
+            self.miss_after_send(name, claim, src, sidecar, sent, "error-" + type(e).__name__)
             raise Miss("error-" + type(e).__name__) from None
         try:
             os.rename(claim, os.path.join(self.delivered, name))
@@ -231,6 +239,17 @@ class Watcher:
         self.row(name, "t1-socket", mode, "ok", pub)
         self.log("%s: t1-socket delivered to pid %s" % (name, rec.get("pid")))
         return True
+
+    def miss_after_send(self, name, claim, src, sidecar, sent, step):
+        """A miss before any byte was sent, or with absence confirmed, puts
+        the ring back for the next tier. A miss after a possible send keeps
+        the claim and its transcript sidecar, so the ring is never resent
+        until the target's transcript is read and shows no receipt (K-28)."""
+        if not sent:
+            put_back(claim, src)
+            rm(sidecar)
+            return
+        self.log("%s: outcome unknown after a send (%s); held for a receipt check, not resent" % (name, step))
 
     def settle_claims(self):
         """Claims a killed watcher left: filed if the receipt is there,
@@ -243,7 +262,13 @@ class Watcher:
                 tx = open(c + ".tx").readline().strip()
             except OSError:
                 tx = ""
-            if tx and has_receipt(tx, "Doorbell [%s]" % f):
+            got = has_receipt(tx, "Doorbell [%s]" % f) if tx else False
+            if got is None:
+                # The transcript cannot be read: no evidence either way, so the
+                # claim stays for the supervisor (it alarms; never resent).
+                self.log("%s: transcript unreadable; claim kept, not resent" % f)
+                continue
+            if got:
                 pub = int(os.lstat(c).st_mtime * 1000)
                 os.rename(c, os.path.join(self.delivered, f))
                 self.row(f, "t1-socket", "canary" if CANARY_RE.match(f) else "send", "ok", pub)
@@ -363,11 +388,12 @@ def receipt(line, marker):
 
 
 def has_receipt(path, marker):
+    """True or False from the transcript; None when it cannot be read."""
     try:
         with open(path, "rb") as h:
             return any(receipt(line, marker) for line in h)
     except OSError:
-        return False
+        return None
 
 
 def confirm(path, start, marker, deadline):
@@ -446,7 +472,8 @@ def main(argv):
         print(fingerprint())
         return 0
     if len(argv) == 4 and argv[1] == "--receipt":
-        return 0 if has_receipt(argv[2], "Doorbell [%s]" % argv[3]) else 1
+        got = has_receipt(argv[2], "Doorbell [%s]" % argv[3])
+        return 3 if got is None else (0 if got else 1)
     t1 = len(argv) == 5 and argv[1] == "--t1"
     if not t1 and (len(argv) != 2 or argv[1].startswith("-")):
         print(__doc__.strip(), file=sys.stderr)

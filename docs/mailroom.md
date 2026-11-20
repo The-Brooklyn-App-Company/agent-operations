@@ -52,9 +52,14 @@ record. Codex: the ring's `Doorbell [<ring>]` text in the thread's rollout
 means it arrived (a `resolve` row, `late-receipt`); a readable rollout
 without it confirms absence, and the ring goes out once more by tier 3 (a
 `resolve` row, `unknown-absent`); no readable record, or an escalation that
-is itself unconfirmed, alarms once and stops. Claude: a tier-1 claim with no
-receipt in the target's transcript goes back to the next tier; one with a
-receipt is filed. Rings are never deleted undelivered, so "eventually
+is itself unconfirmed, alarms once and stops. Before that one escalation
+the supervisor re-checks who owns the operator now: a moved owner (a switch,
+a replaced thread) gets a new ring, never the retired thread. Claude: a
+tier-1 send whose outcome is unknown keeps its claim; the target's
+transcript decides later (a receipt files it, a readable transcript without
+one returns it to the next tier, an unreadable one alarms once and keeps
+it). An alarm counts as received only when the ring that lists its note is
+delivered (`ok`, not a bare CLI acceptance). Rings are never deleted undelivered, so "eventually
 delivered" holds as long as tier 4 reaches someone.
 
 **Tier 1 on Claude is opt-in and undocumented.** It reads the target

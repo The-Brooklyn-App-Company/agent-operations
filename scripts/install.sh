@@ -366,7 +366,7 @@ inst_operator() {
   # the lock.
   if [ -z "$dry_run" ]; then
     mkdir -p "$AO_STATE" || ao_die "$AO_E_FAIL" "cannot create $AO_STATE"
-    ao_lock install || ao_die "$AO_E_USAGE" "another install.sh is running; try again"
+    ao_lock registry || ao_die "$AO_E_USAGE" "the registry is being changed by another command; try again"
   fi
   [ "$v_key" != "$AO_ORACLE_KEY" ] || ao_die "$AO_E_USAGE" "'$v_key' is the Oracle's key"
   case $v_key in mailroom-claude | mailroom-codex) ao_die "$AO_E_USAGE" "'$v_key' is reserved for a mailroom bridge (install.sh bridge)" ;; esac
@@ -532,7 +532,7 @@ inst_sync() {
   . "$AO_SCRIPTS/lib/registry.sh"
   if [ -z "$dry_run" ]; then
     mkdir -p "$AO_STATE" || ao_die "$AO_E_FAIL" "cannot create $AO_STATE"
-    ao_lock install || ao_die "$AO_E_USAGE" "another install.sh is running; try again"
+    ao_lock registry || ao_die "$AO_E_USAGE" "the registry is being changed by another command; try again"
   fi
   inst_kit_facts
   oracle_top=$(git -C "$AO_HOME" rev-parse --show-toplevel 2>/dev/null) && oracle_top=$(CDPATH='' cd -- "$oracle_top" && pwd -P) || oracle_top=
@@ -652,7 +652,7 @@ inst_bridge() {
   ao_load --no-state
   [ -r "$AO_REGISTRY" ] || ao_die "$AO_E_USAGE" "registry not found: $AO_REGISTRY (run install.sh oracle first)"
   if [ -z "$dry_run" ]; then
-    ao_lock install || ao_die "$AO_E_USAGE" "another install.sh is running; try again"
+    ao_lock registry || ao_die "$AO_E_USAGE" "the registry is being changed by another command; try again"
   fi
   [ -n "$home" ] || home=$(dirname -- "$AO_HOME")/$v_key
   inst_outside_kit "$home" bridge
@@ -730,6 +730,7 @@ host_unit() {
   _dom=gui/$(id -u)
   if [ -f "$_f" ] && cmp -s "$_want" "$_f"; then
     if launchctl print "$_dom/$label" >/dev/null 2>&1; then host_row "unit $1" "ok (loaded)"
+    elif [ -n "$_apply" ] && [ -n "$dry_run" ]; then host_row "unit $1" "not loaded" "would load: launchctl bootstrap $_dom $_f"
     elif [ -n "$_apply" ] && launchctl bootstrap "$_dom" "$_f" >/dev/null 2>&1; then host_row "unit $1" "loaded"
     elif [ -n "$_apply" ]; then host_row "unit $1" "FAILED to load" "launchctl bootstrap $_dom $_f"; failures=$((failures + 1))
     else host_row "unit $1" "not loaded" "install.sh host --apply"; fi

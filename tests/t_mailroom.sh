@@ -443,6 +443,8 @@ test_codex_watcher_refuses_bad_preflight_a_second_copy_and_a_closed_pipe() {
     run mailroom.sh supervise
     assert_has "$T/state/mailroom.tsv" "${TAB}unknown${TAB}codex${TAB}thread-s--s-1--steer.md"
   fi
+  # Either way it is marked for reconciliation against the target's rollout.
+  assert_file "$MR/codex/.watcher/unknown/thread-s--s-1--steer.md"
   assert_has "$MR/codex/delivered/log.tsv" "thread-s--s-1--steer.md${TAB}t1-native"
   assert_has "$MR/codex/delivered/log.tsv" "${TAB}unknown"
 }
@@ -491,29 +493,41 @@ test_unknown_codex_sends_reconcile_against_the_targets_record() {
   mr_setup
   rollout thread-gamma
   # Arrived after all: its text is in the rollout. No resend.
-  unknown_ring thread-gamma--gamma-1--steer.md
-  printf '{"type":"response_item","text":"Doorbell [thread-gamma--gamma-1--steer.md]: x"}\n' >>"$ROLLOUT"
+  unknown_ring thread-gamma--gamma-20261119T000001-aaaaa1--steer.md
+  printf '{"type":"response_item","text":"Doorbell [thread-gamma--gamma-20261119T000001-aaaaa1--steer.md]: x"}\n' >>"$ROLLOUT"
   # Absent from a readable rollout: escalated once by the CLI queue.
-  unknown_ring thread-gamma--gamma-2--steer.md
+  unknown_ring thread-gamma--gamma-20261119T000002-aaaaa2--steer.md
   later 400
   run mailroom.sh supervise
-  assert_has "$MR/codex/delivered/log.tsv" "thread-gamma--gamma-1--steer.md${TAB}t1-native${TAB}resolve${TAB}ok${TAB}-${TAB}late-receipt"
-  assert_has "$MR/codex/delivered/log.tsv" "thread-gamma--gamma-2--steer.md${TAB}t3-cli-queue${TAB}resolve${TAB}accepted${TAB}-${TAB}unknown-absent"
+  assert_has "$MR/codex/delivered/log.tsv" "thread-gamma--gamma-20261119T000001-aaaaa1--steer.md${TAB}t1-native${TAB}resolve${TAB}ok${TAB}-${TAB}late-receipt"
+  assert_has "$MR/codex/delivered/log.tsv" "thread-gamma--gamma-20261119T000002-aaaaa2--steer.md${TAB}t3-cli-queue${TAB}resolve${TAB}accepted${TAB}-${TAB}unknown-absent"
   assert_eq "$(grep -c 'arg: queue' "$FAKE_LOG")" 1 "one escalation"
-  assert_has "$FAKE_LOG" "Doorbell [thread-gamma--gamma-2--steer.md] (mailroom fallback after an unconfirmed send, queued)"
+  assert_has "$FAKE_LOG" "Doorbell [thread-gamma--gamma-20261119T000002-aaaaa2--steer.md] (mailroom fallback after an unconfirmed send, queued)"
   assert_count "$MR/codex/.watcher/unknown" 0
   run mailroom.sh supervise
   assert_eq "$(grep -c 'arg: queue' "$FAKE_LOG")" 1 "never twice"
   # An escalation that is itself unconfirmed alarms and stops there.
-  unknown_ring thread-gamma--gamma-3--steer.md
+  unknown_ring thread-gamma--gamma-20261119T000003-aaaaa3--steer.md
   FAKE_MODE=queue-ambiguous run mailroom.sh supervise
-  assert_has "$MR/codex/delivered/log.tsv" "thread-gamma--gamma-3--steer.md${TAB}t3-cli-queue${TAB}resolve${TAB}unknown"
+  assert_has "$MR/codex/delivered/log.tsv" "thread-gamma--gamma-20261119T000003-aaaaa3--steer.md${TAB}t3-cli-queue${TAB}resolve${TAB}unknown"
   assert_eq "$(notes_named mailroom-unknown-codex)" 1 "one alarm"
   FAKE_MODE=queue-ambiguous run mailroom.sh supervise
   assert_eq "$(grep -c 'arg: queue' "$FAKE_LOG")" 2 "no third queue"
+  # A switched operator: absence on the old thread re-rings the new owner,
+  # never the retired thread.
+  unknown_ring thread-gamma--gamma-20261119T000004-aaaaa4--steer.md
+  sed "s/thread-gamma${TAB}codex/thread-new${TAB}codex/" "$T/home/operators/REGISTRY.tsv" >"$T/r" && mv "$T/r" "$T/home/operators/REGISTRY.tsv"
+  later 800
+  run mailroom.sh supervise
+  assert_has "$MR/codex/delivered/log.tsv" "thread-gamma--gamma-20261119T000004-aaaaa4--steer.md${TAB}none${TAB}resolve${TAB}ok${TAB}-${TAB}rerouted-absent"
+  # (The fake clock makes the new ring old at once, so tier 3 sends it to
+  # the new thread in the same pass.)
+  assert_has "$MR/codex/delivered/log.tsv" "thread-new--gamma-"
+  assert_lacks "$FAKE_LOG" "Doorbell [thread-gamma--gamma-20261119T000004-aaaaa4--steer.md] (mailroom fallback after an unconfirmed send"
+  assert_has "$FAKE_LOG" "arg: thread-new"
   # Metrics count resolutions apart from deliveries.
   run mailroom.sh metrics 24
-  assert_has "$T/out" "outcome unknown 3 (arrived late 1, escalated once absent 2)"
+  assert_has "$T/out" "outcome unknown 4 (arrived late 1, escalated once absent 2)"
 }
 
 test_arm_codex_needs_the_app_paths_and_reports_an_armed_watcher() {
@@ -795,6 +809,16 @@ test_a_tier1_claim_a_dead_watcher_left_is_filed_on_a_receipt_else_returned() {
   assert_file "$MR/claude/local_w1--warm-2.md"
   assert_no_file "$MR/claude/.watcher/t1/local_w1--warm-2.md.tx"
   assert_has "$T/state/mailroom.tsv" "${TAB}t1-returned${TAB}claude"
+  # A transcript that cannot be read is no evidence of absence: kept, one
+  # alarm, never back in the queue.
+  printf 'z\n' >"$MR/claude/.watcher/t1/local_w1--warm-3.md"
+  printf '%s\n' "$T/gone.jsonl" >"$MR/claude/.watcher/t1/local_w1--warm-3.md.tx"
+  run mailroom.sh supervise
+  assert_file "$MR/claude/.watcher/t1/local_w1--warm-3.md"
+  assert_no_file "$MR/claude/local_w1--warm-3.md"
+  assert_eq "$(notes_named mailroom-unknown-claude)" 1 "one alarm"
+  run mailroom.sh supervise
+  assert_eq "$(notes_named mailroom-unknown-claude)" 1 "still one alarm"
 }
 
 # ---------------------------------------------------------------- degradation reporting
@@ -880,15 +904,24 @@ test_tier4_pushes_the_owner_once_when_the_oracle_does_not_receive_an_alarm() {
   printf '#!/bin/sh\nprintf "push: %%s\\n" "$1" >>"%s/push.log"\n' "$T" >"$T/home/hooks/push"
   chmod +x "$T/home/hooks/push"
   later 0
-  printf '%s\n' "$((AO_NOW - 1000))" >"$T/state/mailroom/alarm-pending/mailroom-bridge-down-claude"
+  printf '%s 20261119T000000-mailroom-bridge-down-claude.md\n' "$((AO_NOW - 1000))" >"$T/state/mailroom/alarm-pending/mailroom-bridge-down-claude"
   run mailroom.sh supervise
   assert_has "$T/push.log" "the Oracle has not received an alarm for 15+ minutes"
   later 60
   run mailroom.sh supervise
   assert_eq "$(grep -c push: "$T/push.log")" 1 "once per outage"
-  # A ring to the Oracle is delivered: the alarm reached it, the outage closes.
+  # An unrelated ring to the Oracle, or one only accepted, settles nothing.
   mkdir -p "$MR/claude/delivered"
-  printf 'x\t%s\tsid-oracle--oracle-20261119T000000-abcdef.md\tt2-bridge\tsend\tok\t1\t-\n' "$AO_NOW" >>"$MR/claude/delivered/log.tsv"
+  printf -- '- 20261119T000001-oracle-20261119T000001-other-note.md\nrelay-id: oracle-1\n' >"$MR/claude/delivered/sid-oracle--oracle-20261119T000001-aaaaaa.md"
+  printf 'x\t%s\tsid-oracle--oracle-20261119T000001-aaaaaa.md\tt2-bridge\tsend\tok\t1\t-\n' "$AO_NOW" >>"$MR/claude/delivered/log.tsv"
+  printf -- '- 20261119T000002-oracle-20261119T000000-mailroom-bridge-down-claude.md\n' >"$MR/claude/delivered/sid-oracle--oracle-20261119T000002-bbbbbb.md"
+  printf 'x\t%s\tsid-oracle--oracle-20261119T000002-bbbbbb.md\tt3-cli-queue\tqueue\taccepted\t1\t-\n' "$AO_NOW" >>"$MR/claude/delivered/log.tsv"
+  later 90
+  run mailroom.sh supervise
+  assert_file "$T/state/mailroom/alarm-pending/mailroom-bridge-down-claude"
+  # The ring that lists the alarm note is delivered: the outage closes.
+  printf -- '- 20261119T000003-oracle-20261119T000000-mailroom-bridge-down-claude.md\nrelay-id: oracle-3\n' >"$MR/claude/delivered/sid-oracle--oracle-20261119T000003-abcdef.md"
+  printf 'x\t%s\tsid-oracle--oracle-20261119T000003-abcdef.md\tt2-bridge\tsend\tok\t1\t-\n' "$AO_NOW" >>"$MR/claude/delivered/log.tsv"
   later 120
   run mailroom.sh supervise
   assert_no_file "$T/state/mailroom/alarm-pending/mailroom-bridge-down-claude"

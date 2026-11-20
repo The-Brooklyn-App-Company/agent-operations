@@ -110,6 +110,23 @@ test_archive_bundles_worktrees_and_retires_the_row_last() {
   assert_lacks "$T/out" "alpha"
 }
 
+test_archive_keeps_a_detached_head_in_the_bundle() {
+  profile_set work_root "$T/src"
+  mkdir -p "$T/src/app" && git -C "$T/src/app" init -q && git -C "$T/src/app" config user.email t@example.com &&
+    git -C "$T/src/app" config user.name T && git -C "$T/src/app" commit -q --allow-empty -m init
+  wt=$T/src/.worktrees/alpha/app
+  git -C "$T/src/app" worktree add -q -b alpha/main "$wt" && git -C "$wt" checkout -q --detach &&
+    git -C "$wt" commit -q --allow-empty -m "unique detached work"
+  head=$(git -C "$wt" rev-parse HEAD)
+  run operator.sh --yes archive alpha
+  run operator.sh mark alpha handoff --cold "gone"
+  run operator.sh verify alpha
+  assert_no_file "$wt"
+  b=$(ls "$T/archive/alpha"/app-*.bundle)
+  git bundle list-heads "$b" | grep -q "^$head refs/heads/alpha/archived-head-" || _fail "the detached HEAD is not in the bundle"
+  git -C "$T/src/app" branch --list 'alpha/*' | grep -q . && _fail "archive branches left behind"
+}
+
 # ------------------------------------------------------------ thread recovery
 
 rollout() {
