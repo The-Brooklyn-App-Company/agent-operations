@@ -246,6 +246,13 @@ op_bundle() {
     ao_step TODO worktrees "$_wt has uncommitted work: commit it on its branch or move it, then verify again (K-29)"
     return 1
   fi
+  # Ignored files are not in any bundle and `git worktree remove` deletes
+  # them: the human decides what is churn (K-29).
+  _ign=$(git -C "$_wt" status --porcelain --ignored 2>/dev/null | grep -c '^!!')
+  if [ "${_ign:-0}" -gt 0 ]; then
+    ao_step TODO worktrees "$_wt has $_ign ignored path(s) a bundle cannot keep (git -C $_wt status --ignored): move anything unique out and delete the rest yourself, then verify again (K-29)"
+    return 1
+  fi
   _main=$(git -C "$_wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || _main=
   _main=${_main%/.git}
   [ -n "$_main" ] || { ao_step TODO worktrees "$_wt: its main checkout was not found; archive it by hand"; return 1; }
@@ -398,9 +405,10 @@ op_session() {
   fi
   if ! ao_is_name "$_key" || ! ao_registry_has "$_key"; then ao_die "$AO_E_USAGE" "no registry row for '$_key'"; fi
   if ! ao_mr_addressable "$_id" || ! op_sid_set "$_id"; then ao_die "$AO_E_USAGE" "invalid session id '$_id'"; fi
+  ao_lock registry || ao_die "$AO_E_BUSY" "the registry is being written; try again"
+  # Checked under the lock, so two assignments cannot both pass.
   _other=$(awk -F'\t' -v k="$_key" -v s="$_id" '$1 !~ /^#/ && $1 != k && $4 == s { print $1; exit }' "$AO_REGISTRY")
   [ -z "$_other" ] || refuse "$_id already leads '$_other': one session per row"
-  ao_lock registry || ao_die "$AO_E_BUSY" "the registry is being written; try again"
   ao_registry_session "$_key" "$_id" "$_c" || ao_die "$AO_E_FAIL" "cannot write $AO_REGISTRY"
   ao_git_commit "$AO_HOME" "Session id for $_key" "$AO_REGISTRY" || ao_warn "could not commit $AO_REGISTRY"
   echo "recorded: $_key -> $_id${_c:+ ($_c)}"

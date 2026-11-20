@@ -52,9 +52,13 @@ record. Codex: the ring's `Doorbell [<ring>]` text in the thread's rollout
 means it arrived (a `resolve` row, `late-receipt`); a readable rollout
 without it confirms absence, and the ring goes out once more by tier 3 (a
 `resolve` row, `unknown-absent`); no readable record, or an escalation that
-is itself unconfirmed, alarms once and stops. Before that one escalation
-the supervisor re-checks who owns the operator now: a moved owner (a switch,
-a replaced thread) gets a new ring, never the retired thread. Claude: a
+is itself unconfirmed, alarms once and stops. Only grep's own "read to the end, absent" counts as absence; a rollout that
+cannot be read alarms. The escalation is claimed before the CLI runs, so
+one cut off midway is settled `unknown`, never sent twice. Before it the
+supervisor re-checks who owns the operator now: a moved owner (a switch, a
+replaced thread) gets a new ring, never the retired thread; a queue ring
+the watcher holds for a turn to end is taken back and re-rung the same way
+(within a supervisor pass, about a minute). Claude: a
 tier-1 send whose outcome is unknown keeps its claim; the target's
 transcript decides later (a receipt files it, a readable transcript without
 one returns it to the next tier, an unreadable one alarms once and keeps

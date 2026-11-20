@@ -128,9 +128,9 @@ lane_switch() {
   ao_is_name "$_sid" && [ "$_sid" != pending ] && [ "$_sid" != - ] || ao_die "$AO_E_USAGE" "--session needs the incoming session or thread id"
   case $_name in *"$AO_TAB"* | *"$AO_NL"*) ao_die "$AO_E_USAGE" "--name must be one line without tabs" ;; esac
   [ "$_to" != "$R_CLIENT" ] || [ "$_sid" != "$R_SID" ] || refuse "$_key already runs on $_to in session $_sid"
+  ao_lock registry || ao_die "$AO_E_BUSY" "the registry is being changed by another command; try again"
   _other=$(awk -F'\t' -v k="$_key" -v s="$_sid" '$1 !~ /^#/ && $1 != k && $4 == s { print $1; exit }' "$AO_REGISTRY")
   [ -z "$_other" ] || refuse "session $_sid already leads '$_other': one session per operator"
-  ao_lock registry || ao_die "$AO_E_BUSY" "the registry is being changed by another command; try again"
   _st=$(lane_state "$_key")
   [ ! -f "$_st" ] || refuse "a switch of $_key is open since $(ao_utc "$(st_get "$_st" started)"); finish it with lane.sh verify $_key, or remove $_st"
   _tok=$(od -An -tx1 -N6 /dev/urandom | tr -d ' \n')
@@ -183,6 +183,15 @@ lane_verify() {
   elif [ "$_left" -eq 0 ] && _dup=$(awk -F'\t' -v k="$_key" -v s="$_ts" '$1 !~ /^#/ && $1 != k && $4 == s { print $1; exit }' "$AO_REGISTRY") && [ -n "$_dup" ]; then
     lane_say TODO routing "session $_ts now leads '$_dup': one session per operator; fix the registry or switch to another session"
   elif [ "$_left" -eq 0 ]; then
+    # A move to the other family with no audit record yet (cross-review has
+    # not seen this operator): record the change itself, so the switch-in
+    # audit is pending at once instead of the new client becoming the
+    # baseline (K-22).
+    ao_audit_read "$_key"
+    if [ $? -eq 1 ] && lane_family "$_fc" && lane_family "$_tc" && [ "$_fc" != "$_tc" ]; then
+      A_provider=$_tc A_from=$_fc A_to=$_tc A_change=1 A_since=$(ao_utc "$AO_T_EPOCH")
+      _ao_audit_put "$(ao_audit_file "$_key")" || ao_die "$AO_E_FAIL" "cannot record the switch-in audit for $_key"
+    fi
     lane_registry_set "$_key" "$_tc" "$_ts" "$_nm" || ao_die "$AO_E_FAIL" "cannot update $AO_REGISTRY"
     lane_row "$_key"
     lane_say PASS routing "registry updated: $_tc $_ts"

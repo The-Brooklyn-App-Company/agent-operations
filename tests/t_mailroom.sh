@@ -525,9 +525,43 @@ test_unknown_codex_sends_reconcile_against_the_targets_record() {
   assert_has "$MR/codex/delivered/log.tsv" "thread-new--gamma-"
   assert_lacks "$FAKE_LOG" "Doorbell [thread-gamma--gamma-20261119T000004-aaaaa4--steer.md] (mailroom fallback after an unconfirmed send"
   assert_has "$FAKE_LOG" "arg: thread-new"
+  # An unreadable rollout is no evidence of absence: one alarm, no queue.
+  rollout thread-locked
+  chmod 000 "$ROLLOUT"
+  unknown_ring thread-locked--gamma-20261119T000005-aaaaa5--steer.md
+  n=$(grep -c 'arg: queue' "$FAKE_LOG")
+  run mailroom.sh supervise
+  chmod 600 "$ROLLOUT"
+  assert_eq "$(grep -c 'arg: queue' "$FAKE_LOG")" "$n" "nothing sent on an unreadable record"
+  assert_has "$T/state/mailroom.tsv" "thread-locked--gamma-20261119T000005-aaaaa5--steer.md${TAB}outcome unknown and the target's record is unreadable"
+  # An escalation cut off mid-call is settled unknown, never sent again.
+  mkdir -p "$MR/codex/.watcher/escalating"
+  printf 'x\n' >"$MR/codex/.watcher/escalating/thread-gamma--gamma-20261119T000006-aaaaa6--steer.md"
+  run mailroom.sh supervise
+  assert_has "$MR/codex/delivered/log.tsv" "thread-gamma--gamma-20261119T000006-aaaaa6--steer.md${TAB}t3-cli-queue${TAB}resolve${TAB}unknown${TAB}-${TAB}escalation-interrupted"
+  assert_eq "$(grep -c 'arg: queue' "$FAKE_LOG")" "$n" "no second escalation"
+  assert_count "$MR/codex/.watcher/escalating" 0
   # Metrics count resolutions apart from deliveries.
   run mailroom.sh metrics 24
-  assert_has "$T/out" "outcome unknown 4 (arrived late 1, escalated once absent 2)"
+  assert_has "$T/out" "outcome unknown 5 (arrived late 1, escalated once absent 3)"
+}
+
+test_a_held_queue_ring_follows_a_switched_operator() {
+  mr_setup
+  mkdir -p "$MR/codex/.watcher/holding"
+  live_pid
+  printf '2026-11-19T00:00:00Z %s\n' "$LIVE" >"$MR/codex/.watcher/heartbeat"
+  r=thread-gamma--gamma-20261119T000001-aaaaa1--queue.md
+  printf 'relay-id: r1\n' >"$MR/codex/$r"
+  date +%s >"$MR/codex/.watcher/holding/$r"
+  run mailroom.sh supervise
+  assert_file "$MR/codex/$r"
+  sed "s/thread-gamma${TAB}codex/thread-new${TAB}codex/" "$T/home/operators/REGISTRY.tsv" >"$T/r" && mv "$T/r" "$T/home/operators/REGISTRY.tsv"
+  run mailroom.sh supervise
+  stop_live
+  assert_no_file "$MR/codex/$r"
+  assert_has "$MR/codex/delivered/log.tsv" "$r${TAB}none${TAB}rerouted${TAB}ok"
+  ls "$MR/codex"/thread-new--gamma-*--queue.md >/dev/null 2>&1 || _fail "no ring for the new owner"
 }
 
 test_arm_codex_needs_the_app_paths_and_reports_an_armed_watcher() {

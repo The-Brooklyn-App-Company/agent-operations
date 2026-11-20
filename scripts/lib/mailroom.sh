@@ -483,7 +483,14 @@ _ao_mr_rings() {
         printf 'ring waiting %ss: %s/%s\n' "$_mr_age" "$_mr_side" "$_mr_b"
         continue
       fi
-      if [ "$_mr_side" = codex ] && ao_mr_held "$_mr_b"; then continue; fi
+      if [ "$_mr_side" = codex ] && ao_mr_held "$_mr_b"; then
+        # Held by the watcher for its target's turn to end: if the operator
+        # has moved since (a switch, a replaced thread), take the ring from
+        # the hold and re-ring the current owner (the watcher then finds it
+        # gone and sends nothing).
+        _ao_mr_route
+        continue
+      fi
       _ao_mr_route
       case $? in 1) ;; 2) continue ;; *)
         if [ "$_mr_side" = claude ]; then
@@ -521,13 +528,33 @@ _ao_mr_rings() {
 # A queue refused before the CLI ran is retried (relay_max_attempts).
 _ao_mr_unknowns() {
   _mr_uf=0
+  # An escalation in flight is claimed into escalating/ before the CLI
+  # runs; one still there was cut off (the supervisor runs under its lock):
+  # its outcome is unknown, so it is settled as unknown, never sent again.
+  _mr_ed=$AO_MR_DIR/codex/.watcher/escalating
+  for _mr_e in "$_mr_ed"/*.md; do
+    [ -f "$_mr_e" ] || continue
+    _mr_b=${_mr_e##*/}
+    ao_mr_row codex "$_mr_b" t3-cli-queue resolve unknown - escalation-interrupted
+    ao_mr_event unknown codex "$_mr_b" "escalation interrupted; not sent again"
+    _ao_mr_alarm "mailroom-unknown-codex" "Mailroom: the one escalation of $_mr_b was interrupted; it may or may not have arrived and is not sent again (docs/mailroom.md)." ||
+      ao_warn "could not raise the unknown-delivery alarm"
+    rm -f "$_mr_e"
+  done
   for _mr_u in "$AO_MR_DIR/codex/.watcher/unknown"/*.md; do
     [ -f "$_mr_u" ] || continue
     _mr_b=${_mr_u##*/}
     [ "$(ao_mr_age "$_mr_u")" -ge "$AO_MR_ABSENT" ] || continue
     _mr_sid=${_mr_b%%--*}
     _mr_roll=$(ao_mr_rollout "$_mr_sid")
-    if [ -n "$_mr_roll" ] && grep -qF "Doorbell [$_mr_b]" "$_mr_roll" 2>/dev/null; then
+    _mr_g=2
+    if [ -n "$_mr_roll" ] && [ -r "$_mr_roll" ]; then
+      grep -qF "Doorbell [$_mr_b]" "$_mr_roll" 2>/dev/null
+      _mr_g=$?
+    fi
+    # Only grep's 0 (found) and 1 (read to the end, absent) are evidence.
+    [ "$_mr_g" -le 1 ] || _mr_roll=''
+    if [ "$_mr_g" -eq 0 ]; then
       ao_mr_row codex "$_mr_b" t1-native resolve ok - late-receipt
       ao_mr_event unknown-resolved codex "$_mr_b" "found in the target's rollout: it arrived"
       rm -f "$_mr_u"
@@ -571,18 +598,21 @@ _ao_mr_unknowns() {
       cat "$_mr_d"
     } >"$_mr_msg"
     : >"$_mr_out"
+    if ! mkdir -p "$_mr_ed" || ! mv "$_mr_u" "$_mr_ed/$_mr_b"; then continue; fi
     if ao_bg _ao_mr_deliver codex "$_mr_sid" "$_mr_sid" "$_mr_msg" "$_mr_out" "$_mr_b"; then
       ao_mr_row codex "$_mr_b" t3-cli-queue resolve accepted - unknown-absent
       ao_mr_event escalated codex "$_mr_b" "absent from the target's rollout after ${AO_MR_ABSENT}s: queued once by the CLI"
-      rm -f "$_mr_u"
+      rm -f "$_mr_ed/$_mr_b"
     elif grep -q 'queue acceptance unconfirmed' "$_mr_out" 2>/dev/null; then
       ao_mr_row codex "$_mr_b" t3-cli-queue resolve unknown - unknown-absent
       ao_mr_event unknown codex "$_mr_b" "escalation unconfirmed; not sent again"
       _ao_mr_alarm "mailroom-unknown-codex" "Mailroom: $_mr_b was absent from its target thread after an unconfirmed send, and the one CLI queue that followed was not confirmed either. It is not sent again; the thread may be unresponsive (docs/mailroom.md, thread recovery)." ||
         ao_warn "could not raise the unknown-delivery alarm"
-      rm -f "$_mr_u"
+      rm -f "$_mr_ed/$_mr_b"
       _mr_uf=1
     else
+      # Refused before the CLI ran: back for another attempt.
+      mv "$_mr_ed/$_mr_b" "$_mr_u" 2>/dev/null || ao_warn "cannot return $_mr_b for another escalation"
       ao_mr_event queue-direct-failed codex "$_mr_b" "escalation refused: $(tr '\n' ' ' <"$_mr_out" | cut -c 1-200)"
       _mr_uf=1
     fi

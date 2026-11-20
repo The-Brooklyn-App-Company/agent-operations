@@ -55,7 +55,7 @@ day).
 | --- | --- | --- |
 | First run | `bootstrap.sh` | [First run](hosts-and-ci.md#first-run) |
 | Create an operator | `operator.sh create KEY` | home, models (both clients, decided now with the human), session (created with that model), title, pin, mandate (the human's words), `check.sh home` |
-| Archive an operator | `operator.sh archive KEY` | handoff, worktrees (verified local git bundles in `archive_dir`, then removed), jobs, sidebar, registry (last) |
+| Archive an operator | `operator.sh archive KEY` | handoff, worktrees (verified local git bundles in `archive_dir` with the `KEY/*` branches and the worktree's HEAD, then removed; uncommitted or ignored files stop it for the human), jobs, sidebar, registry (last) |
 | Switch between clients | `lane.sh switch KEY --to CLIENT --session ID` (or `operator.sh switch`) | [below](#switching-an-operator-between-clients) |
 | Change an operator's model | `operator.sh model KEY --client C --model M --words "..."` | record (with the human's words, in the journal), apply (the app's own setting, or a new session and a switch) |
 | Recover a Codex thread | `operator.sh recover KEY` (the supervisor opens it) | [thread recovery](mailroom.md#thread-recovery) |

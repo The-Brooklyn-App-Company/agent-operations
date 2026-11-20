@@ -120,6 +120,14 @@ test_archive_keeps_a_detached_head_in_the_bundle() {
   head=$(git -C "$wt" rev-parse HEAD)
   run operator.sh --yes archive alpha
   run operator.sh mark alpha handoff --cold "gone"
+  # Ignored files are in no bundle: the human decides, nothing is removed.
+  printf 'build/\n' >>"$T/src/app/.git/info/exclude"
+  mkdir -p "$wt/build" && printf 'unique\n' >"$wt/build/out.txt"
+  run operator.sh verify alpha
+  assert_rc 1
+  assert_has "$T/out" "ignored path(s)"
+  assert_file "$wt/build/out.txt"
+  rm -rf "$wt/build"
   run operator.sh verify alpha
   assert_no_file "$wt"
   b=$(ls "$T/archive/alpha"/app-*.bundle)

@@ -42,6 +42,9 @@ test_switch_walks_every_step_and_closes_only_when_all_pass() {
   assert_has "$T/out" "PASS  handoff"
   assert_has "$T/out" "PASS  routing      registry updated: codex thread-new"
   assert_has "$T/home/operators/REGISTRY.tsv" "alpha${TAB}Alpha Op${TAB}$T/proj/alpha${TAB}thread-new${TAB}codex"
+  # The move to the other family is recorded at once: the audit is pending.
+  assert_has "$T/state/audit/alpha" "from=claude"
+  assert_has "$T/state/audit/alpha" "change=1"
   tok=$(st token)
   assert_has "$(ls "$T/home/inbox/alpha"/*lane-switch-in.md)" "lane.sh ack alpha $tok"
   assert_has "$T/out" "TODO  labels"
