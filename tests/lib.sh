@@ -28,6 +28,12 @@ ao_test_setup() {
       exit 2
     fi
   done
+  # Desktop-app probes: lsappinfo answers from $T/apps/<bundle-id> (a pid or
+  # `none`; default pid 4242); open only logs. Tests never see real apps.
+  mkdir -p "$T/apps"
+  printf '#!/bin/sh\nf=%s/apps/$5\nif [ -f "$f" ]; then p=$(cat "$f"); else p=4242; fi\n[ "$p" = none ] || printf "    pid = %%s !x\\n" "$p"\n' "$T" >"$T/bin/lsappinfo"
+  printf '#!/bin/sh\nprintf "== open\\n" >>"%s"; for a in "$@"; do printf "arg: %%s\\n" "$a" >>"%s"; done\n' "$T/fake.log" "$T/fake.log" >"$T/bin/open"
+  chmod +x "$T/bin/lsappinfo" "$T/bin/open"
   PATH="$T/bin:$PATH" HOME=$T/user CLAUDE_CONFIG_DIR=$T/claude CODEX_HOME=$T/codex
   AO_PROFILE=$T/profile FAKE_LOG=$T/fake.log
   export PATH HOME CLAUDE_CONFIG_DIR CODEX_HOME AO_PROFILE FAKE_LOG
@@ -39,6 +45,7 @@ ao_test_setup() {
   cat >"$T/profile" <<EOF
 oracle_home=$T/home
 state_dir=$T/state
+relay_bridge=off
 relay_claude_model=haiku
 relay_claude_max_turns=4
 worker_client=codex
@@ -121,6 +128,8 @@ assert_count() { assert_eq "$(count_files "$1")" "$2" "files in ${1#"$T"/}"; }
 ao_test_main() {
   _pass=0 _nfail=0
   _list=$(sed -n 's/^\(test_[a-z0-9_]*\)().*/\1/p' "$1")
+  # AO_TEST_ONLY=PATTERN runs only the matching tests (for debugging).
+  [ -z "${AO_TEST_ONLY:-}" ] || _list=$(printf '%s\n' "$_list" | grep -- "$AO_TEST_ONLY")
   for _t in $_list; do
     if (
       ao_test_setup

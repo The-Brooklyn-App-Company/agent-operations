@@ -6,6 +6,11 @@
 > exclusion or safe resumption after a crash. Test it with
 > [`TESTING.md`](../TESTING.md) before relying on it.
 
+A planned move of an operator between clients runs as the scripted
+checklist in [conventions](conventions.md#switching-an-operator-between-clients)
+(`lane.sh switch` and `verify`); this page covers the optional lease that
+adds a holder token and a human-confirmed takeover.
+
 An operator may have a session on each client (Claude Code, Codex): one
 **holder** and one **standby**. The holder works; the standby redirects.
 Everything here is plain files in the operator home, changed only by the
@@ -108,8 +113,10 @@ and moves it to `done/`. Delivery is at-least-once; handle by id.
 A doorbell only says "you have mail". `mail.sh ring-all` (from a tick hook,
 see `examples/hooks/every/40-doorbells`) rings each holder while it has
 mail, again only when the pending set or the holder changes, or after
-`doorbell_rering_min` (60). Claude: the relay's confirmed `SendMessage` path
-with fixed text. Both doorbells are **fakes only; live unrun**, including the
+`doorbell_rering_min` (60). With the [mailroom](mailroom.md) on and an
+actual session id, a doorbell is a ring for that app's bridge, with the
+mailroom's fallbacks. Otherwise, Claude: the relay's confirmed `SendMessage`
+path with fixed text. Both doorbells are **fakes only; live unrun**, including the
 Claude doorbell: ordinary relay proof is not doorbell acceptance. Codex:
 `doorbell_codex=queue` opts into the native CLI queue transport; `off` remains
 the default, independently of `relay_codex`. An actual owner session ID is

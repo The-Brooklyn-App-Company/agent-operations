@@ -1,0 +1,10 @@
+#!/bin/sh
+# Daily tick hook: the nightly hygiene check (K-32). Lists stale holds and
+# switches, uncommitted work, budget overruns and standing grants that
+# differ from the permission rules, and notes the Oracle when it finds
+# anything. Copy to <hooks_dir>/daily/ and make it executable; set
+# daily_hour in the profile to the night hour you want. tick.sh provides
+# AO_SCRIPTS and AO_PROFILE.
+set -u
+"$AO_SCRIPTS/hygiene.sh" --note >/dev/null
+exit 0

@@ -20,11 +20,29 @@ and `NOTES.md` (dated working memory) in its home.
 **Recovery.** After a compaction, a restart or whenever unsure, a session
 reads its `AGENTS.md` recovery list: the backlog's open items, the latest
 journal entries, its mandate and notes, and what is scheduled. If a summary
-disagrees with these files, the files win.
+disagrees with these files, the files win. In Claude Code,
+`scripts/recover-context.sh` as a SessionStart hook (`compact|resume`)
+puts a digest in front of the session: rule titles, an order to read the
+full files first, open backlog rows, recent journal headings and next
+checks. Claude Code replaces hook output over about 10 KB with a short
+preview, so the digest is capped at 8 KB and never pastes whole files;
+a test fails above the cap. Register it from
+[the settings template](../templates/home/settings/README.md).
 
 **Claims.** Report the highest stage with evidence
 ([K-10](../kit/KIT.md)): requested, received, working, returned, merged,
-deployed, accepted.
+deployed, accepted, and name the mechanism: "delivered by the bridge
+(MATCHES the agreed mailroom design)" or "delivered by the 3-minute fallback
+(DEVIATES: the bridge was down)". Say a deviation when it happens.
+
+**Daily oversight** ([K-35](../kit/KIT.md)). Once a day the Oracle asks of
+each operator: what moved toward the product outcome since yesterday? A day
+spent on machinery (CI plumbing, review loops, tooling) with no product
+movement gets a redirect the same day. Routine machinery under an approved
+goal never goes to the human ([K-09](../kit/KIT.md)). Then it reads the
+human's own words since the last check (requests, feedback, corrections)
+against the backlog and journal: anything without a row gets one, so the
+human never has to say it twice.
 
 ## Experimental records
 
@@ -58,10 +76,13 @@ target ([K-28](../kit/KIT.md)).
 
 ## Mailboxes and doorbells
 
-**Experimental since 0.2.1:** file mailboxes under `.operator/inbox/` and
-per-client doorbells ([handoff](handoff.md#mailboxes-and-doorbells)). The
-stable transport is still the Oracle home's `inbox/<key>/` folders and
-`relay.sh` ([scripts/README.md](../scripts/README.md#the-oracle-home)).
+The Oracle home's `inbox/<key>/` folders and `relay.sh` are the stable
+store ([scripts/README.md](../scripts/README.md#the-oracle-home)); the
+[mailroom](mailroom.md) that delivers across the apps is experimental since
+0.3.1. **Experimental since 0.2.1:** file mailboxes under
+`.operator/inbox/` and per-client doorbells
+([handoff](handoff.md#mailboxes-and-doorbells)), which ring the mailroom
+when it is on.
 
 ## Asks and approvals ledger
 

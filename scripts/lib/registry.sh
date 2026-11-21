@@ -34,6 +34,13 @@ ao_registry_each() {
   done 3<"$AO_REGISTRY"
 }
 
+# ao_is_bridge_key KEY  True for the reserved mailroom bridge keys
+# (EXPERIMENTAL, lib/mailroom.sh): never relayed to, watched or reviewed.
+ao_is_bridge_key() {
+  case $1 in mailroom-claude | mailroom-codex) return 0 ;; esac
+  return 1
+}
+
 # ao_registry_has KEY  True when KEY has a registry row.
 ao_registry_has() {
   [ -r "$AO_REGISTRY" ] || return 1
@@ -256,16 +263,44 @@ _ao_audit_put() {
     ao_write_atomic "$1"
 }
 
+# ao_hold_active FILE  True while FILE is a hold that names its owner,
+# expiry and reason (K-07) and has not expired: lines owner=WHO,
+# until=YYYY-MM-DD (inclusive) or until=YYYY-MM-DDTHH:MM (local time),
+# reason=TEXT. Sets AO_H_OWNER, AO_H_UNTIL and AO_H_REASON. A hold missing
+# any of the three, or past its expiry, is not honoured (hygiene.sh
+# reports it).
+# Written by `lane.sh hold`.
+ao_hold_active() {
+  AO_H_OWNER='' AO_H_UNTIL='' AO_H_REASON=''
+  [ -f "$1" ] || return 1
+  while IFS= read -r _ao_hl || [ -n "$_ao_hl" ]; do
+    case $_ao_hl in
+      owner=*) AO_H_OWNER=${_ao_hl#owner=} ;;
+      until=*) AO_H_UNTIL=${_ao_hl#until=} ;;
+      reason=*) AO_H_REASON=${_ao_hl#reason=} ;;
+    esac
+  done <"$1"
+  [ -n "$AO_H_OWNER" ] && [ -n "$AO_H_REASON" ] || return 1
+  case $AO_H_UNTIL in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) _ao_hnow=$AO_T_DATE ;;
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]) _ao_hnow=$(printf '%s' "$AO_T_ISO" | cut -c 1-16) ;;
+    *) return 1 ;;
+  esac
+  [ "$(printf '%s\n%s\n' "$_ao_hnow" "$AO_H_UNTIL" | sort | tail -n 1)" = "$AO_H_UNTIL" ]
+}
+
 # ao_gate ACTION  Ask the optional `<hooks_dir>/gate` executable whether an
 # action on the current operator may proceed. Called as
 #   gate <action> <key> <client> <session>
 # with exit 0 = proceed, non-zero (or no answer within 30 s) = skip this
 # operator for now. Absent gate: always proceed. Actions today: relay,
-# watchdog, doorbell.
+# watchdog, doorbell. An active hold (<state_dir>/holds/<key>,
+# ao_hold_active) skips the operator before the gate is asked.
 ao_gate() {
   # A lease that names no holder (released, assigned, unreadable) holds the
   # operator: nobody to deliver to, nothing to watch.
   case ${OP_LEASE:-none} in none | held) ;; *) return 1 ;; esac
+  ! ao_hold_active "$AO_STATE/holds/$OP_KEY" || return 1
   [ -x "$AO_HOOKS/gate" ] || return 0
   ao_timeout 30 "$AO_HOOKS/gate" "$1" "$OP_KEY" "$OP_CLIENT" "${OP_SID:--}" </dev/null >/dev/null 2>&1
 }

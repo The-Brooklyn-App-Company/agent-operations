@@ -19,11 +19,13 @@
 #      skipped. A TERM to the tick stops the running hook first. Hooks get AO_PROFILE, AO_HOME, AO_INBOX,
 #      AO_STATE, AO_SCRIPTS, AO_ORACLE_KEY and AO_PERIOD, stdin closed,
 #      cwd = oracle_home; their output goes to <state_dir>/hooks.log.
-#   3. Relay (relay.sh), which costs nothing when every inbox is empty.
+#   3. Relay (relay.sh), which costs nothing when every inbox is empty,
+#      then the mailroom supervisor (mailroom.sh supervise), model-free
+#      unless a bridge is down or a ring waits.
 #
 # Options:
 #   --dry-run   report what would happen; write, run and deliver nothing
-#   --no-relay  skip step 3
+#   --no-relay  skip step 3 (relay and supervisor)
 #   -h, --help  this text
 #
 # Environment: AO_PROFILE; AO_NOW (epoch seconds) pins the clock for tests.
@@ -81,6 +83,8 @@ tick_in_hours() {
 # watchdog_row  Registry callback: alert on one stalled operator.
 watchdog_row() {
   [ "$OP_KEY" != "$AO_ORACLE_KEY" ] || return 0
+  # Mailroom bridges idle by design; the mailroom supervisor watches them.
+  ! ao_is_bridge_key "$OP_KEY" || return 0
   [ -n "$OP_SID" ] || return 0
   [ -z "$(ao_quiet_until "$OP_KEY" "$OP_NAME")" ] || return 0
   ao_gate watchdog || return 0
@@ -208,6 +212,13 @@ tick_relay() {
     ao_bg "$AO_SCRIPTS/relay.sh"
   fi
   case $? in 0 | "$AO_E_BUSY") ;; *) failures=$((failures + 1)) ;; esac
+  # The mailroom supervisor, outside the relay lock (a no-op with
+  # relay_bridge=off). Its own failures are its own alarms, not the tick's.
+  if [ -n "$dry_run" ]; then
+    ao_bg "$AO_SCRIPTS/mailroom.sh" supervise --dry-run
+  else
+    ao_bg "$AO_SCRIPTS/mailroom.sh" supervise || :
+  fi
 }
 
 main() {

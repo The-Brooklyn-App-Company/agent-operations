@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd user agent for `mailroom.sh cycle` (macOS): the relay, then the
+  mailroom supervisor. It runs when a note lands in any watched inbox folder
+  (WatchPaths, at most once a second), every 60 seconds for the timed safety
+  nets, and at login (bridge re-arm after a reboot). Rendered by `install.sh timers`, which lists each registry key's
+  inbox folder under WatchPaths; after adding an operator, remove this file
+  and render it again (the 60-second run covers new folders meanwhile).
+  @LABEL@ @KIT_DIR@ @PROFILE@ @LOG_DIR@ as in tick.plist.in.
+  ProcessType Standard: the mailroom is latency-sensitive (check.sh host).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>@LABEL@</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/sh</string><string>@KIT_DIR@/scripts/mailroom.sh</string><string>cycle</string></array>
+  <key>EnvironmentVariables</key>
+  <dict><key>AO_PROFILE</key><string>@PROFILE@</string></dict>
+  <key>WatchPaths</key>
+  <array>
+@WATCH_PATHS@
+  </array>
+  <key>StartInterval</key><integer>60</integer>
+  <key>ThrottleInterval</key><integer>1</integer>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Standard</string>
+  <key>StandardOutPath</key><string>@LOG_DIR@/relay.out.log</string>
+  <key>StandardErrorPath</key><string>@LOG_DIR@/relay.err.log</string>
+</dict>
+</plist>

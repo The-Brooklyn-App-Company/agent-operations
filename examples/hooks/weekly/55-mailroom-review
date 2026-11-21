@@ -1,0 +1,8 @@
+#!/bin/sh
+# Weekly tick hook (EXPERIMENTAL): the mailroom's robustness review input.
+# Sends the last seven days of mailroom metrics to the Oracle's inbox, for
+# the weekly review in docs/mailroom.md#telemetry-and-review. Copy to
+# <hooks_dir>/weekly/ and make it executable. tick.sh provides AO_SCRIPTS,
+# AO_PROFILE and AO_ORACLE_KEY.
+set -u
+"$AO_SCRIPTS/mailroom.sh" metrics 168 | "$AO_SCRIPTS/inbox-put.sh" "$AO_ORACLE_KEY" mailroom-weekly >/dev/null

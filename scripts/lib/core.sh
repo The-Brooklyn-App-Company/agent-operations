@@ -176,7 +176,16 @@ drift_rules drift_files drift_repo_files drift_min_words drift_prompt
 drift_prompt_extra drift_workdir drift_to
 review_family cross_review cross_review_timeout cross_review_per_run
 cross_review_days tracker chat githost ci secrets attribution
-lease_stale doorbell_codex doorbell_rering_min'
+lease_stale doorbell_codex doorbell_rering_min
+relay_bridge bridge_dir bridge_codex_node bridge_codex_server bridge_claude_t1
+wake_link host_apps host_latency_jobs host_launchd_dirs owner_tz archive_dir'
+# Host defaults (install.sh host, check.sh host): desktop apps whose App Nap
+# is turned off, launchd label patterns that must not run as Background,
+# and the launchd folders scanned.
+AO_HOST_APPS='com.anthropic.claudefordesktop com.openai.codex'
+AO_HOST_LATENCY_JOBS='*agent-operations*'
+# shellcheck disable=SC2088 # expanded later by ao_expand_path
+AO_HOST_LAUNCHD_DIRS='~/Library/LaunchAgents /Library/LaunchAgents /Library/LaunchDaemons'
 # Role keys: <prefix>_<field> for these prefixes and fields.
 AO_ROLE_PREFIXES='worker reviewer reviewer_claude reviewer_codex implementer_claude
 implementer_codex relay_claude relay_codex relay_custom'

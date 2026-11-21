@@ -1,6 +1,7 @@
 #!/bin/sh
-# check.sh - deterministic repository checks: links, duplicate rule text,
-# skill shape, home layout, privacy. Needs no profile; safe to run in CI.
+# check.sh - deterministic checks: links, duplicate rule text, skill shape,
+# home layout, privacy, and host settings. Needs no profile (host reads one
+# when present); safe to run in CI.
 #
 # Usage: check.sh kit
 #        check.sh links [FILE...]
@@ -8,10 +9,12 @@
 #        check.sh skills [--max-lines N] DIR...
 #        check.sh home DIR...
 #        check.sh privacy [--denylist FILE] [PATH...]
+#        check.sh host
 #
 # kit      Run in a kit checkout (CI does): links over every tracked
-#          Markdown file and skills over skills/ must pass; duplicate rule
-#          text across kit/, docs/ and skills/ is reported as a warning.
+#          Markdown file and skills over skills/ must pass, and
+#          kit/KIT.md must stay within its byte budget (11000); duplicate
+#          rule text across kit/, docs/ and skills/ is reported as a warning.
 # links    Every relative Markdown link [text](target) in the given files
 #          (default: the Markdown files git tracks here) must name an
 #          existing file or directory, and a #fragment must match a heading
@@ -26,7 +29,8 @@
 #          (default 60) or with no pointer into docs/ or templates/.
 # home     A kit-managed operator home: AGENTS.md and MANDATE.md exist;
 #          CLAUDE.md, if present, only imports AGENTS.md (`@AGENTS.md`);
-#          operator.conf, if present, has only key, session.<client> and
+#          operator.conf, if present, has only key, session.<client>,
+#          model.<client>, effort.<client>, archived and
 #          work.<name>=<url>|owner|contributor lines. Across all DIRs, a
 #          repository URL may have only one owner.
 # privacy  Reports home-directory paths (a macOS user folder anywhere; a
@@ -42,12 +46,25 @@
 #          the files git tracks in the current directory. Matching lines are
 #          printed as file:line only, never with their text, so the report
 #          itself leaks nothing. Git history and author metadata are out of scope.
+# host     An always-on macOS host (reads the profile when there is one;
+#          read-only). App Nap: every desktop app in host_apps that has run
+#          here must have NSAppSleepDisabled set (fix: install.sh host, then
+#          restart the app). launchd: every job in host_launchd_dirs whose
+#          Label matches a host_latency_jobs pattern (default: the kit's own
+#          tick and relay; add your schedulers, watchers, alert routes and
+#          CI forwarders) must not set ProcessType Background (or Adaptive)
+#          or LowPriorityIO: launchd throttles those. Output, one finding
+#          per line: `app-nap: <bundle id>` or `launchd: <file>: <label>:
+#          <setting>`. Without `defaults` the App Nap part is skipped.
 #
 # Exit codes: 0 clean; 1 findings, or a scan that could not complete (the
 # message says which); 2 usage error.
 set -u
 AO_SCRIPTS=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$AO_SCRIPTS/lib/core.sh"
+
+# The rules file's byte budget (check.sh kit).
+AO_KIT_BUDGET=11000
 
 # check_need_number OPTION VALUE...  Die unless VALUE is an integer.
 check_need_number() {
@@ -231,6 +248,9 @@ check_home() {
       case $_k in
         key) ao_is_name "$_v" || { printf '%s/operator.conf:%s: invalid key\n' "$_h" "$_n"; _bad=1; } ;;
         session.claude | session.codex | session.custom | session.file-only) ;;
+        model.claude | model.codex | effort.claude | effort.codex)
+          case $_v in '' | *[!A-Za-z0-9._:-]*) printf '%s/operator.conf:%s: %s must be one word\n' "$_h" "$_n" "$_k"; _bad=1 ;; esac ;;
+        archived) ;;
         work.*)
           case $_v in
             *'|owner') printf '%s\t%s\n' "$(ao_repo_key "${_v%|owner}")" "$_h" >>"$_owners" ;;
@@ -255,6 +275,13 @@ check_kit() {
   _rc=0
   check_links || _rc=$AO_E_FAIL
   check_skills skills || _rc=$AO_E_FAIL
+  # The rules stay readable in one sitting: a new rule replaces words, it
+  # does not add them (K-32).
+  _kb=$(wc -c <kit/KIT.md | tr -d ' ')
+  if [ "$_kb" -gt "$AO_KIT_BUDGET" ]; then
+    printf 'kit/KIT.md is %s bytes, over its budget of %s: replace rather than add (K-32)\n' "$_kb" "$AO_KIT_BUDGET"
+    _rc=$AO_E_FAIL
+  fi
   set -- kit/KIT.md docs/*.md skills/*/SKILL.md
   if ! _d=$(check_dupes "$@"); then
     printf 'warning: duplicated rule text (keep one home, point to it):\n%s\n' "$_d"
@@ -385,6 +412,79 @@ check_privacy() {
   return "$AO_E_FAIL"
 }
 
+# check_host  App Nap and launchd priority on an always-on host.
+check_host() {
+  [ $# -eq 0 ] || ao_die "$AO_E_USAGE" "usage: check.sh host"
+  _pf=$(ao_profile_path)
+  [ ! -r "$_pf" ] || ao_profile_parse "$_pf"
+  _apps=$(ao_cfg host_apps "$AO_HOST_APPS")
+  _jobs=$(ao_cfg host_latency_jobs "$AO_HOST_LATENCY_JOBS")
+  _dirs=$(ao_cfg host_launchd_dirs "$AO_HOST_LAUNCHD_DIRS")
+  _hits=$(ao_tmp host-hits)
+  if command -v defaults >/dev/null 2>&1 && [ "$_apps" != none ]; then
+    for _id in $_apps; do
+      # Only apps that have run here (their defaults domain exists).
+      defaults read "$_id" >/dev/null 2>&1 || continue
+      [ "$(defaults read "$_id" NSAppSleepDisabled 2>/dev/null)" = 1 ] ||
+        printf 'app-nap: %s (fix: install.sh host, then restart the app)\n' "$_id" >>"$_hits"
+    done
+  fi
+  [ "$_jobs" != none ] || _dirs=
+  set -f
+  for _d in $_dirs; do
+    set +f
+    _d=$(ao_expand_path "$_d" /)
+    for _p in "$_d"/*.plist; do
+      [ -f "$_p" ] || continue
+      check_host_plist "$_p" "$_jobs" >>"$_hits"
+    done
+    set -f
+  done
+  set +f
+  [ -s "$_hits" ] || return 0
+  cat "$_hits"
+  return "$AO_E_FAIL"
+}
+
+# check_host_plist FILE PATTERNS  Print a finding for a latency-sensitive
+# job that launchd would throttle. Binary plists are read through plutil.
+check_host_plist() {
+  if command -v plutil >/dev/null 2>&1; then
+    _xml=$(plutil -convert xml1 -o - "$1" 2>/dev/null) || _xml=$(cat "$1")
+  else
+    _xml=$(cat "$1")
+  fi
+  # Top-level keys of the outer <dict> only (nested dictionaries such as
+  # EnvironmentVariables never count): `key type value` per line.
+  _kv=$(printf '%s\n' "$_xml" | tr -d '\n\t' | sed 's|<|\
+<|g' | awk '
+    /^<dict>/ { depth++; if (depth > 1) k = ""; next }
+    /^<\/dict>/ { depth--; next }
+    /^<array>/ { depth++; k = ""; next }
+    /^<\/array>/ { depth--; next }
+    depth != 1 { next }
+    /^<key>/ { k = substr($0, 6); next }
+    k != "" && /^<[a-z]+\/?>/ {
+      t = $0; sub(/^</, "", t); v = t; sub(/[\/]?>.*/, "", t); sub(/^[^>]*>/, "", v)
+      print k, t, v; k = ""
+    }')
+  _label=$(printf '%s\n' "$_kv" | awk '$1 == "Label" { print $3; exit }')
+  [ -n "$_label" ] || return 0
+  _hit=
+  set -f
+  for _pat in $2; do
+    # shellcheck disable=SC2254 # the pattern is a glob on purpose
+    case $_label in $_pat) _hit=1 ;; esac
+  done
+  set +f
+  [ -n "$_hit" ] || return 0
+  _pt=$(printf '%s\n' "$_kv" | awk '$1 == "ProcessType" { print $3; exit }')
+  case $_pt in Background | Adaptive) printf 'launchd: %s: %s: ProcessType %s (use Standard or leave it unset)\n' "$1" "$_label" "$_pt" ;; esac
+  printf '%s\n' "$_kv" | awk '$1 == "LowPriorityIO" && $2 == "true" { f = 1 } END { exit !f }' &&
+    printf 'launchd: %s: %s: LowPriorityIO true (remove it)\n' "$1" "$_label"
+  return 0
+}
+
 main() {
   case ${1-} in
     kit) shift; check_kit "$@" ;;
@@ -393,9 +493,10 @@ main() {
     dupes) shift; check_dupes "$@" ;;
     skills) shift; check_skills "$@" ;;
     privacy) shift; check_privacy "$@" ;;
+    host) shift; check_host "$@" ;;
     __scan) shift; check_privacy_each "$@" ;;
     -h | --help) ao_usage; exit 0 ;;
-    *) ao_die "$AO_E_USAGE" "usage: check.sh kit|links|dupes|skills|home|privacy ... (see --help)" ;;
+    *) ao_die "$AO_E_USAGE" "usage: check.sh kit|links|dupes|skills|home|privacy|host ... (see --help)" ;;
   esac
 }
 
