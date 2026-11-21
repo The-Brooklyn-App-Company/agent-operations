@@ -1,3 +1,11 @@
+> **Agent Operations is now part of Transmogrify, and this repository is
+> archived.** The kit continues as the operations layer of
+> [Transmogrify 2.0](https://github.com/The-Brooklyn-App-Company/transmogrify),
+> imported with its history: the scripts are in `ops/`, the rules in
+> `kit/KIT.md` (same IDs), the docs in `docs/operations/`. Migration notes are
+> in its changelog. This repository stays readable, with its tags up to
+> v0.3.0.
+
 # Agent Operations
 
 An operating kit for running coding agents across several repositories
